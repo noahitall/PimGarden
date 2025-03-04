@@ -286,6 +286,44 @@ export class Database {
     return results.map((row: any) => row.timestamp as number);
   }
 
+  // Get detailed interaction logs for an entity
+  async getInteractionLogs(
+    entityId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<{ id: string; timestamp: number; formattedDate: string }[]> {
+    const query = `
+      SELECT id, timestamp
+      FROM interactions 
+      WHERE entity_id = ? 
+      ORDER BY timestamp DESC
+      LIMIT ? OFFSET ?
+    `;
+    
+    const results = await this.db.getAllAsync(query, [entityId, limit, offset]);
+    
+    return results.map((row: any) => {
+      const timestamp = row.timestamp as number;
+      const date = new Date(timestamp);
+      
+      // Format date as "Month Day, Year at Hour:Minute AM/PM"
+      const formattedDate = date.toLocaleString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+      
+      return {
+        id: row.id,
+        timestamp,
+        formattedDate
+      };
+    });
+  }
+
   // Get interaction counts by day for the past month
   async getInteractionCountsByDay(entityId: string): Promise<{ date: string; count: number }[]> {
     const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);

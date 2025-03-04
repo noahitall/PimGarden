@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Image, Alert } from 'react-native';
-import { Text, Card, Button, IconButton, Divider, ActivityIndicator } from 'react-native-paper';
+import { StyleSheet, View, ScrollView, Image, Alert, FlatList } from 'react-native';
+import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List } from 'react-native-paper';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Entity } from '../types';
 import { database, EntityType } from '../database/Database';
+
+// Define the InteractionLog interface
+interface InteractionLog {
+  id: string;
+  timestamp: number;
+  formattedDate: string;
+}
 
 type EntityDetailScreenRouteProp = RouteProp<RootStackParamList, 'EntityDetail'>;
 type EntityDetailScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EntityDetail'>;
@@ -14,6 +21,8 @@ const EntityDetailScreen: React.FC = () => {
   const navigation = useNavigation<EntityDetailScreenNavigationProp>();
   const [entity, setEntity] = useState<Entity | null>(null);
   const [loading, setLoading] = useState(true);
+  const [interactionLogs, setInteractionLogs] = useState<InteractionLog[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
 
   // Load entity data
   useEffect(() => {
@@ -25,11 +34,34 @@ const EntityDetailScreen: React.FC = () => {
     try {
       setLoading(true);
       const data = await database.getEntityById(route.params.id);
-      setEntity(data);
+      if (data) {
+        // Convert the database entity to the correct type
+        const typedEntity: Entity = {
+          ...data,
+          type: data.type as EntityType,
+          details: data.details || undefined,
+          image: data.image || undefined
+        };
+        setEntity(typedEntity);
+        await loadInteractionLogs(data.id);
+      }
     } catch (error) {
       console.error('Error loading entity:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load interaction logs
+  const loadInteractionLogs = async (entityId: string) => {
+    try {
+      setLoadingLogs(true);
+      const logs = await database.getInteractionLogs(entityId);
+      setInteractionLogs(logs);
+    } catch (error) {
+      console.error('Error loading interaction logs:', error);
+    } finally {
+      setLoadingLogs(false);
     }
   };
 
@@ -38,7 +70,7 @@ const EntityDetailScreen: React.FC = () => {
     if (!entity) return;
     
     await database.incrementInteractionScore(entity.id);
-    // Reload entity data to update the score
+    // Reload entity data and interaction logs
     loadEntityData();
   };
 
@@ -185,6 +217,30 @@ const EntityDetailScreen: React.FC = () => {
           </Button>
         </Card.Actions>
       </Card>
+
+      <Card style={styles.interactionLogsCard}>
+        <Card.Title title="Interaction History" />
+        <Divider style={styles.divider} />
+        <Card.Content>
+          {loadingLogs ? (
+            <ActivityIndicator size="small" color="#6200ee" style={styles.logsLoading} />
+          ) : interactionLogs.length === 0 ? (
+            <Text style={styles.noLogsText}>No interactions recorded yet</Text>
+          ) : (
+            <FlatList
+              data={interactionLogs}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <List.Item
+                  title={item.formattedDate}
+                  left={props => <List.Icon {...props} icon="star" color="#6200ee" />}
+                />
+              )}
+              style={styles.logsList}
+            />
+          )}
+        </Card.Content>
+      </Card>
     </ScrollView>
   );
 };
@@ -297,6 +353,23 @@ const styles = StyleSheet.create({
   deleteButton: {
     borderColor: '#f44336',
     color: '#f44336',
+  },
+  interactionLogsCard: {
+    margin: 16,
+    elevation: 4,
+    borderRadius: 8,
+    marginTop: 0,
+  },
+  logsList: {
+    maxHeight: 300,
+  },
+  logsLoading: {
+    margin: 20,
+  },
+  noLogsText: {
+    textAlign: 'center',
+    padding: 20,
+    color: '#666',
   },
 });
 
