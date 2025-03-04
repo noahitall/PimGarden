@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { StyleSheet, View, FlatList, Dimensions, RefreshControl } from 'react-native';
-import { FAB, Appbar, Chip } from 'react-native-paper';
+import { StyleSheet, View, FlatList, Dimensions, RefreshControl, Animated } from 'react-native';
+import { FAB, Appbar, Chip, Searchbar } from 'react-native-paper';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Entity } from '../types';
@@ -14,6 +14,9 @@ const HomeScreen: React.FC = () => {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [filter, setFilter] = useState<EntityType | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchBarHeight] = useState(new Animated.Value(0));
   
   // Calculate number of columns based on screen width
   const screenWidth = Dimensions.get('window').width;
@@ -23,7 +26,14 @@ const HomeScreen: React.FC = () => {
   const loadEntities = useCallback(async () => {
     try {
       setRefreshing(true);
-      const data = await database.getAllEntities(filter);
+      let data;
+      
+      if (searchQuery.trim()) {
+        data = await database.searchEntities(searchQuery, filter);
+      } else {
+        data = await database.getAllEntities(filter);
+      }
+      
       // Ensure the data matches the Entity type from types/index.ts
       const typedData = data.map(item => ({
         ...item,
@@ -37,7 +47,7 @@ const HomeScreen: React.FC = () => {
     } finally {
       setRefreshing(false);
     }
-  }, [filter]);
+  }, [filter, searchQuery]);
   
   // Refresh data when screen comes into focus
   useFocusEffect(
@@ -54,6 +64,35 @@ const HomeScreen: React.FC = () => {
   // Handle filter selection
   const handleFilterChange = (type: EntityType) => {
     setFilter(type === filter ? undefined : type);
+  };
+  
+  // Toggle search bar visibility
+  const toggleSearchBar = (show: boolean) => {
+    setSearchVisible(show);
+    Animated.timing(searchBarHeight, {
+      toValue: show ? 60 : 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
+    
+    if (!show) {
+      setSearchQuery('');
+    }
+  };
+  
+  // Handle search query changes
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+  };
+  
+  // Handle scroll events to show/hide search bar
+  const handleScroll = (event: any) => {
+    const scrollY = event.nativeEvent.contentOffset.y;
+    if (scrollY < -50 && !searchVisible) {
+      toggleSearchBar(true);
+    } else if (scrollY > 50 && searchVisible) {
+      toggleSearchBar(false);
+    }
   };
   
   // Render filter chips
@@ -94,6 +133,16 @@ const HomeScreen: React.FC = () => {
     <View style={styles.container}>
       {renderFilterChips()}
       
+      <Animated.View style={[styles.searchBarContainer, { height: searchBarHeight }]}>
+        <Searchbar
+          placeholder="Search by name, phone, or email"
+          onChangeText={handleSearch}
+          value={searchQuery}
+          style={styles.searchBar}
+          autoCapitalize="none"
+        />
+      </Animated.View>
+      
       <FlatList
         key={`grid-${numColumns}`}
         data={entities}
@@ -104,6 +153,8 @@ const HomeScreen: React.FC = () => {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={loadEntities} />
         }
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       />
       
       <FAB
@@ -134,12 +185,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     justifyContent: 'center',
     flexWrap: 'wrap',
+    zIndex: 2,
   },
   chip: {
     margin: 4,
   },
   listContent: {
     padding: 4,
+    paddingTop: 8,
   },
   cardContainer: {
     flex: 1,
@@ -160,6 +213,20 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: '#03dac4',
+  },
+  searchBarContainer: {
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    elevation: 4,
+    zIndex: 1,
+  },
+  searchBar: {
+    elevation: 0,
+    backgroundColor: '#fff',
+    marginHorizontal: 8,
+    marginVertical: 8,
   },
 });
 

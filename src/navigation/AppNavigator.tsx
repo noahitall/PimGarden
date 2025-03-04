@@ -29,18 +29,18 @@ export default function AppNavigator() {
         <Stack.Screen 
           name="Home" 
           component={HomeScreen} 
-          options={{ title: 'My Entities' }} 
+          options={{ title: 'My Garden' }} 
         />
         <Stack.Screen 
           name="EntityDetail" 
           component={EntityDetailScreen} 
-          options={{ title: 'Entity Details' }} 
+          options={{ title: 'Details' }} 
         />
         <Stack.Screen 
           name="EditEntity" 
           component={EditEntityScreen} 
           options={({ route }) => ({ 
-            title: route.params?.id ? 'Edit Entity' : 'Create Entity' 
+            title: route.params?.id ? 'Edit' : 'Create' 
           })} 
         />
         <Stack.Screen 

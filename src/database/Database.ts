@@ -316,6 +316,31 @@ export class Database {
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 
+  // Search entities by name, phone number, or email
+  async searchEntities(searchTerm: string, type?: EntityType): Promise<Entity[]> {
+    if (!searchTerm.trim()) {
+      return this.getAllEntities(type);
+    }
+
+    const searchPattern = `%${searchTerm}%`;
+    let query = `
+      SELECT * FROM entities 
+      WHERE (name LIKE ? OR details LIKE ?)
+    `;
+    
+    const params: any[] = [searchPattern, searchPattern];
+    
+    if (type) {
+      query += ' AND type = ?';
+      params.push(type);
+    }
+    
+    query += ' ORDER BY updated_at DESC';
+    
+    const result = await this.db.getAllAsync(query, params) as Entity[];
+    return result;
+  }
+
   // Remove duplicate entities
   async removeDuplicates(): Promise<number> {
     let removedCount = 0;

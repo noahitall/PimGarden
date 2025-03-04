@@ -16,6 +16,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - Consistent UI across all screens
 - Full display of entity names on cards for better readability
 - Clean, minimalist card design with larger photos and names
+- Pull-down search functionality to find entities by name, phone, or email
 
 ## Development Guidelines
 
@@ -76,7 +77,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 
 ## App Structure
 
-- **Home Screen**: Displays a grid of entity cards with minimalist design featuring larger photos and names
+- **Home Screen**: Displays a grid of entity cards with minimalist design featuring larger photos and names. Pull down to reveal a search bar for finding entities by name, phone, or email.
 - **Entity Detail Screen**: Shows detailed information about an entity
 - **Edit Entity Screen**: Create or edit entity information with consistent type selection UI
 - **Contact Import Screen**: Import contacts from your device
