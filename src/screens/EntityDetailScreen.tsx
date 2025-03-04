@@ -24,6 +24,8 @@ const EntityDetailScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [interactionLogs, setInteractionLogs] = useState<InteractionLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [hasMoreLogs, setHasMoreLogs] = useState(false);
+  const LOGS_LIMIT = 20;
 
   // Load entity data
   useEffect(() => {
@@ -57,8 +59,13 @@ const EntityDetailScreen: React.FC = () => {
   const loadInteractionLogs = async (entityId: string) => {
     try {
       setLoadingLogs(true);
-      const logs = await database.getInteractionLogs(entityId);
+      // Limit to 20 most recent logs to avoid performance issues
+      const logs = await database.getInteractionLogs(entityId, LOGS_LIMIT);
       setInteractionLogs(logs);
+      
+      // Check if there are more logs
+      const totalCount = await database.getInteractionCount(entityId);
+      setHasMoreLogs(totalCount > LOGS_LIMIT);
     } catch (error) {
       console.error('Error loading interaction logs:', error);
     } finally {
@@ -201,6 +208,21 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
 
+  // Handle view all logs
+  const handleViewAllLogs = () => {
+    if (!entity) return;
+    
+    // Navigate to a dedicated logs screen (you would need to create this)
+    Alert.alert(
+      'View All Interactions',
+      'This would navigate to a dedicated screen showing all interaction logs.',
+      [{ text: 'OK' }]
+    );
+    
+    // In a real implementation, you would navigate to a dedicated screen:
+    // navigation.navigate('InteractionLogs', { entityId: entity.id });
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -313,17 +335,26 @@ const EntityDetailScreen: React.FC = () => {
           ) : interactionLogs.length === 0 ? (
             <Text style={styles.noLogsText}>No interactions recorded yet</Text>
           ) : (
-            <FlatList
-              data={interactionLogs}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <List.Item
-                  title={item.formattedDate}
-                  left={props => <List.Icon {...props} icon="star" color="#6200ee" />}
-                />
+            <>
+              <View style={styles.logsList}>
+                {interactionLogs.map(item => (
+                  <List.Item
+                    key={item.id}
+                    title={item.formattedDate}
+                    left={props => <List.Icon {...props} icon="star" color="#6200ee" />}
+                  />
+                ))}
+              </View>
+              {hasMoreLogs && (
+                <Button 
+                  mode="text" 
+                  onPress={handleViewAllLogs}
+                  style={styles.viewAllButton}
+                >
+                  View All Interactions
+                </Button>
               )}
-              style={styles.logsList}
-            />
+            </>
           )}
         </Card.Content>
       </Card>
@@ -451,6 +482,7 @@ const styles = StyleSheet.create({
   },
   logsList: {
     maxHeight: 300,
+    overflow: 'scroll',
   },
   logsLoading: {
     margin: 20,
@@ -476,6 +508,10 @@ const styles = StyleSheet.create({
   editImageIcon: {
     margin: 0,
     padding: 0,
+  },
+  viewAllButton: {
+    marginTop: 8,
+    alignSelf: 'center',
   },
 });
 

@@ -324,6 +324,18 @@ export class Database {
     });
   }
 
+  // Get total count of interactions for an entity
+  async getInteractionCount(entityId: string): Promise<number> {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM interactions 
+      WHERE entity_id = ?
+    `;
+    
+    const result = await this.db.getAllAsync(query, [entityId]);
+    return result.length > 0 ? (result[0] as any).count : 0;
+  }
+
   // Get interaction counts by day for the past month
   async getInteractionCountsByDay(entityId: string): Promise<{ date: string; count: number }[]> {
     const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
