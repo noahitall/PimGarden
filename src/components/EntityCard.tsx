@@ -101,14 +101,9 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
     return entity.name.substring(0, 2).toUpperCase();
   };
 
-  // Format name to show first name and last initial
-  const getFormattedName = () => {
-    const nameParts = entity.name.split(' ');
-    if (nameParts.length > 1) {
-      const firstName = nameParts[0];
-      const lastInitial = nameParts[nameParts.length - 1].charAt(0);
-      return `${firstName} ${lastInitial}.`;
-    }
+  // Return the full entity name
+  const getEntityName = () => {
+    // Return the full name without abbreviation
     return entity.name;
   };
 
@@ -136,7 +131,7 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
           
           <View style={styles.nameContainer}>
             <Text style={styles.nameText} numberOfLines={1}>
-              {getFormattedName()}
+              {getEntityName()}
             </Text>
           </View>
           
@@ -201,6 +196,7 @@ const styles = StyleSheet.create({
   nameContainer: {
     alignItems: 'center',
     marginBottom: 8,
+    width: '100%',
   },
   scoreBadge: {
     backgroundColor: '#6200ee',
@@ -241,10 +237,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   nameText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',
     color: '#333',
+    paddingHorizontal: 4,
+    flexShrink: 1,
+    width: '100%',
   },
   details: {
     fontSize: 12,
