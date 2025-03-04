@@ -1,0 +1,35 @@
+rules:
+  - name: "README Updates Required"
+    description: "Ensure README.md is reviewed and updated with all code changes"
+    pattern: ".*\\.(js|ts|jsx|tsx|swift|kotlin|java)$"
+    message: "Remember to update README.md to reflect your code changes"
+
+  - name: "Offline-First Architecture"
+    description: "Ensure network calls are only made when explicitly requested"
+    pattern: ".*\\.(js|ts|jsx|tsx|swift|kotlin|java)$"
+    message: "Network calls should only be made during explicit backup/restore operations"
+
+  - name: "Local Storage Priority"
+    description: "Ensure data persistence uses local storage"
+    pattern: ".*\\.(js|ts|jsx|tsx|swift|kotlin|java)$"
+    message: "Use local storage for data persistence unless explicitly handling backup"
+
+  - name: "Cross-Platform Compatibility"
+    description: "Ensure code is compatible with both iOS and Android"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Code must be tested on both iOS and Android platforms"
+
+  - name: "Privacy Check"
+    description: "Ensure no unnecessary data collection or transmission"
+    pattern: ".*\\.(js|ts|jsx|tsx|swift|kotlin|java)$"
+    message: "Verify that no unnecessary data collection or transmission is occurring"
+
+  - name: "Component Documentation"
+    description: "Ensure new components are documented"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Add documentation for new components in the appropriate section" 
+
+  - name: "Data Encryption"
+    description: "Ensure data is encrypted at rest"
+    pattern: ".*\\.(js|ts|jsx|tsx|swift|kotlin|java)$"
+    message: "Data must be encrypted at rest using secure encryption algorithms"
