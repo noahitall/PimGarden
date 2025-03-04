@@ -12,6 +12,8 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - Import contacts from your device
 - Organize entities into people, groups, and topics
 - Track interaction scores for each entity
+- Visualize interaction history with spark charts
+- Consistent UI across all screens
 
 ## Development Guidelines
 
@@ -22,6 +24,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 3. **Data Privacy**: All contact data is stored locally by default
 4. **README Updates**: This README must be reviewed and updated with any code changes
 5. **Data Encryption**: All data is encrypted at rest using secure encryption algorithms
+6. **UI Consistency**: UI components should maintain consistent look and feel across all screens
 
 ## Technical Architecture
 
@@ -71,9 +74,9 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 
 ## App Structure
 
-- **Home Screen**: Displays a grid of entity cards (people, groups, topics)
+- **Home Screen**: Displays a grid of entity cards (people, groups, topics) with filter chips for type selection
 - **Entity Detail Screen**: Shows detailed information about an entity
-- **Edit Entity Screen**: Create or edit entity information
+- **Edit Entity Screen**: Create or edit entity information with consistent type selection UI
 - **Contact Import Screen**: Import contacts from your device
 
 ## Data Model

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { TextInput, Button, RadioButton, Text, ActivityIndicator } from 'react-native-paper';
+import { TextInput, Button, Text, ActivityIndicator, Chip } from 'react-native-paper';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
@@ -70,6 +70,7 @@ const EditEntityScreen: React.FC = () => {
         });
       } else {
         // Create new entity
+        console.log('Creating entity with type:', type);
         await database.createEntity(
           name,
           type,
@@ -135,20 +136,38 @@ const EditEntityScreen: React.FC = () => {
           {!isEditing && (
             <View style={styles.typeContainer}>
               <Text style={styles.label}>Entity Type</Text>
-              <RadioButton.Group onValueChange={value => setType(value as EntityType)} value={type}>
-                <View style={styles.radioOption}>
-                  <RadioButton value={EntityType.PERSON} />
-                  <Text>Person</Text>
-                </View>
-                <View style={styles.radioOption}>
-                  <RadioButton value={EntityType.GROUP} />
-                  <Text>Group</Text>
-                </View>
-                <View style={styles.radioOption}>
-                  <RadioButton value={EntityType.TOPIC} />
-                  <Text>Topic</Text>
-                </View>
-              </RadioButton.Group>
+              <View style={styles.chipContainer}>
+                <Chip 
+                  selected={type === EntityType.PERSON} 
+                  onPress={() => {
+                    console.log('Selected type:', EntityType.PERSON);
+                    setType(EntityType.PERSON);
+                  }}
+                  style={styles.chip}
+                >
+                  People
+                </Chip>
+                <Chip 
+                  selected={type === EntityType.GROUP} 
+                  onPress={() => {
+                    console.log('Selected type:', EntityType.GROUP);
+                    setType(EntityType.GROUP);
+                  }}
+                  style={styles.chip}
+                >
+                  Groups
+                </Chip>
+                <Chip 
+                  selected={type === EntityType.TOPIC} 
+                  onPress={() => {
+                    console.log('Selected type:', EntityType.TOPIC);
+                    setType(EntityType.TOPIC);
+                  }}
+                  style={styles.chip}
+                >
+                  Topics
+                </Chip>
+              </View>
             </View>
           )}
           
@@ -225,10 +244,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 8,
   },
-  radioOption: {
+  chipContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 4,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    padding: 8,
+    borderRadius: 8,
+  },
+  chip: {
+    margin: 4,
   },
   input: {
     marginBottom: 16,

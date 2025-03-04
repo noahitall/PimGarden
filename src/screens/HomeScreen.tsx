@@ -109,7 +109,7 @@ const HomeScreen: React.FC = () => {
       <FAB
         style={styles.fab}
         icon="plus"
-        onPress={() => navigation.navigate('EditEntity', {})}
+        onPress={() => navigation.navigate('EditEntity', { type: filter })}
       />
       
       <FAB
