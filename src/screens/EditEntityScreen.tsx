@@ -106,8 +106,8 @@ const EditEntityScreen: React.FC = () => {
               await database.deleteEntity(route.params.id!);
               navigation.goBack();
             } catch (error) {
-              console.error('Error deleting entity:', error);
-              Alert.alert('Error', 'Failed to delete entity');
+              console.error('Error deleting:', error);
+              Alert.alert('Error', 'Failed to delete');
               setSaving(false);
             }
           }
@@ -135,7 +135,6 @@ const EditEntityScreen: React.FC = () => {
           {/* Entity Type Selection (only for new entities) */}
           {!isEditing && (
             <View style={styles.typeContainer}>
-              <Text style={styles.label}>Entity Type</Text>
               <View style={styles.chipContainer}>
                 <Chip 
                   selected={type === EntityType.PERSON} 
@@ -145,7 +144,7 @@ const EditEntityScreen: React.FC = () => {
                   }}
                   style={styles.chip}
                 >
-                  People
+                  Person
                 </Chip>
                 <Chip 
                   selected={type === EntityType.GROUP} 
@@ -155,7 +154,7 @@ const EditEntityScreen: React.FC = () => {
                   }}
                   style={styles.chip}
                 >
-                  Groups
+                  Group
                 </Chip>
                 <Chip 
                   selected={type === EntityType.TOPIC} 
@@ -165,7 +164,7 @@ const EditEntityScreen: React.FC = () => {
                   }}
                   style={styles.chip}
                 >
-                  Topics
+                  Topic
                 </Chip>
               </View>
             </View>
