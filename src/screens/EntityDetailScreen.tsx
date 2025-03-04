@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Image, Alert, FlatList } from 'react-native';
+import { StyleSheet, View, ScrollView, Image, Alert, FlatList, TouchableOpacity } from 'react-native';
 import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List } from 'react-native-paper';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 import { RootStackParamList, Entity } from '../types';
 import { database, EntityType } from '../database/Database';
 
@@ -80,6 +81,86 @@ const EntityDetailScreen: React.FC = () => {
     navigation.navigate('EditEntity', { id: entity.id, type: entity.type });
   };
 
+  // Handle image selection
+  const handleImageSelection = async () => {
+    if (!entity) return;
+    
+    // Request permissions
+    const { status: cameraPermission } = await ImagePicker.requestCameraPermissionsAsync();
+    const { status: libraryPermission } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (cameraPermission !== 'granted' || libraryPermission !== 'granted') {
+      Alert.alert(
+        'Permissions Required',
+        'Camera and photo library permissions are required to select or take photos.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Show action sheet for image source selection
+    Alert.alert(
+      'Select Photo',
+      'Choose a photo source',
+      [
+        {
+          text: 'Camera',
+          onPress: () => pickImage('camera'),
+        },
+        {
+          text: 'Photo Library',
+          onPress: () => pickImage('library'),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+  
+  // Pick image from camera or library
+  const pickImage = async (source: 'camera' | 'library') => {
+    try {
+      let result;
+      
+      if (source === 'camera') {
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.7,
+        });
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.7,
+        });
+      }
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const imageUri = result.assets[0].uri;
+        
+        // Update entity with new image
+        const success = await database.updateEntity(entity!.id, {
+          image: imageUri,
+        });
+        
+        if (success) {
+          // Reload entity data to show the new image
+          loadEntityData();
+        } else {
+          Alert.alert('Error', 'Failed to update image');
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'An error occurred while selecting the image');
+    }
+  };
+
   // Handle delete button press
   const handleDelete = () => {
     if (!entity) return;
@@ -143,13 +224,18 @@ const EntityDetailScreen: React.FC = () => {
     <ScrollView style={styles.container}>
       <Card style={styles.card}>
         <View style={styles.headerContainer}>
-          {entity.image ? (
-            <Image source={{ uri: entity.image }} style={styles.image} />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Text style={styles.placeholderText}>{entity.name.charAt(0)}</Text>
+          <TouchableOpacity onPress={handleImageSelection} style={styles.imageContainer}>
+            {entity.image ? (
+              <Image source={{ uri: entity.image }} style={styles.image} />
+            ) : (
+              <View style={styles.imagePlaceholder}>
+                <Text style={styles.placeholderText}>{entity.name.charAt(0)}</Text>
+              </View>
+            )}
+            <View style={styles.editImageBadge}>
+              <IconButton icon="camera" size={16} style={styles.editImageIcon} />
             </View>
-          )}
+          </TouchableOpacity>
           
           <View style={styles.headerTextContainer}>
             <Text style={styles.name}>{entity.name}</Text>
@@ -271,6 +357,9 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
   },
+  imageContainer: {
+    position: 'relative',
+  },
   image: {
     width: 80,
     height: 80,
@@ -370,6 +459,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 20,
     color: '#666',
+  },
+  editImageBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#6200ee',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  editImageIcon: {
+    margin: 0,
+    padding: 0,
   },
 });
 

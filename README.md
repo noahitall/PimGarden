@@ -18,6 +18,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - Clean, minimalist card design with larger photos and names
 - Pull-down search functionality to find entities by name, phone, or email
 - Detailed interaction logs on entity detail pages
+- Camera and photo library integration for setting entity photos
 
 ## Development Guidelines
 
@@ -38,6 +39,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - React Navigation for app navigation
 - React Native Paper for UI components
 - Expo Contacts for accessing device contacts
+- Expo Image Picker for camera and photo library integration
 
 ## Getting Started
 
@@ -79,7 +81,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 ## App Structure
 
 - **Home Screen**: Displays a grid of entity cards with minimalist design featuring larger photos and names. Pull down to reveal a search bar for finding entities by name, phone, or email.
-- **Entity Detail Screen**: Shows detailed information about an entity, including a chronological log of all interactions
+- **Entity Detail Screen**: Shows detailed information about an entity, including a chronological log of all interactions. Tap on the entity's photo to take a new picture or select from the photo library.
 - **Edit Entity Screen**: Create or edit entity information with consistent type selection UI
 - **Contact Import Screen**: Import contacts from your device
 
