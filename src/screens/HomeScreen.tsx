@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StyleSheet, View, FlatList, Dimensions, RefreshControl } from 'react-native';
 import { FAB, Appbar, Chip } from 'react-native-paper';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -17,14 +17,21 @@ const HomeScreen: React.FC = () => {
   
   // Calculate number of columns based on screen width
   const screenWidth = Dimensions.get('window').width;
-  const numColumns = Math.floor(screenWidth / 180); // Adjust based on card width
+  const numColumns = useMemo(() => Math.max(2, Math.floor(screenWidth / 200)), [screenWidth]);
   
   // Load entities from database
   const loadEntities = useCallback(async () => {
     try {
       setRefreshing(true);
       const data = await database.getAllEntities(filter);
-      setEntities(data);
+      // Ensure the data matches the Entity type from types/index.ts
+      const typedData = data.map(item => ({
+        ...item,
+        type: item.type as EntityType,
+        details: item.details || undefined,
+        image: item.image || undefined
+      }));
+      setEntities(typedData);
     } catch (error) {
       console.error('Error loading entities:', error);
     } finally {
@@ -88,6 +95,7 @@ const HomeScreen: React.FC = () => {
       {renderFilterChips()}
       
       <FlatList
+        key={`grid-${numColumns}`}
         data={entities}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
@@ -135,7 +143,9 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     flex: 1,
-    maxWidth: '50%', // 2 columns by default
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: '50%', // Ensure cards don't get too wide on larger screens
   },
   fab: {
     position: 'absolute',

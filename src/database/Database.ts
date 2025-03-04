@@ -21,6 +21,13 @@ interface Entity {
   encrypted_data: string | null;
 }
 
+// Interaction interface
+interface Interaction {
+  id: string;
+  entity_id: string;
+  timestamp: number;
+}
+
 // Database class to handle all database operations
 export class Database {
   private db: SQLite.SQLiteDatabase;
@@ -43,6 +50,16 @@ export class Database {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         encrypted_data TEXT
+      );
+    `);
+
+    // Create interactions table to track timestamps
+    await this.db.execAsync(`
+      CREATE TABLE IF NOT EXISTS interactions (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
       );
     `);
   }
@@ -218,17 +235,85 @@ export class Database {
     return result.changes > 0;
   }
 
-  // Increment interaction score
+  // Increment interaction score and record timestamp
   async incrementInteractionScore(id: string): Promise<boolean> {
+    // Start a transaction
+    await this.db.execAsync('BEGIN TRANSACTION');
+    
+    try {
+      // Update the entity's interaction score
+      const updateQuery = `
+        UPDATE entities 
+        SET interaction_score = interaction_score + 1, 
+            updated_at = ? 
+        WHERE id = ?
+      `;
+      await this.db.runAsync(updateQuery, [Date.now(), id]);
+      
+      // Record the interaction timestamp
+      const interactionId = await this.generateId();
+      const timestamp = Date.now();
+      const insertQuery = `
+        INSERT INTO interactions (id, entity_id, timestamp)
+        VALUES (?, ?, ?)
+      `;
+      await this.db.runAsync(insertQuery, [interactionId, id, timestamp]);
+      
+      // Commit the transaction
+      await this.db.execAsync('COMMIT');
+      return true;
+    } catch (error) {
+      // Rollback on error
+      await this.db.execAsync('ROLLBACK');
+      console.error('Error incrementing interaction score:', error);
+      return false;
+    }
+  }
+
+  // Get interaction timestamps for an entity within a date range
+  async getInteractionTimestamps(
+    entityId: string, 
+    startDate: number = Date.now() - (30 * 24 * 60 * 60 * 1000) // Default to last 30 days
+  ): Promise<number[]> {
     const query = `
-      UPDATE entities 
-      SET interaction_score = interaction_score + 1, 
-          updated_at = ? 
-      WHERE id = ?
+      SELECT timestamp 
+      FROM interactions 
+      WHERE entity_id = ? AND timestamp >= ? 
+      ORDER BY timestamp ASC
     `;
     
-    const result = await this.db.runAsync(query, [Date.now(), id]);
-    return result.changes > 0;
+    const results = await this.db.getAllAsync(query, [entityId, startDate]);
+    return results.map((row: any) => row.timestamp as number);
+  }
+
+  // Get interaction counts by day for the past month
+  async getInteractionCountsByDay(entityId: string): Promise<{ date: string; count: number }[]> {
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    
+    // Get all interactions in the past 30 days
+    const interactions = await this.getInteractionTimestamps(entityId, thirtyDaysAgo);
+    
+    // Group by day
+    const countsByDay: Record<string, number> = {};
+    
+    // Initialize all days in the past 30 days with 0 count
+    for (let i = 0; i < 30; i++) {
+      const date = new Date(Date.now() - (i * 24 * 60 * 60 * 1000));
+      const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+      countsByDay[dateString] = 0;
+    }
+    
+    // Count interactions by day
+    interactions.forEach(timestamp => {
+      const date = new Date(timestamp);
+      const dateString = date.toISOString().split('T')[0];
+      countsByDay[dateString] = (countsByDay[dateString] || 0) + 1;
+    });
+    
+    // Convert to array format
+    return Object.entries(countsByDay)
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   // Remove duplicate entities
