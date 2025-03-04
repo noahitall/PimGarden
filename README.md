@@ -15,6 +15,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - Visualize interaction history with spark charts
 - Consistent UI across all screens
 - Full display of entity names on cards for better readability
+- Clean, minimalist card design with larger photos and names
 
 ## Development Guidelines
 
@@ -75,7 +76,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 
 ## App Structure
 
-- **Home Screen**: Displays a grid of entity cards (people, groups, topics) with filter chips for type selection and full entity names
+- **Home Screen**: Displays a grid of entity cards with minimalist design featuring larger photos and names
 - **Entity Detail Screen**: Shows detailed information about an entity
 - **Edit Entity Screen**: Create or edit entity information with consistent type selection UI
 - **Contact Import Screen**: Import contacts from your device

@@ -115,22 +115,8 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
           onPress={() => onPress(entity.id)}
           activeOpacity={0.7}
         >
-          <View style={styles.cardHeader}>
-            <Badge 
-              style={styles.scoreBadge} 
-              size={22}
-            >
-              {entity.interaction_score}
-            </Badge>
-            <IconButton
-              icon={getTypeIcon()}
-              size={16}
-              style={styles.typeIcon}
-            />
-          </View>
-          
           <View style={styles.nameContainer}>
-            <Text style={styles.nameText} numberOfLines={1}>
+            <Text style={styles.nameText} numberOfLines={2}>
               {getEntityName()}
             </Text>
           </View>
@@ -187,40 +173,27 @@ const styles = StyleSheet.create({
     display: 'flex',
     flexDirection: 'column',
   },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
   nameContainer: {
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
     width: '100%',
-  },
-  scoreBadge: {
-    backgroundColor: '#6200ee',
-  },
-  typeIcon: {
-    margin: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 12,
+    marginTop: 12,
   },
   imageContainer: {
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   image: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     borderWidth: 2,
     borderColor: 'white',
   },
   imagePlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: '#6200ee',
     justifyContent: 'center',
     alignItems: 'center',
@@ -229,7 +202,7 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     color: 'white',
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: 'bold',
   },
   textContent: {
@@ -237,7 +210,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   nameText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
     color: '#333',
