@@ -35,6 +35,7 @@ export interface InteractionType {
   name: string;
   tag_id: string | null; // Associated tag (or null for generic types)
   icon: string; // Material icon name
+  entity_type: string | null; // Associated entity type (or null for all types)
 }
 
 // EntityPhoto interface
@@ -137,34 +138,138 @@ export class Database {
   // Run database migrations to update schema
   private async runMigrations(): Promise<void> {
     try {
-      // Check if we need to add the 'type' column to interactions table
-      const tableInfo = await this.db.getAllAsync("PRAGMA table_info(interactions)");
-      const hasTypeColumn = tableInfo.some((column: any) => column.name === 'type');
+      // Check current database version
+      const versionResult = await this.db.getFirstAsync<{ version: number }>(
+        'PRAGMA user_version'
+      );
+      const currentVersion = versionResult?.version || 0;
       
-      if (!hasTypeColumn) {
-        console.log('Adding type column to interactions table...');
-        await this.db.execAsync('ALTER TABLE interactions ADD COLUMN type TEXT DEFAULT "General Contact"');
+      console.log('Current database version:', currentVersion);
+      
+      // Run migrations based on current version
+      if (currentVersion < 1) {
+        await this.createInitialTables();
       }
       
-      // Check if interaction_types table exists
-      const tables = await this.db.getAllAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='interaction_types'");
-      if (tables.length === 0) {
-        console.log('Creating interaction_types table...');
-        await this.db.execAsync(`
-          CREATE TABLE interaction_types (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            tag_id TEXT,
-            icon TEXT NOT NULL,
-            FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
-          );
-        `);
-        
-        // Initialize default interaction types after creating the table
-        await this.initDefaultInteractionTypes();
+      if (currentVersion < 2) {
+        await this.addInteractionTypeField();
       }
+      
+      if (currentVersion < 3) {
+        await this.addTagsSupport();
+      }
+      
+      if (currentVersion < 4) {
+        await this.addMultipleTagsAndEntityTypeSupport();
+      }
+      
+      // Update database version
+      await this.db.runAsync(`PRAGMA user_version = 4`);
+      
     } catch (error) {
       console.error('Error running migrations:', error);
+    }
+  }
+
+  // Migration 1: Create initial tables
+  private async createInitialTables(): Promise<void> {
+    try {
+      // Create entities table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS entities (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          details TEXT,
+          image TEXT,
+          interaction_score INTEGER DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          encrypted_data TEXT
+        )
+      `);
+      
+      // Create interactions table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS interactions (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
+      `);
+      
+      // Create entity_photos table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS entity_photos (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          uri TEXT NOT NULL,
+          caption TEXT,
+          timestamp INTEGER NOT NULL,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
+      `);
+      
+      console.log('Created initial tables');
+    } catch (error) {
+      console.error('Error creating initial tables:', error);
+    }
+  }
+  
+  // Migration 2: Add interaction type field
+  private async addInteractionTypeField(): Promise<void> {
+    try {
+      // Add type column to interactions table
+      await this.db.runAsync(`
+        ALTER TABLE interactions ADD COLUMN type TEXT DEFAULT "General Contact"
+      `);
+      
+      // Create interaction_types table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS interaction_types (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          tag_id TEXT,
+          icon TEXT NOT NULL,
+          FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+        )
+      `);
+      
+      // Initialize default interaction types
+      await this.initDefaultInteractionTypes();
+      
+      console.log('Added interaction type field');
+    } catch (error) {
+      console.error('Error adding interaction type field:', error);
+    }
+  }
+  
+  // Migration 3: Add tags support
+  private async addTagsSupport(): Promise<void> {
+    try {
+      // Create tags table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS tags (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE
+        )
+      `);
+      
+      // Create entity_tags junction table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS entity_tags (
+          entity_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (entity_id, tag_id),
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE,
+          FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+        )
+      `);
+      
+      console.log('Added tags support');
+    } catch (error) {
+      console.error('Error adding tags support:', error);
     }
   }
 
@@ -807,7 +912,7 @@ export class Database {
   // Get all interaction types
   async getInteractionTypes(): Promise<InteractionType[]> {
     const query = `
-      SELECT id, name, tag_id, icon
+      SELECT id, name, tag_id, icon, entity_type
       FROM interaction_types
       ORDER BY name
     `;
@@ -816,39 +921,67 @@ export class Database {
     return results as InteractionType[];
   }
 
-  // Get interaction types appropriate for an entity based on its tags
+  // Get interaction types appropriate for an entity based on its tags and type
   async getEntityInteractionTypes(entityId: string): Promise<InteractionType[]> {
-    // First get general interaction types (not associated with tags)
+    // First get the entity's type
+    const entity = await this.getEntityById(entityId);
+    if (!entity) return [];
+    
+    // Get general interaction types (not associated with tags or entity types)
     const generalTypesQuery = `
-      SELECT id, name, tag_id, icon
+      SELECT id, name, tag_id, icon, entity_type
       FROM interaction_types
-      WHERE tag_id IS NULL
+      WHERE tag_id IS NULL AND entity_type IS NULL
       ORDER BY name
     `;
     
     const generalTypes = await this.db.getAllAsync(generalTypesQuery);
     
-    // Then get tag-specific interaction types for this entity's tags
+    // Get entity-type specific interaction types
+    const entityTypeQuery = `
+      SELECT id, name, tag_id, icon, entity_type
+      FROM interaction_types
+      WHERE entity_type = ? OR entity_type IS NULL
+      ORDER BY name
+    `;
+    
+    const entityTypeTypes = await this.db.getAllAsync(entityTypeQuery, [entity.type]);
+    
+    // Get tag-specific interaction types for this entity's tags
     const tagTypesQuery = `
-      SELECT it.id, it.name, it.tag_id, it.icon
+      SELECT DISTINCT it.id, it.name, it.tag_id, it.icon, it.entity_type
       FROM interaction_types it
-      JOIN entity_tags et ON it.tag_id = et.tag_id
-      WHERE et.entity_id = ? AND it.tag_id IS NOT NULL
+      JOIN interaction_type_tags itt ON it.id = itt.interaction_type_id
+      JOIN entity_tags et ON itt.tag_id = et.tag_id
+      WHERE et.entity_id = ? 
+      AND (it.entity_type = ? OR it.entity_type IS NULL)
       ORDER BY it.name
     `;
     
-    const tagTypes = await this.db.getAllAsync(tagTypesQuery, [entityId]);
+    const tagTypes = await this.db.getAllAsync(tagTypesQuery, [entityId, entity.type]);
     
-    // Combine and return all types
-    return [...generalTypes, ...tagTypes] as InteractionType[];
+    // Combine and return all types, removing duplicates
+    const allTypes = [...generalTypes, ...entityTypeTypes, ...tagTypes] as InteractionType[];
+    
+    // Remove duplicates by id
+    const uniqueTypes = allTypes.filter((type, index, self) =>
+      index === self.findIndex(t => t.id === type.id)
+    );
+    
+    return uniqueTypes;
   }
 
   // Add a new interaction type
-  async addInteractionType(name: string, icon: string, tagId: string | null = null): Promise<string> {
+  async addInteractionType(
+    name: string, 
+    icon: string, 
+    tagId: string | null = null, 
+    entityType: string | null = null
+  ): Promise<string> {
     const id = await this.generateId();
     await this.db.runAsync(
-      'INSERT INTO interaction_types (id, name, tag_id, icon) VALUES (?, ?, ?, ?)',
-      [id, name, tagId, icon]
+      'INSERT INTO interaction_types (id, name, tag_id, icon, entity_type) VALUES (?, ?, ?, ?, ?)',
+      [id, name, tagId, icon, entityType]
     );
     return id;
   }
@@ -859,6 +992,54 @@ export class Database {
       'UPDATE interaction_types SET tag_id = ? WHERE id = ?',
       [tagId, typeId]
     );
+  }
+
+  // Associate an interaction type with multiple tags
+  async associateInteractionTypeWithMultipleTags(typeId: string, tagIds: string[]): Promise<void> {
+    // First remove all existing tag associations
+    await this.db.runAsync(
+      'DELETE FROM interaction_type_tags WHERE interaction_type_id = ?',
+      [typeId]
+    );
+    
+    // Then add new associations
+    for (const tagId of tagIds) {
+      if (tagId) {
+        await this.db.runAsync(
+          'INSERT INTO interaction_type_tags (interaction_type_id, tag_id) VALUES (?, ?)',
+          [typeId, tagId]
+        );
+      }
+    }
+  }
+
+  // Associate an interaction type with an entity type
+  async associateInteractionTypeWithEntityType(typeId: string, entityType: string | null): Promise<void> {
+    await this.db.runAsync(
+      'UPDATE interaction_types SET entity_type = ? WHERE id = ?',
+      [entityType, typeId]
+    );
+  }
+
+  // Get tags associated with an interaction type
+  async getInteractionTypeTags(typeId: string): Promise<Tag[]> {
+    const query = `
+      SELECT t.id, t.name, COUNT(et.entity_id) as count
+      FROM tags t
+      JOIN interaction_type_tags itt ON t.id = itt.tag_id
+      LEFT JOIN entity_tags et ON t.id = et.tag_id
+      WHERE itt.interaction_type_id = ?
+      GROUP BY t.id
+      ORDER BY t.name COLLATE NOCASE
+    `;
+    
+    try {
+      const tags = await this.db.getAllAsync<Tag>(query, [typeId]);
+      return tags;
+    } catch (error) {
+      console.error('Error getting interaction type tags:', error);
+      return [];
+    }
   }
 
   // Delete an interaction type
@@ -927,7 +1108,7 @@ export class Database {
     
     // Create the interaction types and associate them with the tag
     for (const type of interactionTypes) {
-      await this.addInteractionType(type.name, type.icon, tagId);
+      await this.addInteractionType(type.name, type.icon, tagId, null);
     }
   }
 
@@ -959,6 +1140,38 @@ export class Database {
     } catch (error) {
       console.error('Error adding tag:', error);
       throw error;
+    }
+  }
+
+  // Migration 4: Add support for multiple tags per interaction type and entity type filtering
+  private async addMultipleTagsAndEntityTypeSupport(): Promise<void> {
+    try {
+      // Add entity_type column to interaction_types table
+      await this.db.runAsync(`
+        ALTER TABLE interaction_types ADD COLUMN entity_type TEXT
+      `);
+      
+      // Create junction table for interaction types and tags
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS interaction_type_tags (
+          interaction_type_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (interaction_type_id, tag_id),
+          FOREIGN KEY (interaction_type_id) REFERENCES interaction_types (id) ON DELETE CASCADE,
+          FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+        )
+      `);
+      
+      // Migrate existing tag_id values to the junction table
+      await this.db.runAsync(`
+        INSERT INTO interaction_type_tags (interaction_type_id, tag_id)
+        SELECT id, tag_id FROM interaction_types
+        WHERE tag_id IS NOT NULL
+      `);
+      
+      console.log('Added multiple tags and entity type support');
+    } catch (error) {
+      console.error('Error adding multiple tags and entity type support:', error);
     }
   }
 }
