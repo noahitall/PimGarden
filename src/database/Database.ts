@@ -28,6 +28,15 @@ interface Interaction {
   timestamp: number;
 }
 
+// EntityPhoto interface
+interface EntityPhoto {
+  id: string;
+  entity_id: string;
+  uri: string;
+  caption: string | null;
+  timestamp: number;
+}
+
 // Database class to handle all database operations
 export class Database {
   private db: SQLite.SQLiteDatabase;
@@ -58,6 +67,18 @@ export class Database {
       CREATE TABLE IF NOT EXISTS interactions (
         id TEXT PRIMARY KEY,
         entity_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+      );
+    `);
+    
+    // Create entity_photos table to store additional photos
+    await this.db.execAsync(`
+      CREATE TABLE IF NOT EXISTS entity_photos (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL,
+        uri TEXT NOT NULL,
+        caption TEXT,
         timestamp INTEGER NOT NULL,
         FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
       );
@@ -434,6 +455,81 @@ export class Database {
     }
     
     return removedCount;
+  }
+
+  // Add a photo to an entity
+  async addEntityPhoto(
+    entityId: string,
+    uri: string,
+    caption?: string
+  ): Promise<string> {
+    try {
+      const photoId = await this.generateId();
+      const timestamp = Date.now();
+      
+      await this.db.runAsync(
+        `INSERT INTO entity_photos (id, entity_id, uri, caption, timestamp)
+         VALUES (?, ?, ?, ?, ?)`,
+        [photoId, entityId, uri, caption || null, timestamp]
+      );
+      
+      return photoId;
+    } catch (error) {
+      console.error('Error adding entity photo:', error);
+      throw error;
+    }
+  }
+  
+  // Get all photos for an entity
+  async getEntityPhotos(
+    entityId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<EntityPhoto[]> {
+    try {
+      const result = await this.db.getAllAsync(
+        `SELECT * FROM entity_photos
+         WHERE entity_id = ?
+         ORDER BY timestamp DESC
+         LIMIT ? OFFSET ?`,
+        [entityId, limit, offset]
+      );
+      
+      return result as EntityPhoto[];
+    } catch (error) {
+      console.error('Error getting entity photos:', error);
+      return [];
+    }
+  }
+  
+  // Get photo count for an entity
+  async getEntityPhotoCount(entityId: string): Promise<number> {
+    try {
+      const result = await this.db.getFirstAsync<{count: number}>(
+        `SELECT COUNT(*) as count FROM entity_photos WHERE entity_id = ?`,
+        [entityId]
+      );
+      
+      return result?.count || 0;
+    } catch (error) {
+      console.error('Error getting entity photo count:', error);
+      return 0;
+    }
+  }
+  
+  // Delete a photo from an entity
+  async deleteEntityPhoto(photoId: string): Promise<boolean> {
+    try {
+      await this.db.runAsync(
+        `DELETE FROM entity_photos WHERE id = ?`,
+        [photoId]
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error deleting entity photo:', error);
+      return false;
+    }
   }
 }
 

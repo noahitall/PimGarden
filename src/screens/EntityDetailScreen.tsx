@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Image, Alert, FlatList, TouchableOpacity } from 'react-native';
-import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph } from 'react-native-paper';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList, Dimensions } from 'react-native';
+import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons } from 'react-native-paper';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,8 +14,20 @@ interface InteractionLog {
   formattedDate: string;
 }
 
+// Define the EntityPhoto interface 
+interface EntityPhoto {
+  id: string;
+  entity_id: string;
+  uri: string;
+  caption: string | null;
+  timestamp: number;
+}
+
 type EntityDetailScreenRouteProp = RouteProp<RootStackParamList, 'EntityDetail'>;
 type EntityDetailScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EntityDetail'>;
+
+// Tab values for swipeable area
+type TabValue = 'interactions' | 'photos';
 
 const EntityDetailScreen: React.FC = () => {
   const route = useRoute<EntityDetailScreenRouteProp>();
@@ -28,7 +40,17 @@ const EntityDetailScreen: React.FC = () => {
   const [logsOffset, setLogsOffset] = useState(0);
   const INITIAL_LOGS_LIMIT = 6;  // Initial number of logs to display
   const LOGS_LIMIT = 20;         // Number of logs to load on "View More"
-
+  
+  // Photo gallery state
+  const [photos, setPhotos] = useState<EntityPhoto[]>([]);
+  const [loadingPhotos, setLoadingPhotos] = useState(false);
+  const [hasMorePhotos, setHasMorePhotos] = useState(false);
+  const [photosOffset, setPhotosOffset] = useState(0);
+  const PHOTOS_LIMIT = 20;
+  
+  // Active tab state
+  const [activeTab, setActiveTab] = useState<TabValue>('interactions');
+  
   // Load entity data
   useEffect(() => {
     loadEntityData();
@@ -57,7 +79,11 @@ const EntityDetailScreen: React.FC = () => {
         
         // Reset logs when loading a new entity
         setLogsOffset(0);
-        await loadInteractionLogs(data.id, true, INITIAL_LOGS_LIMIT);  // Pass initial limit
+        await loadInteractionLogs(data.id, true, INITIAL_LOGS_LIMIT);
+        
+        // Load photos
+        setPhotosOffset(0);
+        await loadEntityPhotos(data.id, true);
       }
     } catch (error) {
       console.error('Error loading entity:', error);
@@ -66,7 +92,6 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
 
-  // Load interaction logs
   const loadInteractionLogs = async (entityId: string, reset: boolean = true, limit: number = LOGS_LIMIT) => {
     try {
       setLoadingLogs(true);
@@ -98,6 +123,41 @@ const EntityDetailScreen: React.FC = () => {
       console.error('Error loading interaction logs:', error);
     } finally {
       setLoadingLogs(false);
+    }
+  };
+
+  // Load entity photos
+  const loadEntityPhotos = async (entityId: string, reset: boolean = true) => {
+    try {
+      setLoadingPhotos(true);
+      
+      // Reset offset if requested
+      if (reset) {
+        setPhotosOffset(0);
+      }
+      
+      const currentOffset = reset ? 0 : photosOffset;
+      
+      // Get photos with current offset
+      const entityPhotos = await database.getEntityPhotos(entityId, PHOTOS_LIMIT, currentOffset);
+      
+      // If reset, replace photos, otherwise append to existing photos
+      if (reset) {
+        setPhotos(entityPhotos);
+      } else {
+        setPhotos(prevPhotos => [...prevPhotos, ...entityPhotos]);
+      }
+      
+      // Update offset for next load
+      setPhotosOffset(currentOffset + entityPhotos.length);
+      
+      // Check if there are more photos
+      const totalCount = await database.getEntityPhotoCount(entityId);
+      setHasMorePhotos(totalCount > currentOffset + entityPhotos.length);
+    } catch (error) {
+      console.error('Error loading entity photos:', error);
+    } finally {
+      setLoadingPhotos(false);
     }
   };
 
@@ -243,6 +303,129 @@ const EntityDetailScreen: React.FC = () => {
     // Load more logs without resetting the current list
     await loadInteractionLogs(entity.id, false, LOGS_LIMIT);
   };
+  
+  // Load more photos
+  const handleViewMorePhotos = async () => {
+    if (!entity) return;
+    
+    // Load more photos without resetting the current list
+    await loadEntityPhotos(entity.id, false);
+  };
+  
+  // Take a photo using the camera
+  const handleTakePhoto = async () => {
+    if (!entity) return;
+    
+    // Request camera permissions
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission denied', 'Camera access is required to take photos');
+      return;
+    }
+    
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const photoUri = result.assets[0].uri;
+        await savePhoto(photoUri);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    }
+  };
+  
+  // Pick a photo from the library
+  const handlePickPhoto = async () => {
+    if (!entity) return;
+    
+    // Request media library permissions
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission denied', 'Media library access is required to select photos');
+      return;
+    }
+    
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const photoUri = result.assets[0].uri;
+        await savePhoto(photoUri);
+      }
+    } catch (error) {
+      console.error('Error picking photo:', error);
+      Alert.alert('Error', 'Failed to select photo');
+    }
+  };
+  
+  // Save photo to database
+  const savePhoto = async (uri: string) => {
+    if (!entity) return;
+    
+    try {
+      // In a real app, you would implement a modal for caption input
+      // For simplicity, we'll just save without a caption for now
+      await database.addEntityPhoto(entity.id, uri);
+      
+      // Reload photos
+      await loadEntityPhotos(entity.id, true);
+      
+      // Switch to photos tab
+      setActiveTab('photos');
+      
+      // Notify user
+      Alert.alert(
+        'Success',
+        'Photo saved successfully',
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('Error saving photo:', error);
+      Alert.alert('Error', 'Failed to save photo');
+    }
+  };
+  
+  // Delete a photo
+  const handleDeletePhoto = async (photoId: string) => {
+    try {
+      Alert.alert(
+        'Delete Photo',
+        'Are you sure you want to delete this photo?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              if (!entity) return;
+              
+              await database.deleteEntityPhoto(photoId);
+              // Reload photos
+              await loadEntityPhotos(entity.id, true);
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error deleting photo:', error);
+      Alert.alert('Error', 'Failed to delete photo');
+    }
+  };
 
   if (loading) {
     return (
@@ -262,6 +445,30 @@ const EntityDetailScreen: React.FC = () => {
       </View>
     );
   }
+
+  // Render a photo item
+  const renderPhotoItem = ({ item }: { item: EntityPhoto }) => (
+    <View style={styles.photoItem}>
+      <TouchableOpacity 
+        onPress={() => {
+          // Display photo full screen or with caption
+          Alert.alert(
+            item.caption || 'Photo',
+            'Photo taken on ' + new Date(item.timestamp).toLocaleDateString(),
+            [{ text: 'Close' }]
+          );
+        }}
+        onLongPress={() => handleDeletePhoto(item.id)}
+      >
+        <Image source={{ uri: item.uri }} style={styles.photoThumbnail} />
+        {item.caption && (
+          <Text numberOfLines={1} style={styles.photoCaption}>
+            {item.caption}
+          </Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <ScrollView 
@@ -283,53 +490,28 @@ const EntityDetailScreen: React.FC = () => {
             </View>
           </TouchableOpacity>
           
-          <View style={styles.headerTextContainer}>
-            <Text style={styles.name}>{entity.name}</Text>
-            <View style={styles.typeContainer}>
-              <IconButton icon={getTypeIcon(entity.type)} size={16} style={styles.typeIcon} />
-              <Text style={styles.type}>{entity.type}</Text>
-            </View>
-          </View>
-        </View>
-        
-        <Divider style={styles.divider} />
-        
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Interaction Score</Text>
-            <Text style={styles.statValue}>{entity.interaction_score}</Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Created</Text>
-            <Text style={styles.statValue}>
-              {new Date(entity.created_at).toLocaleDateString()}
-            </Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Last Updated</Text>
-            <Text style={styles.statValue}>
-              {new Date(entity.updated_at).toLocaleDateString()}
-            </Text>
+          <View style={styles.headerInfo}>
+            <Title style={styles.title}>{entity.name}</Title>
+            <Text style={styles.type}>{getTypeIcon(entity.type)} {entity.type}</Text>
           </View>
         </View>
         
         <Divider style={styles.divider} />
         
         <Card.Content>
-          <Text style={styles.sectionTitle}>Details</Text>
-          <Text style={styles.details}>{entity.details || 'No details available'}</Text>
+          {entity.details && (
+            <Paragraph style={styles.details}>{entity.details}</Paragraph>
+          )}
         </Card.Content>
         
         <Card.Actions style={styles.actionsContainer}>
           <Button 
             mode="contained" 
-            icon="star" 
+            icon="handshake" 
             onPress={handleInteraction}
             style={[styles.button, styles.interactionButton]}
           >
-            Interaction
+            Interact
           </Button>
           <Button 
             mode="outlined" 
@@ -350,43 +532,134 @@ const EntityDetailScreen: React.FC = () => {
         </Card.Actions>
       </Card>
 
-      <Card style={styles.interactionLogsCard}>
-        <Card.Title title="Interaction History" />
-        <Divider style={styles.divider} />
-        <Card.Content>
-          {loadingLogs && interactionLogs.length === 0 ? (
-            <ActivityIndicator size="small" color="#6200ee" style={styles.logsLoading} />
-          ) : interactionLogs.length === 0 ? (
-            <Text style={styles.noLogsText}>No interactions recorded yet</Text>
-          ) : (
-            <View>
-              <ScrollView 
-                style={styles.logsList}
-                nestedScrollEnabled={true}
-              >
-                {interactionLogs.map(item => (
-                  <List.Item
-                    key={item.id}
-                    title={item.formattedDate}
-                    left={props => <List.Icon {...props} icon="star" color="#6200ee" />}
-                  />
-                ))}
-              </ScrollView>
-              
-              {hasMoreLogs && (
-                <Button 
-                  mode="outlined" 
-                  onPress={handleViewMoreLogs}
-                  style={styles.viewMoreButton}
-                  loading={loadingLogs}
-                  disabled={loadingLogs}
+      {/* Tabbed content for Interactions and Photos */}
+      <Card style={styles.tabContentCard}>
+        <SegmentedButtons
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as TabValue)}
+          buttons={[
+            { value: 'interactions', label: 'Interactions' },
+            { value: 'photos', label: 'Photos' }
+          ]}
+          style={styles.segmentedButtons}
+        />
+        
+        {/* Interaction History Tab */}
+        {activeTab === 'interactions' && (
+          <Card.Content>
+            <Card.Title title="Interaction History" />
+            <Divider style={styles.divider} />
+            
+            {loadingLogs && interactionLogs.length === 0 ? (
+              <ActivityIndicator size="small" color="#6200ee" style={styles.logsLoading} />
+            ) : interactionLogs.length === 0 ? (
+              <Text style={styles.noLogsText}>No interactions recorded yet</Text>
+            ) : (
+              <View>
+                <ScrollView 
+                  style={styles.logsList}
+                  nestedScrollEnabled={true}
                 >
-                  View More
-                </Button>
-              )}
+                  {interactionLogs.map(item => (
+                    <List.Item
+                      key={item.id}
+                      title={item.formattedDate}
+                      left={props => <List.Icon {...props} icon="star" color="#6200ee" />}
+                    />
+                  ))}
+                </ScrollView>
+                
+                {hasMoreLogs && (
+                  <Button 
+                    mode="outlined" 
+                    onPress={handleViewMoreLogs}
+                    style={styles.viewMoreButton}
+                    loading={loadingLogs}
+                    disabled={loadingLogs}
+                  >
+                    View More
+                  </Button>
+                )}
+              </View>
+            )}
+          </Card.Content>
+        )}
+        
+        {/* Photos Tab */}
+        {activeTab === 'photos' && (
+          <Card.Content>
+            <View style={styles.photoHeaderContainer}>
+              <Card.Title title="Photos" />
+              <View style={styles.photoActionsContainer}>
+                <IconButton
+                  icon="camera"
+                  size={24}
+                  onPress={handleTakePhoto}
+                  style={styles.photoActionButton}
+                />
+                <IconButton
+                  icon="image"
+                  size={24}
+                  onPress={handlePickPhoto}
+                  style={styles.photoActionButton}
+                />
+              </View>
             </View>
-          )}
-        </Card.Content>
+            <Divider style={styles.divider} />
+            
+            {loadingPhotos && photos.length === 0 ? (
+              <ActivityIndicator size="small" color="#6200ee" style={styles.logsLoading} />
+            ) : photos.length === 0 ? (
+              <View style={styles.noPhotosContainer}>
+                <Text style={styles.noLogsText}>No photos yet</Text>
+                <Text style={styles.noPhotosSubtext}>
+                  Add photos using the camera or gallery icons above
+                </Text>
+                <View style={styles.photoActionsRowContainer}>
+                  <Button
+                    mode="outlined"
+                    icon="camera"
+                    onPress={handleTakePhoto}
+                    style={styles.photoButton}
+                  >
+                    Take Photo
+                  </Button>
+                  <Button
+                    mode="outlined"
+                    icon="image"
+                    onPress={handlePickPhoto}
+                    style={styles.photoButton}
+                  >
+                    Upload Photo
+                  </Button>
+                </View>
+              </View>
+            ) : (
+              <View>
+                <FlatList
+                  data={photos}
+                  renderItem={renderPhotoItem}
+                  keyExtractor={item => item.id}
+                  numColumns={3}
+                  scrollEnabled={false} // We don't need scrolling here as it's inside a ScrollView
+                  contentContainerStyle={styles.photoGrid}
+                />
+                
+                {hasMorePhotos && (
+                  <Button 
+                    mode="outlined" 
+                    onPress={handleViewMorePhotos}
+                    style={styles.viewMoreButton}
+                    loading={loadingPhotos}
+                    disabled={loadingPhotos}
+                  >
+                    View More Photos
+                  </Button>
+                )}
+              </View>
+            )}
+          </Card.Content>
+        )}
       </Card>
     </ScrollView>
   );
@@ -395,7 +668,7 @@ const EntityDetailScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f0f0f0',
   },
   loadingContainer: {
     flex: 1,
@@ -406,7 +679,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: 20,
   },
   card: {
     margin: 16,
@@ -415,11 +688,12 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     flexDirection: 'row',
-    padding: 16,
     alignItems: 'center',
+    padding: 16,
   },
   imageContainer: {
     position: 'relative',
+    marginRight: 16,
   },
   image: {
     width: 80,
@@ -439,21 +713,11 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: 'bold',
   },
-  headerTextContainer: {
-    marginLeft: 16,
+  headerInfo: {
     flex: 1,
   },
-  name: {
+  title: {
     fontSize: 24,
-    fontWeight: 'bold',
-  },
-  typeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  typeIcon: {
-    margin: 0,
     padding: 0,
   },
   type: {
@@ -542,6 +806,68 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderColor: '#6200ee',
     alignSelf: 'center',
+  },
+  tabContentCard: {
+    margin: 16,
+    elevation: 4,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  segmentedButtons: {
+    margin: 16,
+  },
+  photoHeaderContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  photoActionsContainer: {
+    flexDirection: 'row',
+  },
+  photoActionButton: {
+    margin: 0,
+  },
+  photoGrid: {
+    padding: 4,
+  },
+  photoItem: {
+    flex: 1/3,
+    aspectRatio: 1,
+    margin: 1,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  photoThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  photoCaption: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    color: 'white',
+    padding: 4,
+    fontSize: 12,
+  },
+  noPhotosContainer: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  noPhotosSubtext: {
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  photoActionsRowContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+  },
+  photoButton: {
+    margin: 8,
   },
 });
 
