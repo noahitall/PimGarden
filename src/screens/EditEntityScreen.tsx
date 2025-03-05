@@ -661,97 +661,112 @@ const EditEntityScreen: React.FC = () => {
       <Portal>
         <Dialog visible={dialogVisible} onDismiss={() => !saving && setDialogVisible(false)}>
           <Dialog.Title>{editingActionId ? 'Edit Action' : 'New Action'}</Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label="Action Name"
-              value={actionName}
-              onChangeText={setActionName}
-              style={[styles.input, { marginTop: 8 }]}
-              mode="outlined"
-              disabled={saving}
-            />
-            
-            <Text style={styles.label}>Action Icon</Text>
-            <View style={styles.iconSelector}>
-              <List.Icon icon={selectedIcon} />
-              <Button 
-                mode="outlined" 
-                onPress={() => setIconMenuVisible(true)}
-                style={{ flex: 1 }}
-                disabled={saving}
-              >
-                {iconOptions.find(i => i.icon === selectedIcon)?.label || 'Select Icon'}
-              </Button>
-              
-              <Menu
-                visible={iconMenuVisible}
-                onDismiss={() => setIconMenuVisible(false)}
-                anchor={{ x: 0, y: 0 }}
-                style={styles.iconMenu}
-              >
-                <ScrollView style={{ maxHeight: 300 }}>
-                  {iconOptions.map(option => (
-                    <Menu.Item
-                      key={option.icon}
-                      onPress={() => {
-                        setSelectedIcon(option.icon);
-                        setIconMenuVisible(false);
-                      }}
-                      title={option.label}
-                      leadingIcon={option.icon}
-                    />
-                  ))}
-                </ScrollView>
-              </Menu>
-            </View>
-            
-            <Text style={styles.label}>Entity Types</Text>
-            <Text style={styles.helperText}>
-              Select which entity types this action applies to. If none are selected, it will apply to all types.
-            </Text>
-            <View style={styles.checkboxContainer}>
-              {Object.values(EntityType).map(type => (
-                <Checkbox.Item
-                  key={type}
-                  label={type.charAt(0).toUpperCase() + type.slice(1)}
-                  status={selectedEntityTypes.includes(type) ? 'checked' : 'unchecked'}
-                  onPress={() => !saving && toggleEntityTypeSelection(type)}
-                  disabled={saving}
-                />
-              ))}
-            </View>
-            
-            <Text style={styles.label}>Associated Tags</Text>
-            <Text style={styles.helperText}>
-              Select which tags this action is associated with. If none are selected, it will be available for all entities.
-            </Text>
-            {selectedTagIds.length > 0 && (
-              <Chip
+          <Dialog.ScrollArea style={styles.dialogScrollArea}>
+            <ScrollView>
+              <TextInput
+                label="Action Name"
+                value={actionName}
+                onChangeText={setActionName}
+                style={[styles.input, { marginTop: 8 }]}
                 mode="outlined"
-                style={styles.selectedTagsChip}
-              >
-                {getSelectedTagsSummary()}
-              </Chip>
-            )}
-            <ScrollView style={styles.tagScrollView}>
-              <Checkbox.Item
-                label="Global (All Entities)"
-                status={selectedTagIds.length === 0 ? 'checked' : 'unchecked'}
-                onPress={() => !saving && setSelectedTagIds([])}
                 disabled={saving}
               />
               
-              {tags.map(tag => (
-                <Checkbox.Item
-                  key={tag.id}
-                  label={`${tag.name} (${tag.count} entities)`}
-                  status={selectedTagIds.includes(tag.id) ? 'checked' : 'unchecked'}
-                  onPress={() => !saving && toggleTagSelection(tag.id)}
+              <Text style={styles.label}>Action Icon</Text>
+              <View style={styles.iconSelector}>
+                <List.Icon icon={selectedIcon} />
+                <Button 
+                  mode="outlined" 
+                  onPress={() => setIconMenuVisible(true)}
+                  style={{ flex: 1 }}
                   disabled={saving}
-                />
-              ))}
+                >
+                  {iconOptions.find(i => i.icon === selectedIcon)?.label || 'Select Icon'}
+                </Button>
+                
+                <Menu
+                  visible={iconMenuVisible}
+                  onDismiss={() => setIconMenuVisible(false)}
+                  anchor={{ x: 0, y: 0 }}
+                  style={styles.iconMenu}
+                >
+                  <ScrollView style={{ maxHeight: 300 }}>
+                    {iconOptions.map(option => (
+                      <Menu.Item
+                        key={option.icon}
+                        onPress={() => {
+                          setSelectedIcon(option.icon);
+                          setIconMenuVisible(false);
+                        }}
+                        title={option.label}
+                        leadingIcon={option.icon}
+                      />
+                    ))}
+                  </ScrollView>
+                </Menu>
+              </View>
+              
+              <Text style={styles.label}>Entity Types</Text>
+              <Text style={styles.helperText}>
+                Select which entity types this action applies to. If none are selected, it will apply to all types.
+              </Text>
+              <View style={styles.checkboxContainer}>
+                {Object.values(EntityType).map(type => (
+                  <Checkbox.Item
+                    key={type}
+                    label={type.charAt(0).toUpperCase() + type.slice(1)}
+                    status={selectedEntityTypes.includes(type) ? 'checked' : 'unchecked'}
+                    onPress={() => !saving && toggleEntityTypeSelection(type)}
+                    disabled={saving}
+                  />
+                ))}
+              </View>
+              
+              <Text style={styles.label}>Associated Tags</Text>
+              <Text style={styles.helperText}>
+                Associate this action with specific tags. If no tags are selected, the action will be available for all entities.
+              </Text>
+              
+              {loadingActionTags ? (
+                <View style={styles.actionLoadingContainer}>
+                  <ActivityIndicator />
+                  <Text style={styles.loadingText}>Loading tags...</Text>
+                </View>
+              ) : (
+                <>
+                  {selectedTagIds.length > 0 && (
+                    <Chip
+                      mode="outlined"
+                      style={styles.selectedTagsChip}
+                    >
+                      {getSelectedTagsSummary()}
+                    </Chip>
+                  )}
+                  <View style={styles.tagSelectContainer}>
+                    <Checkbox.Item
+                      label="Global (All Entities)"
+                      status={selectedTagIds.length === 0 ? 'checked' : 'unchecked'}
+                      onPress={() => !saving && setSelectedTagIds([])}
+                      disabled={saving}
+                    />
+                    
+                    {tags.map(tag => (
+                      <Checkbox.Item
+                        key={tag.id}
+                        label={`${tag.name} (${tag.count} entities)`}
+                        status={selectedTagIds.includes(tag.id) ? 'checked' : 'unchecked'}
+                        onPress={() => !saving && toggleTagSelection(tag.id)}
+                        disabled={saving}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
+              
+              {/* Add padding at the bottom to ensure content is scrollable */}
+              <View style={styles.dialogBottomPadding} />
             </ScrollView>
-          </Dialog.Content>
+          </Dialog.ScrollArea>
           <Dialog.Actions>
             <Button onPress={() => !saving && setDialogVisible(false)} disabled={saving}>Cancel</Button>
             <Button onPress={handleSaveAction} loading={saving} disabled={saving}>Save</Button>
@@ -882,8 +897,15 @@ const styles = StyleSheet.create({
   checkboxContainer: {
     marginBottom: 16,
   },
-  tagScrollView: {
-    maxHeight: 200,
+  tagSelectContainer: {
+    marginBottom: 8,
+  },
+  dialogScrollArea: {
+    paddingHorizontal: 24,
+    maxHeight: '80%', // Limit height to 80% of screen to ensure buttons are visible
+  },
+  dialogBottomPadding: {
+    height: 20,
   },
   actionLoadingContainer: {
     padding: 16,

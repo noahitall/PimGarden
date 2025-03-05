@@ -193,37 +193,46 @@ export class ContactService {
     }
   }
 
-  // Format contact details as a string
+  // Format contact details as a string - only include unstructured information
   private formatContactDetails(contact: Contacts.Contact): string {
     const details = [];
     
-    // Add phone numbers
-    if (contact.phoneNumbers && contact.phoneNumbers.length > 0) {
-      const phones = contact.phoneNumbers.map(p => `${p.label}: ${p.number}`).join('\n');
-      details.push(`Phone:\n${phones}`);
+    // Add company/organization info if available
+    if (contact.company) {
+      details.push(`Company: ${contact.company}`);
     }
     
-    // Add emails
-    if (contact.emails && contact.emails.length > 0) {
-      const emails = contact.emails.map(e => `${e.label}: ${e.email}`).join('\n');
-      details.push(`Email:\n${emails}`);
+    // Add job title if available
+    if (contact.jobTitle) {
+      details.push(`Title: ${contact.jobTitle}`);
     }
     
-    // Add addresses
-    if (contact.addresses && contact.addresses.length > 0) {
-      const addresses = contact.addresses.map(a => {
-        return `${a.label}: ${[
-          a.street, 
-          a.city, 
-          a.region, 
-          a.postalCode, 
-          a.country
-        ].filter(Boolean).join(', ')}`;
-      }).join('\n');
-      details.push(`Address:\n${addresses}`);
+    // Add department if available
+    if (contact.department) {
+      details.push(`Department: ${contact.department}`);
     }
     
-    return details.join('\n\n');
+    // Add birthday if available
+    if (contact.birthday) {
+      const birthdate = new Date(
+        contact.birthday.year || 0, 
+        (contact.birthday.month || 1) - 1, 
+        contact.birthday.day || 1
+      );
+      details.push(`Birthday: ${birthdate.toLocaleDateString()}`);
+    }
+    
+    // Add notes if available
+    if (contact.note) {
+      details.push(`Notes:\n${contact.note}`);
+    }
+    
+    // Add any other relevant fields that aren't being stored in structured fields
+    // We don't include phone, email or address info since those are stored
+    // in their respective structured fields
+
+    // Only return the details string if we have content
+    return details.length > 0 ? details.join('\n\n') : '';
   }
 }
 
