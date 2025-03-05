@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList, Dimensions } from 'react-native';
-import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons } from 'react-native-paper';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList, Dimensions, TextInput } from 'react-native';
+import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons, Menu, Dialog, Portal } from 'react-native-paper';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import { RootStackParamList, Entity } from '../types';
 import { database, EntityType } from '../database/Database';
+import { debounce } from 'lodash';
 
 // Define the InteractionLog interface
 interface InteractionLog {
@@ -21,6 +22,13 @@ interface EntityPhoto {
   uri: string;
   caption: string | null;
   timestamp: number;
+}
+
+// Define the Tag interface
+interface Tag {
+  id: string;
+  name: string;
+  count: number;
 }
 
 type EntityDetailScreenRouteProp = RouteProp<RootStackParamList, 'EntityDetail'>;
@@ -50,6 +58,14 @@ const EntityDetailScreen: React.FC = () => {
   
   // Active tab state
   const [activeTab, setActiveTab] = useState<TabValue>('interactions');
+  
+  // Tags state
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [loadingTags, setLoadingTags] = useState(false);
+  const [tagDialogVisible, setTagDialogVisible] = useState(false);
+  const [tagInput, setTagInput] = useState('');
+  const [suggestedTags, setSuggestedTags] = useState<Tag[]>([]);
+  const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
   
   // Load entity data
   useEffect(() => {
@@ -84,6 +100,9 @@ const EntityDetailScreen: React.FC = () => {
         // Load photos
         setPhotosOffset(0);
         await loadEntityPhotos(data.id, true);
+        
+        // Load tags
+        await loadEntityTags(data.id);
       }
     } catch (error) {
       console.error('Error loading entity:', error);
@@ -158,6 +177,118 @@ const EntityDetailScreen: React.FC = () => {
       console.error('Error loading entity photos:', error);
     } finally {
       setLoadingPhotos(false);
+    }
+  };
+
+  // Load entity tags
+  const loadEntityTags = async (entityId: string) => {
+    try {
+      setLoadingTags(true);
+      const entityTags = await database.getEntityTags(entityId);
+      setTags(entityTags);
+    } catch (error) {
+      console.error('Error loading entity tags:', error);
+    } finally {
+      setLoadingTags(false);
+    }
+  };
+  
+  // Search for tags (debounced)
+  const searchTags = useCallback(
+    debounce(async (searchTerm: string) => {
+      if (!searchTerm.trim()) {
+        setSuggestedTags([]);
+        setIsFetchingSuggestions(false);
+        return;
+      }
+      
+      try {
+        setIsFetchingSuggestions(true);
+        const allTags = await database.getAllTags(searchTerm);
+        // Filter out tags that the entity already has
+        const filteredTags = allTags.filter(
+          tag => !tags.some(existingTag => existingTag.id === tag.id)
+        );
+        setSuggestedTags(filteredTags);
+      } catch (error) {
+        console.error('Error searching tags:', error);
+      } finally {
+        setIsFetchingSuggestions(false);
+      }
+    }, 300),
+    [tags]
+  );
+  
+  // Handle tag input change
+  const handleTagInputChange = (text: string) => {
+    setTagInput(text);
+    if (text.trim()) {
+      setIsFetchingSuggestions(true);
+      searchTags(text);
+    } else {
+      setSuggestedTags([]);
+    }
+  };
+  
+  // Add tag to entity
+  const handleAddTag = async (tagName: string) => {
+    if (!entity || !tagName.trim()) return;
+    
+    try {
+      // Add tag to entity
+      await database.addTagToEntity(entity.id, tagName);
+      
+      // Reload tags
+      await loadEntityTags(entity.id);
+      
+      // Clear input
+      setTagInput('');
+      setSuggestedTags([]);
+    } catch (error) {
+      console.error('Error adding tag:', error);
+      Alert.alert('Error', 'Failed to add tag');
+    }
+  };
+  
+  // Select suggested tag
+  const handleSelectTag = async (tag: Tag) => {
+    if (!entity) return;
+    
+    try {
+      // Add tag to entity
+      await database.addTagToEntity(entity.id, tag.name);
+      
+      // Reload tags
+      await loadEntityTags(entity.id);
+      
+      // Clear input
+      setTagInput('');
+      setSuggestedTags([]);
+    } catch (error) {
+      console.error('Error adding tag:', error);
+      Alert.alert('Error', 'Failed to add tag');
+    }
+  };
+  
+  // Remove tag from entity
+  const handleRemoveTag = async (tagId: string) => {
+    if (!entity) return;
+    
+    try {
+      await database.removeTagFromEntity(entity.id, tagId);
+      
+      // Reload tags
+      await loadEntityTags(entity.id);
+    } catch (error) {
+      console.error('Error removing tag:', error);
+      Alert.alert('Error', 'Failed to remove tag');
+    }
+  };
+  
+  // Submit tag from input
+  const handleSubmitTag = () => {
+    if (tagInput.trim()) {
+      handleAddTag(tagInput.trim());
     }
   };
 
@@ -470,6 +601,19 @@ const EntityDetailScreen: React.FC = () => {
     </View>
   );
 
+  // Render tag chip
+  const renderTagChip = (tag: Tag) => (
+    <Chip
+      key={tag.id}
+      style={styles.tagChip}
+      onClose={() => handleRemoveTag(tag.id)}
+      onPress={() => {}}
+      mode="outlined"
+    >
+      {tag.name}
+    </Chip>
+  );
+
   return (
     <ScrollView 
       style={styles.container}
@@ -499,6 +643,30 @@ const EntityDetailScreen: React.FC = () => {
         <Divider style={styles.divider} />
         
         <Card.Content>
+          {/* Tags section */}
+          <View style={styles.tagsSectionContainer}>
+            <View style={styles.tagsSectionHeader}>
+              <Text style={styles.sectionTitle}>Tags</Text>
+              <IconButton
+                icon="plus"
+                size={20}
+                onPress={() => setTagDialogVisible(true)}
+              />
+            </View>
+            
+            {loadingTags ? (
+              <ActivityIndicator size="small" color="#6200ee" style={styles.tagsLoading} />
+            ) : tags.length === 0 ? (
+              <Text style={styles.noTagsText}>No tags yet</Text>
+            ) : (
+              <View style={styles.tagsContainer}>
+                {tags.map(renderTagChip)}
+              </View>
+            )}
+          </View>
+          
+          <Divider style={styles.divider} />
+          
           {entity.details && (
             <Paragraph style={styles.details}>{entity.details}</Paragraph>
           )}
@@ -661,6 +829,71 @@ const EntityDetailScreen: React.FC = () => {
           </Card.Content>
         )}
       </Card>
+      
+      {/* Tag dialog */}
+      <Portal>
+        <Dialog
+          visible={tagDialogVisible}
+          onDismiss={() => {
+            setTagDialogVisible(false);
+            setTagInput('');
+            setSuggestedTags([]);
+          }}
+          style={styles.tagDialog}
+        >
+          <Dialog.Title>Add Tags</Dialog.Title>
+          <Dialog.Content>
+            <View style={styles.tagInputContainer}>
+              <TextInput
+                style={styles.tagInput}
+                placeholder="Enter tag name"
+                value={tagInput}
+                onChangeText={handleTagInputChange}
+                onSubmitEditing={handleSubmitTag}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <IconButton
+                icon="plus"
+                size={20}
+                onPress={handleSubmitTag}
+                disabled={!tagInput.trim()}
+              />
+            </View>
+            
+            {isFetchingSuggestions ? (
+              <ActivityIndicator size="small" color="#6200ee" style={styles.suggestionsLoading} />
+            ) : suggestedTags.length > 0 ? (
+              <View style={styles.suggestionsContainer}>
+                <Text style={styles.suggestionsTitle}>Suggestions:</Text>
+                {suggestedTags.map(tag => (
+                  <TouchableOpacity
+                    key={tag.id}
+                    style={styles.suggestionItem}
+                    onPress={() => handleSelectTag(tag)}
+                  >
+                    <Text>{tag.name}</Text>
+                    <Text style={styles.suggestionCount}>({tag.count})</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : tagInput.trim() ? (
+              <Text style={styles.newTagText}>
+                Press + to add "{tagInput.trim()}" as a new tag
+              </Text>
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => {
+              setTagDialogVisible(false);
+              setTagInput('');
+              setSuggestedTags([]);
+            }}>
+              Done
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </ScrollView>
   );
 };
@@ -745,9 +978,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 8,
   },
   details: {
     fontSize: 16,
@@ -868,6 +1100,71 @@ const styles = StyleSheet.create({
   },
   photoButton: {
     margin: 8,
+  },
+  tagsSectionContainer: {
+    marginVertical: 8,
+  },
+  tagsSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+  },
+  tagChip: {
+    margin: 4,
+  },
+  tagsLoading: {
+    marginVertical: 8,
+  },
+  noTagsText: {
+    fontStyle: 'italic',
+    color: '#666',
+    marginTop: 8,
+  },
+  tagDialog: {
+    maxHeight: '80%',
+  },
+  tagInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    marginBottom: 8,
+  },
+  tagInput: {
+    flex: 1,
+    height: 40,
+  },
+  suggestionsContainer: {
+    marginTop: 8,
+  },
+  suggestionsTitle: {
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  suggestionCount: {
+    color: '#666',
+  },
+  suggestionsLoading: {
+    marginTop: 8,
+  },
+  newTagText: {
+    marginTop: 8,
+    fontStyle: 'italic',
   },
 });
 

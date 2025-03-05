@@ -30,6 +30,7 @@
     "@babel/core": "^7.25.2",
     "@testing-library/jest-native": "^5.4.3",
     "@testing-library/react-native": "^13.1.0",
+    "@types/lodash": "^4.17.16",
     "@types/react": "~18.3.12",
     "jest": "^29.7.0",
     "jest-expo": "^52.0.5",

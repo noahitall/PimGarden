@@ -37,6 +37,19 @@ interface EntityPhoto {
   timestamp: number;
 }
 
+// Tag interface
+interface Tag {
+  id: string;
+  name: string;
+  count: number; // Number of entities using this tag
+}
+
+// EntityTag interface (relationship between entities and tags)
+interface EntityTag {
+  entity_id: string;
+  tag_id: string;
+}
+
 // Database class to handle all database operations
 export class Database {
   private db: SQLite.SQLiteDatabase;
@@ -81,6 +94,26 @@ export class Database {
         caption TEXT,
         timestamp INTEGER NOT NULL,
         FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+      );
+    `);
+    
+    // Create tags table
+    await this.db.execAsync(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        count INTEGER DEFAULT 0
+      );
+    `);
+    
+    // Create entity_tags junction table (for many-to-many relationship)
+    await this.db.execAsync(`
+      CREATE TABLE IF NOT EXISTS entity_tags (
+        entity_id TEXT NOT NULL,
+        tag_id TEXT NOT NULL,
+        PRIMARY KEY (entity_id, tag_id),
+        FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
       );
     `);
   }
@@ -529,6 +562,144 @@ export class Database {
     } catch (error) {
       console.error('Error deleting entity photo:', error);
       return false;
+    }
+  }
+
+  // Add tag to entity
+  async addTagToEntity(entityId: string, tagName: string): Promise<string> {
+    try {
+      // Normalize tag name (trim and lowercase)
+      tagName = tagName.trim();
+      if (!tagName) throw new Error('Tag name cannot be empty');
+      
+      // Begin transaction
+      await this.db.runAsync('BEGIN TRANSACTION');
+      
+      // Check if tag exists
+      let tag = await this.db.getFirstAsync<Tag>(
+        'SELECT * FROM tags WHERE name = ? COLLATE NOCASE',
+        [tagName]
+      );
+      
+      let tagId: string;
+      
+      // If tag doesn't exist, create it
+      if (!tag) {
+        tagId = await this.generateId();
+        await this.db.runAsync(
+          'INSERT INTO tags (id, name, count) VALUES (?, ?, 1)',
+          [tagId, tagName]
+        );
+      } else {
+        tagId = tag.id;
+        
+        // Check if entity already has this tag
+        const existingRelation = await this.db.getFirstAsync(
+          'SELECT * FROM entity_tags WHERE entity_id = ? AND tag_id = ?',
+          [entityId, tagId]
+        );
+        
+        if (existingRelation) {
+          // Entity already has this tag, rollback and return
+          await this.db.runAsync('ROLLBACK');
+          return tagId;
+        }
+        
+        // Increment tag count
+        await this.db.runAsync(
+          'UPDATE tags SET count = count + 1 WHERE id = ?',
+          [tagId]
+        );
+      }
+      
+      // Create entity-tag relationship
+      await this.db.runAsync(
+        'INSERT INTO entity_tags (entity_id, tag_id) VALUES (?, ?)',
+        [entityId, tagId]
+      );
+      
+      // Commit transaction
+      await this.db.runAsync('COMMIT');
+      
+      return tagId;
+    } catch (error) {
+      // Rollback transaction on error
+      await this.db.runAsync('ROLLBACK');
+      console.error('Error adding tag to entity:', error);
+      throw error;
+    }
+  }
+  
+  // Remove tag from entity
+  async removeTagFromEntity(entityId: string, tagId: string): Promise<boolean> {
+    try {
+      // Begin transaction
+      await this.db.runAsync('BEGIN TRANSACTION');
+      
+      // Remove entity-tag relationship
+      await this.db.runAsync(
+        'DELETE FROM entity_tags WHERE entity_id = ? AND tag_id = ?',
+        [entityId, tagId]
+      );
+      
+      // Decrement tag count
+      await this.db.runAsync(
+        'UPDATE tags SET count = count - 1 WHERE id = ?',
+        [tagId]
+      );
+      
+      // Delete tag if count reaches 0
+      await this.db.runAsync(
+        'DELETE FROM tags WHERE id = ? AND count <= 0',
+        [tagId]
+      );
+      
+      // Commit transaction
+      await this.db.runAsync('COMMIT');
+      
+      return true;
+    } catch (error) {
+      // Rollback transaction on error
+      await this.db.runAsync('ROLLBACK');
+      console.error('Error removing tag from entity:', error);
+      return false;
+    }
+  }
+  
+  // Get all tags for an entity
+  async getEntityTags(entityId: string): Promise<Tag[]> {
+    try {
+      const tags = await this.db.getAllAsync<Tag>(
+        `SELECT t.* FROM tags t
+         JOIN entity_tags et ON t.id = et.tag_id
+         WHERE et.entity_id = ?
+         ORDER BY t.name COLLATE NOCASE`,
+        [entityId]
+      );
+      
+      return tags;
+    } catch (error) {
+      console.error('Error getting entity tags:', error);
+      return [];
+    }
+  }
+  
+  // Get all tags (for autocomplete)
+  async getAllTags(searchTerm?: string): Promise<Tag[]> {
+    try {
+      let query = 'SELECT * FROM tags ORDER BY name COLLATE NOCASE';
+      const params: any[] = [];
+      
+      if (searchTerm) {
+        query = 'SELECT * FROM tags WHERE name LIKE ? ORDER BY name COLLATE NOCASE';
+        params.push(`%${searchTerm}%`);
+      }
+      
+      const tags = await this.db.getAllAsync<Tag>(query, params);
+      return tags;
+    } catch (error) {
+      console.error('Error getting all tags:', error);
+      return [];
     }
   }
 }
