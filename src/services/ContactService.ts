@@ -109,6 +109,13 @@ export class ContactService {
     return identifiers;
   }
 
+  // Helper function to generate a random ID (replacement for uuid.v4())
+  private generateId(): string {
+    return Math.random().toString(36).substring(2, 15) + 
+           Math.random().toString(36).substring(2, 15) + 
+           Date.now().toString(36);
+  }
+
   // Import a contact to the database
   async importContact(contact: Contacts.Contact): Promise<string | null> {
     try {
@@ -130,22 +137,56 @@ export class ContactService {
       // Get image if available
       const image = contact.image?.uri;
       
-      // Additional data to encrypt
-      const additionalData = {
-        contactId: contact.id,
-        phoneNumbers: contact.phoneNumbers,
-        emails: contact.emails,
-        addresses: contact.addresses,
-      };
-      
-      // Create the entity in the database
-      return await database.createEntity(
+      // Create entity first
+      const entityId = await database.createEntity(
         name,
         EntityType.PERSON,
         details,
         image,
-        additionalData
+        {} // Empty object for additionalData to avoid hash instead of JSON
       );
+      
+      if (entityId) {
+        // Process phone numbers
+        const phoneNumbers = contact.phoneNumbers?.map((phone, index) => ({
+          id: this.generateId(),
+          value: phone.number || '',
+          label: phone.label || 'mobile',
+          isPrimary: index === 0, // First number is primary by default
+        })) || [];
+        
+        // Process email addresses
+        const emailAddresses = contact.emails?.map((email, index) => ({
+          id: this.generateId(),
+          value: email.email || '',
+          label: email.label || 'home',
+          isPrimary: index === 0, // First email is primary by default
+        })) || [];
+        
+        // Process physical addresses
+        const physicalAddresses = contact.addresses?.map((address, index) => ({
+          id: this.generateId(),
+          street: address.street || '',
+          city: address.city || '',
+          state: address.region || '',
+          postalCode: address.postalCode || '',
+          country: address.country || '',
+          label: address.label || 'home',
+          isPrimary: index === 0, // First address is primary by default
+        })) || [];
+        
+        // Update the person with structured contact data
+        await database.updatePersonContactData(
+          entityId,
+          {
+            phoneNumbers,
+            emailAddresses,
+            physicalAddresses
+          }
+        );
+      }
+      
+      return entityId;
     } catch (error) {
       console.error('Error importing contact:', error);
       return null;

@@ -66,6 +66,12 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
   const [isEmailLabelMenuVisible, setEmailLabelMenuVisible] = useState(false);
   const [isAddressLabelMenuVisible, setAddressLabelMenuVisible] = useState(false);
 
+  // Add state for delete confirmations
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [deleteType, setDeleteType] = useState<'phone' | 'email' | 'address'>('phone');
+  const [itemToDeleteId, setItemToDeleteId] = useState('');
+  const [itemToDeleteLabel, setItemToDeleteLabel] = useState('');
+
   // Phone related functions
   const handleCallPhone = (phoneNumber: string) => {
     Linking.openURL(`tel:${phoneNumber}`);
@@ -96,14 +102,8 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
     }
   };
 
-  const handleDeletePhone = async (phoneId: string) => {
-    try {
-      await database.removeContactField(entityId, 'phoneNumber', phoneId);
-      onUpdate();
-    } catch (error) {
-      console.error('Error removing phone number:', error);
-      Alert.alert('Error', 'Failed to remove phone number');
-    }
+  const handleDeletePhone = async (phoneId: string, phoneNumber: string) => {
+    showDeleteConfirmation('phone', phoneId, phoneNumber);
   };
 
   // Email related functions
@@ -128,14 +128,8 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
     }
   };
 
-  const handleDeleteEmail = async (emailId: string) => {
-    try {
-      await database.removeContactField(entityId, 'emailAddress', emailId);
-      onUpdate();
-    } catch (error) {
-      console.error('Error removing email address:', error);
-      Alert.alert('Error', 'Failed to remove email address');
-    }
+  const handleDeleteEmail = async (emailId: string, emailAddress: string) => {
+    showDeleteConfirmation('email', emailId, emailAddress);
   };
 
   // Address related functions
@@ -180,13 +174,38 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
     }
   };
 
-  const handleDeleteAddress = async (addressId: string) => {
+  const handleDeleteAddress = async (addressId: string, address: PhysicalAddress) => {
+    const formattedAddress = address.formattedAddress || 
+      [address.street, address.city, address.state, address.postalCode, address.country]
+        .filter(Boolean)
+        .join(', ');
+    
+    showDeleteConfirmation('address', addressId, formattedAddress);
+  };
+
+  // Confirm delete dialog
+  const showDeleteConfirmation = (type: 'phone' | 'email' | 'address', id: string, label: string) => {
+    setDeleteType(type);
+    setItemToDeleteId(id);
+    setItemToDeleteLabel(label);
+    setDeleteConfirmVisible(true);
+  };
+
+  const handleConfirmDelete = async () => {
     try {
-      await database.removeContactField(entityId, 'physicalAddress', addressId);
+      if (deleteType === 'phone') {
+        await database.removeContactField(entityId, 'phoneNumber', itemToDeleteId);
+      } else if (deleteType === 'email') {
+        await database.removeContactField(entityId, 'emailAddress', itemToDeleteId);
+      } else if (deleteType === 'address') {
+        await database.removeContactField(entityId, 'physicalAddress', itemToDeleteId);
+      }
+      
+      setDeleteConfirmVisible(false);
       onUpdate();
     } catch (error) {
-      console.error('Error removing address:', error);
-      Alert.alert('Error', 'Failed to remove address');
+      console.error(`Error removing ${deleteType}:`, error);
+      Alert.alert('Error', `Failed to remove ${deleteType}`);
     }
   };
 
@@ -233,7 +252,7 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
                     <IconButton 
                       icon="delete" 
                       size={20} 
-                      onPress={() => handleDeletePhone(phone.id)} 
+                      onPress={() => handleDeletePhone(phone.id, phone.value)} 
                     />
                   </View>
                 </View>
@@ -278,7 +297,7 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
                     <IconButton 
                       icon="delete" 
                       size={20} 
-                      onPress={() => handleDeleteEmail(email.id)} 
+                      onPress={() => handleDeleteEmail(email.id, email.value)} 
                     />
                   </View>
                 </View>
@@ -328,7 +347,7 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
                     <IconButton 
                       icon="delete" 
                       size={20} 
-                      onPress={() => handleDeleteAddress(address.id)} 
+                      onPress={() => handleDeleteAddress(address.id, address)} 
                     />
                   </View>
                 </View>
@@ -534,6 +553,22 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      {/* Delete Confirmation Dialog */}
+      <Portal>
+        <Dialog visible={deleteConfirmVisible} onDismiss={() => setDeleteConfirmVisible(false)}>
+          <Dialog.Title>Confirm Delete</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.dialogContent}>
+              Are you sure you want to delete the {deleteType} "{itemToDeleteLabel}"?
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDeleteConfirmVisible(false)}>Cancel</Button>
+            <Button onPress={handleConfirmDelete}>Delete</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </Card>
   );
 };
@@ -611,6 +646,9 @@ const styles = StyleSheet.create({
   },
   dialogScrollContent: {
     paddingVertical: 16,
+  },
+  dialogContent: {
+    marginBottom: 16,
   },
 });
 

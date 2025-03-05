@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
+import { format } from 'date-fns';
 
 // Entity types
 export enum EntityType {
@@ -58,6 +59,48 @@ export interface Tag {
 interface EntityTag {
   entity_id: string;
   tag_id: string;
+}
+
+// Define local interfaces for contact data
+interface PhoneNumber {
+  id: string;
+  value: string;
+  label: string;
+  isPrimary: boolean;
+}
+
+interface EmailAddress {
+  id: string;
+  value: string;
+  label: string;
+  isPrimary: boolean;
+}
+
+interface PhysicalAddress {
+  id: string;
+  street: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  label: string;
+  isPrimary: boolean;
+  formattedAddress?: string;
+}
+
+interface ContactData {
+  phoneNumbers: PhoneNumber[];
+  emailAddresses: EmailAddress[];
+  physicalAddresses: PhysicalAddress[];
+}
+
+// Define local Person interface that extends Entity
+interface PersonEntity extends Entity {
+  type: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  contactData?: ContactData;
 }
 
 // Database class to handle all database operations
@@ -343,12 +386,13 @@ export class Database {
   // Encrypt sensitive data
   private async encryptData(data: any): Promise<string> {
     // In a real app, you would use a proper encryption library
-    // For this example, we'll just stringify and hash the data
-    const jsonData = JSON.stringify(data);
-    return await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      jsonData
-    );
+    // For this demo, we'll just stringify the data directly
+    try {
+      return JSON.stringify(data);
+    } catch (error) {
+      console.error('Error stringifying data:', error);
+      return '{}'; // Return empty object as fallback
+    }
   }
 
   // Find duplicate entities based on name and details
@@ -1416,6 +1460,280 @@ export class Database {
         interactionsColumns: []
       };
     }
+  }
+
+  // Get person with contact data
+  async getPersonWithContactData(id: string): Promise<PersonEntity | null> {
+    const entity = await this.getEntityById(id);
+    if (!entity || entity.type !== EntityType.PERSON) return null;
+    
+    // Create person entity
+    const person: PersonEntity = {
+      ...entity,
+      type: EntityType.PERSON
+    };
+    
+    // Decrypt and parse additional data if available
+    if (entity.encrypted_data) {
+      try {
+        let decryptedData;
+        
+        // Try parsing as JSON first
+        try {
+          decryptedData = JSON.parse(entity.encrypted_data);
+        } catch (parseError) {
+          // If it fails, this might be old hashed data (not actual JSON)
+          console.log('Data appears to be in old format or invalid, creating empty contact data');
+          decryptedData = { contactData: { phoneNumbers: [], emailAddresses: [], physicalAddresses: [] } };
+        }
+        
+        // Set legacy fields if available
+        if (decryptedData.phone) person.phone = decryptedData.phone;
+        if (decryptedData.email) person.email = decryptedData.email;
+        if (decryptedData.address) person.address = decryptedData.address;
+        
+        // Set contact data if available
+        if (decryptedData.contactData) {
+          person.contactData = decryptedData.contactData;
+        } else {
+          // Initialize empty contact data
+          person.contactData = {
+            phoneNumbers: [],
+            emailAddresses: [], 
+            physicalAddresses: []
+          };
+        }
+      } catch (error) {
+        console.error('Error processing contact data:', error);
+        // Initialize with empty contact data on error
+        person.contactData = {
+          phoneNumbers: [],
+          emailAddresses: [],
+          physicalAddresses: []
+        };
+      }
+    } else {
+      // Initialize with empty contact data if no encrypted data
+      person.contactData = {
+        phoneNumbers: [],
+        emailAddresses: [],
+        physicalAddresses: []
+      };
+    }
+    
+    return person;
+  }
+  
+  // Update contact data for a person
+  async updatePersonContactData(
+    id: string, 
+    contactData: {
+      phoneNumbers?: Array<{ id: string; value: string; label: string; isPrimary: boolean }>;
+      emailAddresses?: Array<{ id: string; value: string; label: string; isPrimary: boolean }>;
+      physicalAddresses?: Array<{ 
+        id: string; 
+        street: string; 
+        city: string; 
+        state: string; 
+        postalCode: string; 
+        country: string; 
+        label: string; 
+        isPrimary: boolean;
+        formattedAddress?: string;
+      }>;
+    }
+  ): Promise<boolean> {
+    const entity = await this.getEntityById(id);
+    if (!entity || entity.type !== EntityType.PERSON) return false;
+    
+    // Get existing data or create empty structure
+    let existingData = {};
+    if (entity.encrypted_data) {
+      try {
+        existingData = JSON.parse(entity.encrypted_data);
+      } catch (error) {
+        console.error('Error parsing existing data:', error);
+        // If parsing fails, likely due to old hash format, create new data structure
+        existingData = {};
+        
+        // Try to preserve any data we have by using the person entity
+        const person = await this.getPersonWithContactData(id);
+        if (person && person.contactData) {
+          existingData = { contactData: person.contactData };
+        }
+      }
+    }
+    
+    // Merge new contact data with existing data
+    const updatedData = {
+      ...existingData,
+      contactData: {
+        phoneNumbers: contactData.phoneNumbers || (existingData as any).contactData?.phoneNumbers || [],
+        emailAddresses: contactData.emailAddresses || (existingData as any).contactData?.emailAddresses || [],
+        physicalAddresses: contactData.physicalAddresses || (existingData as any).contactData?.physicalAddresses || [],
+      }
+    };
+    
+    // Save updated data
+    return this.updateEntity(id, { additionalData: updatedData });
+  }
+  
+  // Add a phone number to a person
+  async addPhoneNumber(
+    personId: string,
+    phone: { value: string; label: string; isPrimary?: boolean }
+  ): Promise<string | null> {
+    const person = await this.getPersonWithContactData(personId);
+    if (!person) return null;
+    
+    // Generate ID for the new phone number
+    const id = await this.generateId();
+    
+    // Get existing contact data or create new structure
+    const contactData = person.contactData || { 
+      phoneNumbers: [], 
+      emailAddresses: [], 
+      physicalAddresses: [] 
+    };
+    
+    // If this is set as primary, unset other primaries
+    if (phone.isPrimary) {
+      contactData.phoneNumbers.forEach((p: any) => p.isPrimary = false);
+    }
+    
+    // Add new phone number
+    contactData.phoneNumbers.push({
+      id,
+      value: phone.value,
+      label: phone.label,
+      isPrimary: phone.isPrimary === true
+    });
+    
+    // Update person with new contact data
+    const success = await this.updatePersonContactData(personId, contactData);
+    return success ? id : null;
+  }
+  
+  // Add an email address to a person
+  async addEmailAddress(
+    personId: string,
+    email: { value: string; label: string; isPrimary?: boolean }
+  ): Promise<string | null> {
+    const person = await this.getPersonWithContactData(personId);
+    if (!person) return null;
+    
+    // Generate ID for the new email
+    const id = await this.generateId();
+    
+    // Get existing contact data or create new structure
+    const contactData = person.contactData || { 
+      phoneNumbers: [], 
+      emailAddresses: [], 
+      physicalAddresses: [] 
+    };
+    
+    // If this is set as primary, unset other primaries
+    if (email.isPrimary) {
+      contactData.emailAddresses.forEach((e: any) => e.isPrimary = false);
+    }
+    
+    // Add new email
+    contactData.emailAddresses.push({
+      id,
+      value: email.value,
+      label: email.label,
+      isPrimary: email.isPrimary === true
+    });
+    
+    // Update person with new contact data
+    const success = await this.updatePersonContactData(personId, contactData);
+    return success ? id : null;
+  }
+  
+  // Add a physical address to a person
+  async addPhysicalAddress(
+    personId: string,
+    address: { 
+      street: string; 
+      city: string; 
+      state: string; 
+      postalCode: string; 
+      country: string; 
+      label: string; 
+      isPrimary?: boolean 
+    }
+  ): Promise<string | null> {
+    const person = await this.getPersonWithContactData(personId);
+    if (!person) return null;
+    
+    // Generate ID for the new address
+    const id = await this.generateId();
+    
+    // Get existing contact data or create new structure
+    const contactData = person.contactData || { 
+      phoneNumbers: [], 
+      emailAddresses: [], 
+      physicalAddresses: [] 
+    };
+    
+    // If this is set as primary, unset other primaries
+    if (address.isPrimary) {
+      contactData.physicalAddresses.forEach((a: any) => a.isPrimary = false);
+    }
+    
+    // Create formatted address
+    const formattedAddress = [
+      address.street,
+      address.city,
+      address.state,
+      address.postalCode,
+      address.country
+    ].filter(Boolean).join(', ');
+    
+    // Add new address
+    contactData.physicalAddresses.push({
+      id,
+      street: address.street,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+      country: address.country,
+      label: address.label,
+      isPrimary: address.isPrimary === true,
+      formattedAddress
+    });
+    
+    // Update person with new contact data
+    const success = await this.updatePersonContactData(personId, contactData);
+    return success ? id : null;
+  }
+  
+  // Remove a contact field (phone, email, or address)
+  async removeContactField(
+    personId: string, 
+    fieldType: 'phoneNumber' | 'emailAddress' | 'physicalAddress',
+    fieldId: string
+  ): Promise<boolean> {
+    const person = await this.getPersonWithContactData(personId);
+    if (!person || !person.contactData) return false;
+    
+    const contactData = {...person.contactData};
+    
+    // Remove the field based on type
+    switch (fieldType) {
+      case 'phoneNumber':
+        contactData.phoneNumbers = contactData.phoneNumbers.filter((p: any) => p.id !== fieldId);
+        break;
+      case 'emailAddress':
+        contactData.emailAddresses = contactData.emailAddresses.filter((e: any) => e.id !== fieldId);
+        break;
+      case 'physicalAddress':
+        contactData.physicalAddresses = contactData.physicalAddresses.filter((a: any) => a.id !== fieldId);
+        break;
+    }
+    
+    // Update person with modified contact data
+    return this.updatePersonContactData(personId, contactData);
   }
 }
 
