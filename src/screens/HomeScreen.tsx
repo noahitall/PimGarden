@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StyleSheet, View, FlatList, Dimensions, RefreshControl, Animated } from 'react-native';
-import { FAB, Appbar, Chip, Searchbar } from 'react-native-paper';
+import { FAB, Appbar, Chip, Searchbar, Button } from 'react-native-paper';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Entity } from '../types';
@@ -157,6 +157,17 @@ const HomeScreen: React.FC = () => {
         scrollEventThrottle={16}
       />
       
+      {/* Debug button (only show in development) */}
+      {__DEV__ && (
+        <Button
+          mode="text"
+          onPress={() => navigation.navigate('Debug')}
+          style={styles.debugButton}
+        >
+          Database Debug
+        </Button>
+      )}
+      
       <FAB
         style={styles.fab}
         icon="plus"
@@ -212,6 +223,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     marginHorizontal: 8,
     marginVertical: 8,
+  },
+  debugButton: {
+    position: 'absolute',
+    bottom: 80,
+    right: 16,
+    opacity: 0.7,
   },
 });
 

@@ -4,7 +4,7 @@ import { TextInput, Button, Text, ActivityIndicator, Chip, Divider, List, IconBu
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
-import { database, EntityType, InteractionType } from '../database/Database';
+import { database, EntityType, InteractionType, Tag } from '../database/Database';
 
 type EditEntityScreenRouteProp = RouteProp<RootStackParamList, 'EditEntity'>;
 type EditEntityScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EditEntity'>;
@@ -62,6 +62,10 @@ const EditEntityScreen: React.FC = () => {
   const [dialogVisible, setDialogVisible] = useState(false);
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   
+  // State to track loaded tags for each action
+  const [actionTagsMap, setActionTagsMap] = useState<Record<string, Tag[]>>({});
+  const [loadingActionTags, setLoadingActionTags] = useState(false);
+  
   // Determine if we're editing or creating an entity
   const isEditing = !!route.params?.id;
   
@@ -103,9 +107,33 @@ const EditEntityScreen: React.FC = () => {
   const loadInteractionTypes = async () => {
     try {
       const types = await database.getInteractionTypes();
-      setInteractionTypes(types);
+      setInteractionTypes(types || []);
+      
+      // Load tags for these actions
+      const tagsMap: Record<string, Tag[]> = {};
+      setLoadingActionTags(true);
+      
+      if (types && types.length > 0) {
+        for (const action of types) {
+          if (!action || !action.id) continue;
+          
+          try {
+            const tags = await database.getInteractionTypeTags(action.id);
+            tagsMap[action.id] = tags || [];
+            console.log(`Loaded ${tags?.length || 0} tags for action ${action.id}`);
+          } catch (err) {
+            console.error(`Error loading tags for action ${action.id}:`, err);
+            tagsMap[action.id] = [];
+          }
+        }
+      }
+      
+      setActionTagsMap(tagsMap);
     } catch (error) {
       console.error('Error loading interaction types:', error);
+      Alert.alert('Error', 'Failed to load interaction types');
+    } finally {
+      setLoadingActionTags(false);
     }
   };
   
@@ -127,6 +155,40 @@ const EditEntityScreen: React.FC = () => {
     } catch (error) {
       console.error('Error loading interaction type tags:', error);
     }
+  };
+  
+  // Get readable summary of selected tags
+  const getSelectedTagsSummary = (): string => {
+    if (selectedTagIds.length === 0) {
+      return 'Global (All Entities)';
+    } else {
+      const tagNames = selectedTagIds.map(id => {
+        const tag = tags.find(t => t.id === id);
+        return tag ? tag.name : 'Unknown';
+      });
+      return tagNames.join(', ');
+    }
+  };
+  
+  // Get readable tag summary for an action
+  const getActionTagsSummary = (actionId: string): string => {
+    if (!actionId) return 'Global (All Entities)';
+    
+    // Get tags from the junction table first
+    const actionTags = actionTagsMap[actionId];
+    if (actionTags && actionTags.length > 0) {
+      const tagNames = actionTags.map(tag => tag?.name || 'Unknown').filter(Boolean);
+      return tagNames.join(', ');
+    }
+    
+    // If no junction table tags, check the tag_id field for backward compatibility
+    const action = interactionTypes.find(a => a?.id === actionId);
+    if (action && action.tag_id) {
+      const tag = tags.find(t => t?.id === action.tag_id);
+      return tag?.name || 'Unknown Tag';
+    }
+    
+    return 'Global (All Entities)';
   };
   
   // Save entity
@@ -202,13 +264,19 @@ const EditEntityScreen: React.FC = () => {
     }
     
     try {
+      // Show a loading indicator
+      setSaving(true);
+      
       // Determine entity type value (null if all types selected or none selected)
       const entityType = selectedEntityTypes.length === 0 || 
-                        selectedEntityTypes.length === Object.values(EntityType).length 
-                        ? null 
-                        : selectedEntityTypes.length === 1 
-                          ? selectedEntityTypes[0] 
-                          : JSON.stringify(selectedEntityTypes);
+                         selectedEntityTypes.length === Object.values(EntityType).length 
+                         ? null 
+                         : selectedEntityTypes.length === 1 
+                           ? selectedEntityTypes[0] 
+                           : JSON.stringify(selectedEntityTypes);
+      
+      console.log(`Saving action with entity type: ${entityType}`);
+      console.log(`Selected tag IDs: ${selectedTagIds.join(', ')}`);
       
       if (editingActionId) {
         // Update existing action
@@ -222,14 +290,17 @@ const EditEntityScreen: React.FC = () => {
         setSelectedEntityTypes([]);
         setEditingActionId(null);
         setDialogVisible(false);
-        Alert.alert('Success', 'Action updated');
+        Alert.alert('Success', 'Action updated successfully');
+        console.log('Action updated successfully');
       } else {
         // Create new action with no initial tag (we'll add them after)
         const newTypeId = await database.addInteractionType(actionName, selectedIcon, null, entityType);
+        console.log(`Created new action with ID: ${newTypeId}`);
         
         // Associate with selected tags
         if (selectedTagIds.length > 0) {
           await database.associateInteractionTypeWithMultipleTags(newTypeId, selectedTagIds);
+          console.log(`Associated action ${newTypeId} with ${selectedTagIds.length} tags`);
         }
         
         // Reset form
@@ -238,44 +309,75 @@ const EditEntityScreen: React.FC = () => {
         setSelectedTagIds([]);
         setSelectedEntityTypes([]);
         setDialogVisible(false);
-        Alert.alert('Success', 'Action created');
+        Alert.alert('Success', 'Action created successfully');
+        console.log('Action created successfully');
       }
       
       // Reload interaction types
-      loadInteractionTypes();
+      await loadInteractionTypes();
     } catch (error) {
       console.error('Error saving action:', error);
-      Alert.alert('Error', 'Failed to save action');
+      Alert.alert('Error', 'Failed to save action. Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
   
   // Handle editing an action
-  const handleEditAction = (action: InteractionType) => {
-    setActionName(action.name);
-    setSelectedIcon(action.icon);
-    
-    // Parse entity_type if it's a JSON string
-    if (action.entity_type) {
-      try {
-        const parsedTypes = JSON.parse(action.entity_type);
-        if (Array.isArray(parsedTypes)) {
-          setSelectedEntityTypes(parsedTypes);
-        } else {
-          setSelectedEntityTypes([action.entity_type]);
-        }
-      } catch (e) {
-        // If not JSON, it's a single type
-        setSelectedEntityTypes([action.entity_type]);
-      }
-    } else {
-      setSelectedEntityTypes([]);
+  const handleEditAction = async (action: InteractionType) => {
+    if (!action || !action.id) {
+      console.error('Invalid action data for editing');
+      Alert.alert('Error', 'Cannot edit this action due to missing data');
+      return;
     }
-    
-    // Load tags associated with this action
-    loadInteractionTypeTags(action.id);
-    
-    setEditingActionId(action.id);
-    setDialogVisible(true);
+
+    try {
+      // Show loading state
+      setSaving(true);
+      
+      setActionName(action.name || '');
+      setSelectedIcon(action.icon || 'account-check');
+      
+      // Parse entity_type if it's a JSON string
+      let entityTypes: string[] = [];
+      
+      if (action.entity_type) {
+        try {
+          const parsedTypes = JSON.parse(action.entity_type);
+          if (Array.isArray(parsedTypes)) {
+            entityTypes = parsedTypes.filter(t => t && typeof t === 'string');
+          } else if (typeof action.entity_type === 'string') {
+            entityTypes = [action.entity_type];
+          }
+        } catch (e) {
+          // If not JSON, it's a single type
+          if (typeof action.entity_type === 'string') {
+            entityTypes = [action.entity_type];
+          }
+        }
+      }
+      
+      setSelectedEntityTypes(entityTypes);
+      
+      // Load tags associated with this action
+      try {
+        const typeTags = await database.getInteractionTypeTags(action.id);
+        console.log(`Loaded ${typeTags.length} tags for editing action ${action.id}`);
+        setSelectedTagIds(typeTags.filter(tag => tag && tag.id).map(tag => tag.id));
+      } catch (tagError) {
+        console.error('Error loading tags for action:', tagError);
+        // Continue despite tag loading error
+        setSelectedTagIds([]);
+      }
+      
+      setEditingActionId(action.id);
+      setDialogVisible(true);
+    } catch (error) {
+      console.error('Error editing action:', error);
+      Alert.alert('Error', 'Failed to load action details for editing');
+    } finally {
+      setSaving(false);
+    }
   };
   
   // Handle deleting an action
@@ -315,6 +417,8 @@ const EditEntityScreen: React.FC = () => {
   
   // Toggle a tag selection
   const toggleTagSelection = (tagId: string) => {
+    if (!tagId) return;
+    
     setSelectedTagIds(prev => 
       prev.includes(tagId)
         ? prev.filter(id => id !== tagId)
@@ -324,11 +428,32 @@ const EditEntityScreen: React.FC = () => {
   
   // Toggle an entity type selection
   const toggleEntityTypeSelection = (type: string) => {
+    if (!type) return;
+    
     setSelectedEntityTypes(prev => 
       prev.includes(type)
         ? prev.filter(t => t !== type)
         : [...prev, type]
     );
+  };
+  
+  // Get formatted entity types string
+  const getEntityTypesString = (entityTypeValue: string | null): string => {
+    if (!entityTypeValue) return 'All Types';
+    
+    try {
+      // Check if it's a JSON array
+      const types = JSON.parse(entityTypeValue);
+      if (Array.isArray(types)) {
+        if (types.length === 0) return 'All Types';
+        return types.map(t => t && typeof t === 'string' ? t.charAt(0).toUpperCase() + t.slice(1) : '').filter(Boolean).join(', ');
+      }
+    } catch (e) {
+      // Not a JSON string, just a single type
+      return entityTypeValue.charAt(0).toUpperCase() + entityTypeValue.slice(1);
+    }
+    
+    return entityTypeValue.charAt(0).toUpperCase() + entityTypeValue.slice(1);
   };
   
   if (loading) {
@@ -468,6 +593,7 @@ const EditEntityScreen: React.FC = () => {
               icon="plus"
               onPress={showCreateActionDialog}
               style={styles.createButton}
+              disabled={saving || loadingActionTags}
             >
               Create New Action
             </Button>
@@ -476,36 +602,52 @@ const EditEntityScreen: React.FC = () => {
             
             <Text style={styles.listTitle}>Existing Actions</Text>
             
-            {interactionTypes.length === 0 ? (
+            {loadingActionTags ? (
+              <View style={styles.actionLoadingContainer}>
+                <ActivityIndicator size="small" color="#6200ee" />
+                <Text style={styles.loadingText}>Loading actions...</Text>
+              </View>
+            ) : interactionTypes.length === 0 ? (
               <Text style={styles.emptyText}>No actions defined yet</Text>
             ) : (
               <>
                 {interactionTypes.map(action => {
-                  // Find tag name if action has a tag_id
-                  const tagName = action.tag_id 
-                    ? tags.find(t => t.id === action.tag_id)?.name || 'Unknown Tag'
-                    : 'Global (All Entities)';
-                    
+                  if (!action || !action.id) return null;
+                  
                   return (
                     <List.Item
                       key={action.id}
-                      title={action.name}
-                      description={`Tag: ${tagName}`}
-                      left={props => <List.Icon {...props} icon={action.icon} />}
+                      title={action.name || 'Unnamed Action'}
+                      description={() => (
+                        <View>
+                          <Text>
+                            Entity Types: {getEntityTypesString(action.entity_type)}
+                          </Text>
+                          <Text style={styles.tagText}>
+                            Tags: {getActionTagsSummary(action.id)}
+                          </Text>
+                        </View>
+                      )}
+                      left={props => <List.Icon {...props} icon={action.icon || 'help-circle'} />}
                       right={props => (
                         <View style={styles.actionButtons}>
                           <IconButton
                             {...props}
                             icon="pencil"
                             onPress={() => handleEditAction(action)}
+                            disabled={saving}
                           />
                           <IconButton
                             {...props}
                             icon="delete"
                             onPress={() => handleDeleteAction(action.id)}
+                            disabled={saving}
                           />
                         </View>
                       )}
+                      onPress={() => !saving && handleEditAction(action)}
+                      style={styles.actionItem}
+                      disabled={saving}
                     />
                   );
                 })}
@@ -517,7 +659,7 @@ const EditEntityScreen: React.FC = () => {
       
       {/* Dialog for creating/editing an action */}
       <Portal>
-        <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)}>
+        <Dialog visible={dialogVisible} onDismiss={() => !saving && setDialogVisible(false)}>
           <Dialog.Title>{editingActionId ? 'Edit Action' : 'New Action'}</Dialog.Title>
           <Dialog.Content>
             <TextInput
@@ -526,6 +668,7 @@ const EditEntityScreen: React.FC = () => {
               onChangeText={setActionName}
               style={[styles.input, { marginTop: 8 }]}
               mode="outlined"
+              disabled={saving}
             />
             
             <Text style={styles.label}>Action Icon</Text>
@@ -535,6 +678,7 @@ const EditEntityScreen: React.FC = () => {
                 mode="outlined" 
                 onPress={() => setIconMenuVisible(true)}
                 style={{ flex: 1 }}
+                disabled={saving}
               >
                 {iconOptions.find(i => i.icon === selectedIcon)?.label || 'Select Icon'}
               </Button>
@@ -571,7 +715,8 @@ const EditEntityScreen: React.FC = () => {
                   key={type}
                   label={type.charAt(0).toUpperCase() + type.slice(1)}
                   status={selectedEntityTypes.includes(type) ? 'checked' : 'unchecked'}
-                  onPress={() => toggleEntityTypeSelection(type)}
+                  onPress={() => !saving && toggleEntityTypeSelection(type)}
+                  disabled={saving}
                 />
               ))}
             </View>
@@ -580,11 +725,20 @@ const EditEntityScreen: React.FC = () => {
             <Text style={styles.helperText}>
               Select which tags this action is associated with. If none are selected, it will be available for all entities.
             </Text>
+            {selectedTagIds.length > 0 && (
+              <Chip
+                mode="outlined"
+                style={styles.selectedTagsChip}
+              >
+                {getSelectedTagsSummary()}
+              </Chip>
+            )}
             <ScrollView style={styles.tagScrollView}>
               <Checkbox.Item
                 label="Global (All Entities)"
                 status={selectedTagIds.length === 0 ? 'checked' : 'unchecked'}
-                onPress={() => setSelectedTagIds([])}
+                onPress={() => !saving && setSelectedTagIds([])}
+                disabled={saving}
               />
               
               {tags.map(tag => (
@@ -592,14 +746,15 @@ const EditEntityScreen: React.FC = () => {
                   key={tag.id}
                   label={`${tag.name} (${tag.count} entities)`}
                   status={selectedTagIds.includes(tag.id) ? 'checked' : 'unchecked'}
-                  onPress={() => toggleTagSelection(tag.id)}
+                  onPress={() => !saving && toggleTagSelection(tag.id)}
+                  disabled={saving}
                 />
               ))}
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setDialogVisible(false)}>Cancel</Button>
-            <Button onPress={handleSaveAction}>Save</Button>
+            <Button onPress={() => !saving && setDialogVisible(false)} disabled={saving}>Cancel</Button>
+            <Button onPress={handleSaveAction} loading={saving} disabled={saving}>Save</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -708,6 +863,17 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: 'row',
   },
+  tagText: {
+    marginTop: 4,
+  },
+  actionItem: {
+    backgroundColor: '#fff',
+    marginVertical: 4,
+    borderRadius: 8,
+  },
+  selectedTagsChip: {
+    marginBottom: 8,
+  },
   helperText: {
     fontSize: 12,
     color: '#666',
@@ -718,6 +884,15 @@ const styles = StyleSheet.create({
   },
   tagScrollView: {
     maxHeight: 200,
+  },
+  actionLoadingContainer: {
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 8,
+    color: '#666',
   },
 });
 

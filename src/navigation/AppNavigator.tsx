@@ -8,6 +8,7 @@ import HomeScreen from '../screens/HomeScreen';
 import EntityDetailScreen from '../screens/EntityDetailScreen';
 import EditEntityScreen from '../screens/EditEntityScreen';
 import ContactImportScreen from '../screens/ContactImportScreen';
+import DebugScreen from '../screens/DebugScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -47,6 +48,11 @@ export default function AppNavigator() {
           name="ContactImport" 
           component={ContactImportScreen} 
           options={{ title: 'Import Contacts' }} 
+        />
+        <Stack.Screen 
+          name="Debug" 
+          component={DebugScreen} 
+          options={{ title: 'Database Debug' }} 
         />
       </Stack.Navigator>
     </NavigationContainer>

@@ -38,4 +38,5 @@ export type RootStackParamList = {
   EntityDetail: { id: string };
   EditEntity: { id?: string; type?: EntityType };
   ContactImport: undefined;
+  Debug: undefined;
 }; 
