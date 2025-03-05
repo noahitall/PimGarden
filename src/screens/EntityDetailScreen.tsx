@@ -264,7 +264,10 @@ const EntityDetailScreen: React.FC = () => {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      nestedScrollEnabled={true}
+    >
       <Card style={styles.card}>
         <View style={styles.headerContainer}>
           <TouchableOpacity onPress={handleImageSelection} style={styles.imageContainer}>
@@ -356,21 +359,20 @@ const EntityDetailScreen: React.FC = () => {
           ) : interactionLogs.length === 0 ? (
             <Text style={styles.noLogsText}>No interactions recorded yet</Text>
           ) : (
-            <>
-              <FlatList
+            <View>
+              <ScrollView 
                 style={styles.logsList}
-                data={interactionLogs}
-                renderItem={({ item }) => (
+                nestedScrollEnabled={true}
+              >
+                {interactionLogs.map(item => (
                   <List.Item
                     key={item.id}
                     title={item.formattedDate}
                     left={props => <List.Icon {...props} icon="star" color="#6200ee" />}
                   />
-                )}
-                keyExtractor={item => item.id}
-                scrollEnabled={true}
-                nestedScrollEnabled={true}
-              />
+                ))}
+              </ScrollView>
+              
               {hasMoreLogs && (
                 <Button 
                   mode="outlined" 
@@ -382,7 +384,7 @@ const EntityDetailScreen: React.FC = () => {
                   View More
                 </Button>
               )}
-            </>
+            </View>
           )}
         </Card.Content>
       </Card>
