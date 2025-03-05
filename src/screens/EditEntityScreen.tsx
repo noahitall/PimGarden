@@ -167,6 +167,18 @@ const EditEntityScreen: React.FC = () => {
                   Topic
                 </Chip>
               </View>
+              
+              {/* Import Contacts button - only show for new entities of type PERSON */}
+              {type === EntityType.PERSON && (
+                <Button
+                  mode="outlined"
+                  icon="import"
+                  onPress={() => navigation.navigate('ContactImport')}
+                  style={styles.importButton}
+                >
+                  Import Contacts
+                </Button>
+              )}
             </View>
           )}
           
@@ -250,6 +262,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 8,
     borderRadius: 8,
+    marginBottom: 16,
   },
   chip: {
     margin: 4,
@@ -272,6 +285,11 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     borderColor: '#f44336',
+  },
+  importButton: {
+    marginTop: 16,
+    marginBottom: 8,
+    alignSelf: 'center',
   },
 });
 

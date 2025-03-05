@@ -162,14 +162,6 @@ const HomeScreen: React.FC = () => {
         icon="plus"
         onPress={() => navigation.navigate('EditEntity', { type: filter })}
       />
-      
-      <FAB
-        style={styles.importFab}
-        icon="import"
-        label="Import Contacts"
-        onPress={() => navigation.navigate('ContactImport')}
-        small
-      />
     </View>
   );
 };
@@ -204,15 +196,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     margin: 16,
     right: 0,
-    bottom: 80,
-    backgroundColor: '#6200ee',
-  },
-  importFab: {
-    position: 'absolute',
-    margin: 16,
-    right: 0,
     bottom: 0,
-    backgroundColor: '#03dac4',
+    backgroundColor: '#6200ee',
   },
   searchBarContainer: {
     overflow: 'hidden',
