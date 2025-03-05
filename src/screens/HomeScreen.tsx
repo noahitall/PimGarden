@@ -6,6 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Entity } from '../types';
 import { database, EntityType } from '../database/Database';
 import EntityCard from '../components/EntityCard';
+import { isFeatureEnabledSync } from '../config/FeatureFlags';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -241,6 +242,19 @@ const HomeScreen: React.FC = () => {
     </View>
   );
   
+  // Set navigation options with settings button
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Appbar.Action 
+          icon="cog" 
+          color="white" 
+          onPress={() => navigation.navigate('Settings')} 
+        />
+      ),
+    });
+  }, [navigation]);
+  
   return (
     <View style={styles.container}>
       {/* Merge mode banner */}
@@ -285,8 +299,8 @@ const HomeScreen: React.FC = () => {
         scrollEventThrottle={16}
       />
       
-      {/* Debug button (only show in development) */}
-      {__DEV__ && (
+      {/* Debug button (only show if feature flag is enabled) */}
+      {__DEV__ && isFeatureEnabledSync('SHOW_DEBUG_BUTTON') && (
         <Button
           mode="text"
           onPress={() => navigation.navigate('Debug')}

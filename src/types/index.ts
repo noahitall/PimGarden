@@ -76,4 +76,5 @@ export type RootStackParamList = {
   EditEntity: { id?: string; type?: EntityType };
   ContactImport: undefined;
   Debug: undefined;
+  Settings: undefined;
 }; 

@@ -6,7 +6,10 @@ import {
   Linking, 
   Platform, 
   ScrollView, 
-  Alert 
+  Alert,
+  Keyboard,
+  TouchableWithoutFeedback,
+  KeyboardAvoidingView
 } from 'react-native';
 import { 
   Text, 
@@ -360,197 +363,281 @@ const ContactFieldsSection: React.FC<ContactFieldsSectionProps> = ({
       {/* Add Phone Dialog */}
       <Portal>
         <Dialog visible={isPhoneDialogVisible} onDismiss={() => setPhoneDialogVisible(false)}>
-          <Dialog.Title>Add Phone Number</Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label="Phone Number"
-              value={newPhone.value}
-              onChangeText={(value) => setNewPhone({...newPhone, value})}
-              keyboardType="phone-pad"
-              style={styles.dialogInput}
-            />
-            
-            <View style={styles.labelContainer}>
-              <Text style={styles.labelText}>Label:</Text>
-              <Menu
-                visible={isPhoneLabelMenuVisible}
-                onDismiss={() => setPhoneLabelMenuVisible(false)}
-                anchor={
-                  <Button 
-                    mode="outlined" 
-                    onPress={() => setPhoneLabelMenuVisible(true)}
-                    style={styles.labelButton}
-                  >
-                    {newPhone.label} <IconButton icon="menu-down" size={16} />
-                  </Button>
-                }
-              >
-                {PHONE_LABELS.map(label => (
-                  <Menu.Item 
-                    key={label}
-                    onPress={() => {
-                      setNewPhone({...newPhone, label});
-                      setPhoneLabelMenuVisible(false);
-                    }} 
-                    title={label} 
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+              <Dialog.Title>Add Phone Number</Dialog.Title>
+              <Dialog.ScrollArea>
+                <ScrollView contentContainerStyle={styles.dialogScrollContent}>
+                  <TextInput
+                    label="Phone Number"
+                    value={newPhone.value}
+                    onChangeText={(value) => setNewPhone({...newPhone, value})}
+                    keyboardType="phone-pad"
+                    style={styles.dialogInput}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
                   />
-                ))}
-              </Menu>
-            </View>
-            
-            <View style={styles.switchContainer}>
-              <Text>Set as primary number</Text>
-              <IconButton
-                icon={newPhone.isPrimary ? "checkbox-marked" : "checkbox-blank-outline"}
-                onPress={() => setNewPhone({...newPhone, isPrimary: !newPhone.isPrimary})}
-              />
-            </View>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setPhoneDialogVisible(false)}>Cancel</Button>
-            <Button onPress={handleAddPhone}>Add</Button>
-          </Dialog.Actions>
+                  
+                  <View style={styles.keyboardDismissButtonContainer}>
+                    <Button 
+                      mode="text" 
+                      onPress={Keyboard.dismiss}
+                      style={styles.keyboardDismissButton}
+                    >
+                      Done with keyboard
+                    </Button>
+                  </View>
+                  
+                  <View style={styles.labelContainer}>
+                    <Text style={styles.labelText}>Label:</Text>
+                    <Menu
+                      visible={isPhoneLabelMenuVisible}
+                      onDismiss={() => setPhoneLabelMenuVisible(false)}
+                      anchor={
+                        <Button 
+                          mode="outlined" 
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setPhoneLabelMenuVisible(true);
+                          }}
+                          style={styles.labelButton}
+                        >
+                          {newPhone.label} <IconButton icon="menu-down" size={16} />
+                        </Button>
+                      }
+                    >
+                      {PHONE_LABELS.map(label => (
+                        <Menu.Item 
+                          key={label}
+                          onPress={() => {
+                            setNewPhone({...newPhone, label});
+                            setPhoneLabelMenuVisible(false);
+                          }} 
+                          title={label} 
+                        />
+                      ))}
+                    </Menu>
+                  </View>
+                  
+                  <View style={styles.switchContainer}>
+                    <Text>Set as primary number</Text>
+                    <IconButton
+                      icon={newPhone.isPrimary ? "checkbox-marked" : "checkbox-blank-outline"}
+                      onPress={() => setNewPhone({...newPhone, isPrimary: !newPhone.isPrimary})}
+                    />
+                  </View>
+                </ScrollView>
+              </Dialog.ScrollArea>
+              <Dialog.Actions>
+                <Button onPress={() => {
+                  Keyboard.dismiss();
+                  setPhoneDialogVisible(false);
+                }}>Cancel</Button>
+                <Button onPress={() => {
+                  Keyboard.dismiss();
+                  handleAddPhone();
+                }}>Add</Button>
+              </Dialog.Actions>
+            </KeyboardAvoidingView>
+          </TouchableWithoutFeedback>
         </Dialog>
       </Portal>
       
       {/* Add Email Dialog */}
       <Portal>
         <Dialog visible={isEmailDialogVisible} onDismiss={() => setEmailDialogVisible(false)}>
-          <Dialog.Title>Add Email Address</Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label="Email Address"
-              value={newEmail.value}
-              onChangeText={(value) => setNewEmail({...newEmail, value})}
-              keyboardType="email-address"
-              style={styles.dialogInput}
-            />
-            
-            <View style={styles.labelContainer}>
-              <Text style={styles.labelText}>Label:</Text>
-              <Menu
-                visible={isEmailLabelMenuVisible}
-                onDismiss={() => setEmailLabelMenuVisible(false)}
-                anchor={
-                  <Button 
-                    mode="outlined" 
-                    onPress={() => setEmailLabelMenuVisible(true)}
-                    style={styles.labelButton}
-                  >
-                    {newEmail.label} <IconButton icon="menu-down" size={16} />
-                  </Button>
-                }
-              >
-                {EMAIL_LABELS.map(label => (
-                  <Menu.Item 
-                    key={label}
-                    onPress={() => {
-                      setNewEmail({...newEmail, label});
-                      setEmailLabelMenuVisible(false);
-                    }} 
-                    title={label} 
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+              <Dialog.Title>Add Email Address</Dialog.Title>
+              <Dialog.ScrollArea>
+                <ScrollView contentContainerStyle={styles.dialogScrollContent}>
+                  <TextInput
+                    label="Email Address"
+                    value={newEmail.value}
+                    onChangeText={(value) => setNewEmail({...newEmail, value})}
+                    keyboardType="email-address"
+                    style={styles.dialogInput}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
                   />
-                ))}
-              </Menu>
-            </View>
-            
-            <View style={styles.switchContainer}>
-              <Text>Set as primary email</Text>
-              <IconButton
-                icon={newEmail.isPrimary ? "checkbox-marked" : "checkbox-blank-outline"}
-                onPress={() => setNewEmail({...newEmail, isPrimary: !newEmail.isPrimary})}
-              />
-            </View>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setEmailDialogVisible(false)}>Cancel</Button>
-            <Button onPress={handleAddEmail}>Add</Button>
-          </Dialog.Actions>
+                  
+                  <View style={styles.keyboardDismissButtonContainer}>
+                    <Button 
+                      mode="text" 
+                      onPress={Keyboard.dismiss}
+                      style={styles.keyboardDismissButton}
+                    >
+                      Done with keyboard
+                    </Button>
+                  </View>
+                  
+                  <View style={styles.labelContainer}>
+                    <Text style={styles.labelText}>Label:</Text>
+                    <Menu
+                      visible={isEmailLabelMenuVisible}
+                      onDismiss={() => setEmailLabelMenuVisible(false)}
+                      anchor={
+                        <Button 
+                          mode="outlined" 
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setEmailLabelMenuVisible(true);
+                          }}
+                          style={styles.labelButton}
+                        >
+                          {newEmail.label} <IconButton icon="menu-down" size={16} />
+                        </Button>
+                      }
+                    >
+                      {EMAIL_LABELS.map(label => (
+                        <Menu.Item 
+                          key={label}
+                          onPress={() => {
+                            setNewEmail({...newEmail, label});
+                            setEmailLabelMenuVisible(false);
+                          }} 
+                          title={label} 
+                        />
+                      ))}
+                    </Menu>
+                  </View>
+                  
+                  <View style={styles.switchContainer}>
+                    <Text>Set as primary email</Text>
+                    <IconButton
+                      icon={newEmail.isPrimary ? "checkbox-marked" : "checkbox-blank-outline"}
+                      onPress={() => setNewEmail({...newEmail, isPrimary: !newEmail.isPrimary})}
+                    />
+                  </View>
+                </ScrollView>
+              </Dialog.ScrollArea>
+              <Dialog.Actions>
+                <Button onPress={() => {
+                  Keyboard.dismiss();
+                  setEmailDialogVisible(false);
+                }}>Cancel</Button>
+                <Button onPress={() => {
+                  Keyboard.dismiss();
+                  handleAddEmail();
+                }}>Add</Button>
+              </Dialog.Actions>
+            </KeyboardAvoidingView>
+          </TouchableWithoutFeedback>
         </Dialog>
       </Portal>
       
       {/* Add Address Dialog */}
       <Portal>
         <Dialog visible={isAddressDialogVisible} onDismiss={() => setAddressDialogVisible(false)}>
-          <Dialog.Title>Add Address</Dialog.Title>
-          <Dialog.ScrollArea>
-            <ScrollView contentContainerStyle={styles.dialogScrollContent}>
-              <TextInput
-                label="Street"
-                value={newAddress.street}
-                onChangeText={(street) => setNewAddress({...newAddress, street})}
-                style={styles.dialogInput}
-              />
-              
-              <TextInput
-                label="City"
-                value={newAddress.city}
-                onChangeText={(city) => setNewAddress({...newAddress, city})}
-                style={styles.dialogInput}
-              />
-              
-              <TextInput
-                label="State/Province"
-                value={newAddress.state}
-                onChangeText={(state) => setNewAddress({...newAddress, state})}
-                style={styles.dialogInput}
-              />
-              
-              <TextInput
-                label="Postal Code"
-                value={newAddress.postalCode}
-                onChangeText={(postalCode) => setNewAddress({...newAddress, postalCode})}
-                style={styles.dialogInput}
-              />
-              
-              <TextInput
-                label="Country"
-                value={newAddress.country}
-                onChangeText={(country) => setNewAddress({...newAddress, country})}
-                style={styles.dialogInput}
-              />
-              
-              <View style={styles.labelContainer}>
-                <Text style={styles.labelText}>Label:</Text>
-                <Menu
-                  visible={isAddressLabelMenuVisible}
-                  onDismiss={() => setAddressLabelMenuVisible(false)}
-                  anchor={
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+              <Dialog.Title>Add Address</Dialog.Title>
+              <Dialog.ScrollArea>
+                <ScrollView contentContainerStyle={styles.dialogScrollContent}>
+                  <TextInput
+                    label="Street"
+                    value={newAddress.street}
+                    onChangeText={(street) => setNewAddress({...newAddress, street})}
+                    style={styles.dialogInput}
+                    returnKeyType="next"
+                  />
+                  
+                  <TextInput
+                    label="City"
+                    value={newAddress.city}
+                    onChangeText={(city) => setNewAddress({...newAddress, city})}
+                    style={styles.dialogInput}
+                    returnKeyType="next"
+                  />
+                  
+                  <TextInput
+                    label="State/Province"
+                    value={newAddress.state}
+                    onChangeText={(state) => setNewAddress({...newAddress, state})}
+                    style={styles.dialogInput}
+                    returnKeyType="next"
+                  />
+                  
+                  <TextInput
+                    label="Postal Code"
+                    value={newAddress.postalCode}
+                    onChangeText={(postalCode) => setNewAddress({...newAddress, postalCode})}
+                    style={styles.dialogInput}
+                    keyboardType="number-pad"
+                    returnKeyType="next"
+                  />
+                  
+                  <TextInput
+                    label="Country"
+                    value={newAddress.country}
+                    onChangeText={(country) => setNewAddress({...newAddress, country})}
+                    style={styles.dialogInput}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                  
+                  <View style={styles.keyboardDismissButtonContainer}>
                     <Button 
-                      mode="outlined" 
-                      onPress={() => setAddressLabelMenuVisible(true)}
-                      style={styles.labelButton}
+                      mode="text" 
+                      onPress={Keyboard.dismiss}
+                      style={styles.keyboardDismissButton}
                     >
-                      {newAddress.label} <IconButton icon="menu-down" size={16} />
+                      Done with keyboard
                     </Button>
-                  }
-                >
-                  {ADDRESS_LABELS.map(label => (
-                    <Menu.Item 
-                      key={label}
-                      onPress={() => {
-                        setNewAddress({...newAddress, label});
-                        setAddressLabelMenuVisible(false);
-                      }} 
-                      title={label} 
+                  </View>
+                  
+                  <View style={styles.labelContainer}>
+                    <Text style={styles.labelText}>Label:</Text>
+                    <Menu
+                      visible={isAddressLabelMenuVisible}
+                      onDismiss={() => setAddressLabelMenuVisible(false)}
+                      anchor={
+                        <Button 
+                          mode="outlined" 
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setAddressLabelMenuVisible(true);
+                          }}
+                          style={styles.labelButton}
+                        >
+                          {newAddress.label} <IconButton icon="menu-down" size={16} />
+                        </Button>
+                      }
+                    >
+                      {ADDRESS_LABELS.map(label => (
+                        <Menu.Item 
+                          key={label}
+                          onPress={() => {
+                            setNewAddress({...newAddress, label});
+                            setAddressLabelMenuVisible(false);
+                          }} 
+                          title={label} 
+                        />
+                      ))}
+                    </Menu>
+                  </View>
+                  
+                  <View style={styles.switchContainer}>
+                    <Text>Set as primary address</Text>
+                    <IconButton
+                      icon={newAddress.isPrimary ? "checkbox-marked" : "checkbox-blank-outline"}
+                      onPress={() => setNewAddress({...newAddress, isPrimary: !newAddress.isPrimary})}
                     />
-                  ))}
-                </Menu>
-              </View>
-              
-              <View style={styles.switchContainer}>
-                <Text>Set as primary address</Text>
-                <IconButton
-                  icon={newAddress.isPrimary ? "checkbox-marked" : "checkbox-blank-outline"}
-                  onPress={() => setNewAddress({...newAddress, isPrimary: !newAddress.isPrimary})}
-                />
-              </View>
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <Button onPress={() => setAddressDialogVisible(false)}>Cancel</Button>
-            <Button onPress={handleAddAddress}>Add</Button>
-          </Dialog.Actions>
+                  </View>
+                </ScrollView>
+              </Dialog.ScrollArea>
+              <Dialog.Actions>
+                <Button onPress={() => {
+                  Keyboard.dismiss();
+                  setAddressDialogVisible(false);
+                }}>Cancel</Button>
+                <Button onPress={() => {
+                  Keyboard.dismiss();
+                  handleAddAddress();
+                }}>Add</Button>
+              </Dialog.Actions>
+            </KeyboardAvoidingView>
+          </TouchableWithoutFeedback>
         </Dialog>
       </Portal>
 
@@ -649,6 +736,14 @@ const styles = StyleSheet.create({
   },
   dialogContent: {
     marginBottom: 16,
+  },
+  keyboardDismissButtonContainer: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  keyboardDismissButton: {
+    marginTop: 8,
+    marginBottom: 8,
   },
 });
 

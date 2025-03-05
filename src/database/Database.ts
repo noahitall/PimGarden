@@ -699,6 +699,38 @@ export class Database {
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 
+  // Get interaction counts by month for the past year
+  async getInteractionCountsByMonth(entityId: string): Promise<{ month: string; count: number }[]> {
+    const oneYearAgo = Date.now() - (365 * 24 * 60 * 60 * 1000);
+    
+    // Get all interactions in the past year
+    const interactions = await this.getInteractionTimestamps(entityId, oneYearAgo);
+    
+    // Group by month
+    const countsByMonth: Record<string, number> = {};
+    
+    // Initialize all months in the past year with 0 count
+    for (let i = 0; i < 12; i++) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      // Format as YYYY-MM
+      const monthString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      countsByMonth[monthString] = 0;
+    }
+    
+    // Count interactions by month
+    interactions.forEach(timestamp => {
+      const date = new Date(timestamp);
+      const monthString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      countsByMonth[monthString] = (countsByMonth[monthString] || 0) + 1;
+    });
+    
+    // Convert to array format
+    return Object.entries(countsByMonth)
+      .map(([month, count]) => ({ month, count }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+  }
+
   // Search entities by name, phone number, or email
   async searchEntities(searchTerm: string, type?: EntityType): Promise<Entity[]> {
     if (!searchTerm.trim()) {

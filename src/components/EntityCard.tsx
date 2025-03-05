@@ -5,7 +5,10 @@ import { Entity } from '../types';
 import { database, InteractionType } from '../database/Database';
 
 // Custom SparkLine component
-const SparkLine: React.FC<{ data: number[] }> = ({ data }) => {
+const SparkLine: React.FC<{ 
+  data: number[]; 
+  timespan: 'month' | 'year';
+}> = ({ data, timespan }) => {
   if (!data.length) return null;
   
   // Normalize data to fit in the available space
@@ -21,7 +24,9 @@ const SparkLine: React.FC<{ data: number[] }> = ({ data }) => {
             styles.sparkLineBar, 
             { 
               height: Math.max(value * 20, 1), // Min height of 1
-              backgroundColor: value > 0 ? '#6200ee' : '#e0e0e0' 
+              backgroundColor: value > 0 ? '#6200ee' : '#e0e0e0',
+              width: timespan === 'year' ? 9 : 3, // Wider bars for yearly data
+              marginHorizontal: timespan === 'year' ? 0 : 1, // Adjust spacing
             }
           ]} 
         />
@@ -39,6 +44,7 @@ interface EntityCardProps {
 
 const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, selected = false }) => {
   const [interactionData, setInteractionData] = useState<number[]>([]);
+  const [interactionTimespan, setInteractionTimespan] = useState<'month' | 'year'>('month');
   const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
   const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
   
@@ -46,13 +52,28 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, s
   useEffect(() => {
     const loadInteractionData = async () => {
       try {
+        // Get the daily data for the last month
         const countsByDay = await database.getInteractionCountsByDay(entity.id);
-        // Get the last 14 days of data for the spark chart
-        const last14Days = countsByDay.slice(-14).map(item => item.count);
-        setInteractionData(last14Days);
+        const dailyData = countsByDay.slice(-30).map(item => item.count);
+        
+        // Check if there's any activity in the last month
+        const hasRecentActivity = dailyData.some(count => count > 0);
+        
+        if (hasRecentActivity) {
+          // If there's recent activity, show the last 14 days
+          setInteractionData(dailyData.slice(-14));
+          setInteractionTimespan('month');
+        } else {
+          // If no recent activity, get yearly data
+          const countsByMonth = await database.getInteractionCountsByMonth(entity.id);
+          const monthlyData = countsByMonth.map(item => item.count);
+          setInteractionData(monthlyData);
+          setInteractionTimespan('year');
+        }
       } catch (error) {
         console.error('Error loading interaction data:', error);
         setInteractionData(Array(14).fill(0));
+        setInteractionTimespan('month');
       }
     };
     
@@ -160,28 +181,32 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, s
           
           {/* Card content */}
           <View style={styles.imageContainer}>
-            {entity.image ? (
-              <Image source={{ uri: entity.image }} style={styles.image} />
-            ) : (
-              <View style={styles.imagePlaceholder}>
-                <Text style={styles.placeholderText}>
-                  {entity.name.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
-          </View>
-          
-          <View style={styles.textContent}>
-            {entity.details ? (
-              <Text style={styles.details} numberOfLines={1}>
-                {entity.details}
-              </Text>
-            ) : null}
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation(); // Prevent triggering the card's onPress
+                handleInteraction();
+              }}
+            >
+              {entity.image ? (
+                <Image source={{ uri: entity.image }} style={styles.image} />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <Text style={styles.placeholderText}>
+                    {getInitials()}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
           
           {/* Spark line chart for interaction data */}
           <View style={styles.sparkLineWrapper}>
-            <SparkLine data={interactionData} />
+            <View style={styles.timespanIndicator}>
+              <Text style={styles.timespanText}>
+                {interactionTimespan === 'month' ? 'Last 14 days' : 'Last 12 months'}
+              </Text>
+            </View>
+            <SparkLine data={interactionData} timespan={interactionTimespan} />
           </View>
         </TouchableOpacity>
       </Surface>
@@ -234,6 +259,7 @@ const styles = StyleSheet.create({
     display: 'flex',
     flexDirection: 'column',
     position: 'relative', // For absolute positioning of spark chart
+    justifyContent: 'space-between', // Distribute space evenly
   },
   nameContainer: {
     alignItems: 'center',
@@ -243,7 +269,7 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 24, // Increased margin since we removed details
   },
   image: {
     width: 100,
@@ -267,10 +293,6 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: 'bold',
   },
-  textContent: {
-    minHeight: 20,
-    alignItems: 'center',
-  },
   nameText: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -289,16 +311,17 @@ const styles = StyleSheet.create({
     height: 30, // Space for spark chart
   },
   sparkLineWrapper: {
-    height: 24,
-    position: 'absolute',
-    bottom: 8,
-    left: 12,
-    right: 12,
+    marginTop: 'auto', // Push to bottom
+    height: 40, // Increased height for timespan indicator and chart
+    position: 'relative',
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   sparkLineContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    justifyContent: 'center', // Center the bars
     height: 20,
   },
   sparkLineBar: {
@@ -317,6 +340,14 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#6200ee',
     borderRadius: 12,
+  },
+  timespanIndicator: {
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  timespanText: {
+    fontSize: 10,
+    color: '#757575',
   },
 });
 
