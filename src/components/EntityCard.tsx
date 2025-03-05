@@ -145,6 +145,8 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
             )}
           </View>
           
+          <View style={styles.spacer} />
+          
           <View style={styles.sparkLineWrapper}>
             <SparkLine data={interactionData} />
           </View>
@@ -169,9 +171,10 @@ const styles = StyleSheet.create({
   },
   touchable: {
     padding: 12,
-    height: 200,
+    minHeight: 200,
     display: 'flex',
     flexDirection: 'column',
+    position: 'relative', // For absolute positioning of spark chart
   },
   nameContainer: {
     alignItems: 'center',
@@ -206,7 +209,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   textContent: {
-    flex: 1,
+    minHeight: 20,
     alignItems: 'center',
   },
   nameText: {
@@ -223,10 +226,15 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
   },
+  spacer: {
+    height: 30, // Space for spark chart
+  },
   sparkLineWrapper: {
     height: 24,
-    marginTop: 'auto',
-    paddingTop: 4,
+    position: 'absolute',
+    bottom: 8,
+    left: 12,
+    right: 12,
   },
   sparkLineContainer: {
     flexDirection: 'row',

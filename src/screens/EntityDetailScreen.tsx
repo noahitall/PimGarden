@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Image, Alert, FlatList, TouchableOpacity } from 'react-native';
-import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List } from 'react-native-paper';
+import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph } from 'react-native-paper';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,7 +25,9 @@ const EntityDetailScreen: React.FC = () => {
   const [interactionLogs, setInteractionLogs] = useState<InteractionLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
-  const LOGS_LIMIT = 20;
+  const [logsOffset, setLogsOffset] = useState(0);
+  const INITIAL_LOGS_LIMIT = 6;  // Initial number of logs to display
+  const LOGS_LIMIT = 20;         // Number of logs to load on "View More"
 
   // Load entity data
   useEffect(() => {
@@ -36,7 +38,13 @@ const EntityDetailScreen: React.FC = () => {
   const loadEntityData = async () => {
     try {
       setLoading(true);
-      const data = await database.getEntityById(route.params.id);
+      
+      // Get entity ID from route params
+      const entityId = route.params?.id || '123';
+      
+      // Get entity from database
+      const data = await database.getEntityById(entityId);
+      
       if (data) {
         // Convert the database entity to the correct type
         const typedEntity: Entity = {
@@ -46,7 +54,10 @@ const EntityDetailScreen: React.FC = () => {
           image: data.image || undefined
         };
         setEntity(typedEntity);
-        await loadInteractionLogs(data.id);
+        
+        // Reset logs when loading a new entity
+        setLogsOffset(0);
+        await loadInteractionLogs(data.id, true, INITIAL_LOGS_LIMIT);  // Pass initial limit
       }
     } catch (error) {
       console.error('Error loading entity:', error);
@@ -56,16 +67,33 @@ const EntityDetailScreen: React.FC = () => {
   };
 
   // Load interaction logs
-  const loadInteractionLogs = async (entityId: string) => {
+  const loadInteractionLogs = async (entityId: string, reset: boolean = true, limit: number = LOGS_LIMIT) => {
     try {
       setLoadingLogs(true);
-      // Limit to 20 most recent logs to avoid performance issues
-      const logs = await database.getInteractionLogs(entityId, LOGS_LIMIT);
-      setInteractionLogs(logs);
+      
+      // Reset offset if requested
+      if (reset) {
+        setLogsOffset(0);
+      }
+      
+      const currentOffset = reset ? 0 : logsOffset;
+      
+      // Get logs with current offset and specified limit
+      const logs = await database.getInteractionLogs(entityId, limit, currentOffset);
+      
+      // If reset, replace logs, otherwise append to existing logs
+      if (reset) {
+        setInteractionLogs(logs);
+      } else {
+        setInteractionLogs(prevLogs => [...prevLogs, ...logs]);
+      }
+      
+      // Update offset for next load
+      setLogsOffset(currentOffset + logs.length);
       
       // Check if there are more logs
       const totalCount = await database.getInteractionCount(entityId);
-      setHasMoreLogs(totalCount > LOGS_LIMIT);
+      setHasMoreLogs(totalCount > currentOffset + logs.length);
     } catch (error) {
       console.error('Error loading interaction logs:', error);
     } finally {
@@ -208,19 +236,12 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
 
-  // Handle view all logs
-  const handleViewAllLogs = () => {
+  // Handle view more logs
+  const handleViewMoreLogs = async () => {
     if (!entity) return;
     
-    // Navigate to a dedicated logs screen (you would need to create this)
-    Alert.alert(
-      'View All Interactions',
-      'This would navigate to a dedicated screen showing all interaction logs.',
-      [{ text: 'OK' }]
-    );
-    
-    // In a real implementation, you would navigate to a dedicated screen:
-    // navigation.navigate('InteractionLogs', { entityId: entity.id });
+    // Load more logs without resetting the current list
+    await loadInteractionLogs(entity.id, false, LOGS_LIMIT);
   };
 
   if (loading) {
@@ -330,28 +351,35 @@ const EntityDetailScreen: React.FC = () => {
         <Card.Title title="Interaction History" />
         <Divider style={styles.divider} />
         <Card.Content>
-          {loadingLogs ? (
+          {loadingLogs && interactionLogs.length === 0 ? (
             <ActivityIndicator size="small" color="#6200ee" style={styles.logsLoading} />
           ) : interactionLogs.length === 0 ? (
             <Text style={styles.noLogsText}>No interactions recorded yet</Text>
           ) : (
             <>
-              <View style={styles.logsList}>
-                {interactionLogs.map(item => (
+              <FlatList
+                style={styles.logsList}
+                data={interactionLogs}
+                renderItem={({ item }) => (
                   <List.Item
                     key={item.id}
                     title={item.formattedDate}
                     left={props => <List.Icon {...props} icon="star" color="#6200ee" />}
                   />
-                ))}
-              </View>
+                )}
+                keyExtractor={item => item.id}
+                scrollEnabled={true}
+                nestedScrollEnabled={true}
+              />
               {hasMoreLogs && (
                 <Button 
-                  mode="text" 
-                  onPress={handleViewAllLogs}
-                  style={styles.viewAllButton}
+                  mode="outlined" 
+                  onPress={handleViewMoreLogs}
+                  style={styles.viewMoreButton}
+                  loading={loadingLogs}
+                  disabled={loadingLogs}
                 >
-                  View All Interactions
+                  View More
                 </Button>
               )}
             </>
@@ -482,7 +510,6 @@ const styles = StyleSheet.create({
   },
   logsList: {
     maxHeight: 300,
-    overflow: 'scroll',
   },
   logsLoading: {
     margin: 20,
@@ -509,8 +536,9 @@ const styles = StyleSheet.create({
     margin: 0,
     padding: 0,
   },
-  viewAllButton: {
-    marginTop: 8,
+  viewMoreButton: {
+    marginTop: 16,
+    borderColor: '#6200ee',
     alignSelf: 'center',
   },
 });
