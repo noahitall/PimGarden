@@ -26,6 +26,15 @@ interface Interaction {
   id: string;
   entity_id: string;
   timestamp: number;
+  type: string; // Added interaction type field
+}
+
+// InteractionType interface
+export interface InteractionType {
+  id: string;
+  name: string;
+  tag_id: string | null; // Associated tag (or null for generic types)
+  icon: string; // Material icon name
 }
 
 // EntityPhoto interface
@@ -61,6 +70,7 @@ export class Database {
 
   // Initialize database tables
   private async init(): Promise<void> {
+    // Create tables if they don't exist
     await this.db.execAsync(`
       CREATE TABLE IF NOT EXISTS entities (
         id TEXT PRIMARY KEY,
@@ -84,6 +94,9 @@ export class Database {
         FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
       );
     `);
+    
+    // Run migrations to update schema if needed
+    await this.runMigrations();
     
     // Create entity_photos table to store additional photos
     await this.db.execAsync(`
@@ -116,6 +129,72 @@ export class Database {
         FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
       );
     `);
+    
+    // Initialize default interaction types
+    this.initDefaultInteractionTypes();
+  }
+  
+  // Run database migrations to update schema
+  private async runMigrations(): Promise<void> {
+    try {
+      // Check if we need to add the 'type' column to interactions table
+      const tableInfo = await this.db.getAllAsync("PRAGMA table_info(interactions)");
+      const hasTypeColumn = tableInfo.some((column: any) => column.name === 'type');
+      
+      if (!hasTypeColumn) {
+        console.log('Adding type column to interactions table...');
+        await this.db.execAsync('ALTER TABLE interactions ADD COLUMN type TEXT DEFAULT "General Contact"');
+      }
+      
+      // Check if interaction_types table exists
+      const tables = await this.db.getAllAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='interaction_types'");
+      if (tables.length === 0) {
+        console.log('Creating interaction_types table...');
+        await this.db.execAsync(`
+          CREATE TABLE interaction_types (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            tag_id TEXT,
+            icon TEXT NOT NULL,
+            FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+          );
+        `);
+        
+        // Initialize default interaction types after creating the table
+        await this.initDefaultInteractionTypes();
+      }
+    } catch (error) {
+      console.error('Error running migrations:', error);
+    }
+  }
+
+  // Initialize default interaction types
+  private async initDefaultInteractionTypes(): Promise<void> {
+    const defaultTypes = [
+      { name: 'General Contact', icon: 'account-check', tag_id: null },
+      { name: 'Message', icon: 'message-text', tag_id: null },
+      { name: 'Phone Call', icon: 'phone', tag_id: null },
+      { name: 'Meeting', icon: 'account-group', tag_id: null },
+      { name: 'Email', icon: 'email', tag_id: null },
+      { name: 'Coffee', icon: 'coffee', tag_id: null },
+      { name: 'Birthday', icon: 'cake', tag_id: null }
+    ];
+    
+    for (const type of defaultTypes) {
+      // Check if type already exists
+      const existingType = await this.db.getAllAsync(
+        'SELECT * FROM interaction_types WHERE name = ?',
+        [type.name]
+      );
+      
+      if (existingType.length === 0) {
+        const id = await this.generateId();
+        await this.db.runAsync(
+          'INSERT INTO interaction_types (id, name, tag_id, icon) VALUES (?, ?, ?, ?)',
+          [id, type.name, type.tag_id, type.icon]
+        );
+      }
+    }
   }
 
   // Generate a unique ID
@@ -289,13 +368,13 @@ export class Database {
     return result.changes > 0;
   }
 
-  // Increment interaction score and record timestamp
-  async incrementInteractionScore(id: string): Promise<boolean> {
-    // Start a transaction
-    await this.db.execAsync('BEGIN TRANSACTION');
-    
+  // Increment interaction score and record interaction
+  async incrementInteractionScore(id: string, interactionType: string = 'General Contact'): Promise<boolean> {
     try {
-      // Update the entity's interaction score
+      // Start a transaction
+      await this.db.execAsync('BEGIN TRANSACTION');
+      
+      // Increment the interaction score
       const updateQuery = `
         UPDATE entities 
         SET interaction_score = interaction_score + 1, 
@@ -304,14 +383,14 @@ export class Database {
       `;
       await this.db.runAsync(updateQuery, [Date.now(), id]);
       
-      // Record the interaction timestamp
+      // Record the interaction timestamp with type
       const interactionId = await this.generateId();
       const timestamp = Date.now();
       const insertQuery = `
-        INSERT INTO interactions (id, entity_id, timestamp)
-        VALUES (?, ?, ?)
+        INSERT INTO interactions (id, entity_id, timestamp, type)
+        VALUES (?, ?, ?, ?)
       `;
-      await this.db.runAsync(insertQuery, [interactionId, id, timestamp]);
+      await this.db.runAsync(insertQuery, [interactionId, id, timestamp, interactionType]);
       
       // Commit the transaction
       await this.db.execAsync('COMMIT');
@@ -345,37 +424,59 @@ export class Database {
     entityId: string,
     limit: number = 50,
     offset: number = 0
-  ): Promise<{ id: string; timestamp: number; formattedDate: string }[]> {
-    const query = `
-      SELECT id, timestamp
-      FROM interactions 
-      WHERE entity_id = ? 
-      ORDER BY timestamp DESC
-      LIMIT ? OFFSET ?
-    `;
-    
-    const results = await this.db.getAllAsync(query, [entityId, limit, offset]);
-    
-    return results.map((row: any) => {
-      const timestamp = row.timestamp as number;
-      const date = new Date(timestamp);
+  ): Promise<{ id: string; timestamp: number; formattedDate: string; type: string }[]> {
+    try {
+      // Check if type column exists yet
+      const tableInfo = await this.db.getAllAsync("PRAGMA table_info(interactions)");
+      const hasTypeColumn = tableInfo.some((column: any) => column.name === 'type');
+
+      // Construct query based on available columns
+      let query: string;
+      if (hasTypeColumn) {
+        query = `
+          SELECT id, timestamp, type
+          FROM interactions 
+          WHERE entity_id = ? 
+          ORDER BY timestamp DESC
+          LIMIT ? OFFSET ?
+        `;
+      } else {
+        query = `
+          SELECT id, timestamp
+          FROM interactions 
+          WHERE entity_id = ? 
+          ORDER BY timestamp DESC
+          LIMIT ? OFFSET ?
+        `;
+      }
       
-      // Format date as "Month Day, Year at Hour:Minute AM/PM"
-      const formattedDate = date.toLocaleString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
+      const results = await this.db.getAllAsync(query, [entityId, limit, offset]);
+      
+      return results.map((row: any) => {
+        const timestamp = row.timestamp as number;
+        const date = new Date(timestamp);
+        
+        // Format date as "Month Day, Year at Hour:Minute AM/PM"
+        const formattedDate = date.toLocaleString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+        
+        return {
+          id: row.id,
+          timestamp,
+          formattedDate,
+          type: row.type || 'General Contact'
+        };
       });
-      
-      return {
-        id: row.id,
-        timestamp,
-        formattedDate
-      };
-    });
+    } catch (error) {
+      console.error('Error getting interaction logs:', error);
+      throw error;
+    }
   }
 
   // Get total count of interactions for an entity
@@ -700,6 +801,164 @@ export class Database {
     } catch (error) {
       console.error('Error getting all tags:', error);
       return [];
+    }
+  }
+
+  // Get all interaction types
+  async getInteractionTypes(): Promise<InteractionType[]> {
+    const query = `
+      SELECT id, name, tag_id, icon
+      FROM interaction_types
+      ORDER BY name
+    `;
+    
+    const results = await this.db.getAllAsync(query);
+    return results as InteractionType[];
+  }
+
+  // Get interaction types appropriate for an entity based on its tags
+  async getEntityInteractionTypes(entityId: string): Promise<InteractionType[]> {
+    // First get general interaction types (not associated with tags)
+    const generalTypesQuery = `
+      SELECT id, name, tag_id, icon
+      FROM interaction_types
+      WHERE tag_id IS NULL
+      ORDER BY name
+    `;
+    
+    const generalTypes = await this.db.getAllAsync(generalTypesQuery);
+    
+    // Then get tag-specific interaction types for this entity's tags
+    const tagTypesQuery = `
+      SELECT it.id, it.name, it.tag_id, it.icon
+      FROM interaction_types it
+      JOIN entity_tags et ON it.tag_id = et.tag_id
+      WHERE et.entity_id = ? AND it.tag_id IS NOT NULL
+      ORDER BY it.name
+    `;
+    
+    const tagTypes = await this.db.getAllAsync(tagTypesQuery, [entityId]);
+    
+    // Combine and return all types
+    return [...generalTypes, ...tagTypes] as InteractionType[];
+  }
+
+  // Add a new interaction type
+  async addInteractionType(name: string, icon: string, tagId: string | null = null): Promise<string> {
+    const id = await this.generateId();
+    await this.db.runAsync(
+      'INSERT INTO interaction_types (id, name, tag_id, icon) VALUES (?, ?, ?, ?)',
+      [id, name, tagId, icon]
+    );
+    return id;
+  }
+
+  // Associate an interaction type with a tag
+  async associateInteractionTypeWithTag(typeId: string, tagId: string): Promise<void> {
+    await this.db.runAsync(
+      'UPDATE interaction_types SET tag_id = ? WHERE id = ?',
+      [tagId, typeId]
+    );
+  }
+
+  // Delete an interaction type
+  async deleteInteractionType(id: string): Promise<void> {
+    await this.db.runAsync('DELETE FROM interaction_types WHERE id = ?', [id]);
+  }
+
+  // Create tag-specific interaction types based on tag name
+  private async createTagInteractionTypes(tagId: string, tagName: string): Promise<void> {
+    // Create appropriate interaction types based on tag name
+    // Different tags will have different relevant interaction types
+    const interactionTypes: { name: string, icon: string }[] = [];
+    
+    const lowerTagName = tagName.toLowerCase();
+    
+    // Add tag-specific interaction types based on common categories
+    if (lowerTagName.includes('friend') || lowerTagName.includes('family')) {
+      interactionTypes.push(
+        { name: 'Visit', icon: 'home' },
+        { name: 'Catch Up', icon: 'chat' },
+        { name: 'Gift', icon: 'gift' }
+      );
+    }
+    
+    if (lowerTagName.includes('work') || lowerTagName.includes('colleague') || lowerTagName.includes('coworker')) {
+      interactionTypes.push(
+        { name: 'Meeting', icon: 'calendar' },
+        { name: 'Presentation', icon: 'presentation' },
+        { name: 'Project Discussion', icon: 'clipboard-text' }
+      );
+    }
+    
+    if (lowerTagName.includes('client') || lowerTagName.includes('customer')) {
+      interactionTypes.push(
+        { name: 'Sales Call', icon: 'phone-in-talk' },
+        { name: 'Follow-up', icon: 'arrow-right-circle' },
+        { name: 'Proposal', icon: 'file-document' }
+      );
+    }
+    
+    if (lowerTagName.includes('doctor') || lowerTagName.includes('medical') || lowerTagName.includes('health')) {
+      interactionTypes.push(
+        { name: 'Appointment', icon: 'calendar-check' },
+        { name: 'Consultation', icon: 'stethoscope' }
+      );
+    }
+    
+    if (lowerTagName.includes('book') || lowerTagName.includes('author')) {
+      interactionTypes.push(
+        { name: 'Reading', icon: 'book-open-page-variant' },
+        { name: 'Discussion', icon: 'forum' }
+      );
+    }
+    
+    if (lowerTagName.includes('hobby') || lowerTagName.includes('interest') || lowerTagName.includes('club')) {
+      interactionTypes.push(
+        { name: 'Activity', icon: 'run' },
+        { name: 'Discussion', icon: 'forum' }
+      );
+    }
+    
+    // Add a generic type with the tag name if we haven't added any specific ones
+    if (interactionTypes.length === 0) {
+      interactionTypes.push({ name: `${tagName} Interaction`, icon: 'star' });
+    }
+    
+    // Create the interaction types and associate them with the tag
+    for (const type of interactionTypes) {
+      await this.addInteractionType(type.name, type.icon, tagId);
+    }
+  }
+
+  // Add a new tag
+  async addTag(name: string): Promise<string> {
+    try {
+      // Check if tag already exists (case insensitive)
+      const existingTag = await this.db.getAllAsync(
+        'SELECT * FROM tags WHERE name COLLATE NOCASE = ?',
+        [name.trim()]
+      );
+      
+      if (existingTag.length > 0) {
+        // Tag already exists, return its ID
+        return (existingTag[0] as any).id;
+      }
+      
+      // Generate a new ID and create the tag
+      const id = await this.generateId();
+      await this.db.runAsync(
+        'INSERT INTO tags (id, name, count) VALUES (?, ?, ?)',
+        [id, name.trim(), 0]
+      );
+      
+      // Create interaction types related to this tag
+      await this.createTagInteractionTypes(id, name.trim());
+      
+      return id;
+    } catch (error) {
+      console.error('Error adding tag:', error);
+      throw error;
     }
   }
 }

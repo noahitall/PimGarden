@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Image, TouchableOpacity, Dimensions } from 'react-native';
-import { Text, Surface, Badge, IconButton } from 'react-native-paper';
+import { StyleSheet, View, Image, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
+import { Text, Surface, Badge, IconButton, Dialog, Portal, Button, List } from 'react-native-paper';
 import { Entity } from '../types';
-import { database } from '../database/Database';
+import { database, InteractionType } from '../database/Database';
 
 // Custom SparkLine component
 const SparkLine: React.FC<{ data: number[] }> = ({ data }) => {
@@ -37,6 +37,8 @@ interface EntityCardProps {
 
 const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
   const [interactionData, setInteractionData] = useState<number[]>([]);
+  const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
+  const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
   
   // Load interaction data
   useEffect(() => {
@@ -54,14 +56,45 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
     
     loadInteractionData();
   }, [entity.id, entity.interaction_score]);
+  
+  // Load interaction types
+  useEffect(() => {
+    const loadInteractionTypes = async () => {
+      try {
+        const types = await database.getEntityInteractionTypes(entity.id);
+        setInteractionTypes(types);
+      } catch (error) {
+        console.error('Error loading interaction types:', error);
+      }
+    };
+    
+    loadInteractionTypes();
+  }, [entity.id]);
 
   // Function to handle interaction when photo is clicked
   const handleInteraction = async () => {
-    await database.incrementInteractionScore(entity.id);
-    // Reload interaction data after incrementing
-    const countsByDay = await database.getInteractionCountsByDay(entity.id);
-    const last14Days = countsByDay.slice(-14).map(item => item.count);
-    setInteractionData(last14Days);
+    // Show interaction type selection menu
+    setInteractionMenuVisible(true);
+  };
+  
+  // Handle interaction type selection
+  const handleSelectInteractionType = async (type: InteractionType) => {
+    setInteractionMenuVisible(false);
+    
+    try {
+      await database.incrementInteractionScore(entity.id, type.name);
+      // Reload interaction data after incrementing
+      const countsByDay = await database.getInteractionCountsByDay(entity.id);
+      const last14Days = countsByDay.slice(-14).map(item => item.count);
+      setInteractionData(last14Days);
+    } catch (error) {
+      console.error('Error recording interaction:', error);
+    }
+  };
+  
+  // Dismiss interaction menu
+  const dismissInteractionMenu = () => {
+    setInteractionMenuVisible(false);
   };
 
   // Function to get the icon based on entity type
@@ -152,6 +185,32 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
           </View>
         </TouchableOpacity>
       </Surface>
+      
+      {/* Interaction Type Selection Dialog */}
+      <Portal>
+        <Dialog
+          visible={interactionMenuVisible}
+          onDismiss={dismissInteractionMenu}
+          style={styles.dialog}
+        >
+          <Dialog.Title>Select Interaction Type</Dialog.Title>
+          <Dialog.Content>
+            <ScrollView style={styles.interactionTypeList}>
+              {interactionTypes.map(item => (
+                <List.Item
+                  key={item.id}
+                  title={item.name}
+                  left={props => <List.Icon {...props} icon={item.icon} />}
+                  onPress={() => handleSelectInteractionType(item)}
+                />
+              ))}
+            </ScrollView>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={dismissInteractionMenu}>Cancel</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 };
@@ -246,6 +305,13 @@ const styles = StyleSheet.create({
     width: 3,
     marginHorizontal: 1,
     borderRadius: 1,
+  },
+  dialog: {
+    paddingBottom: 10,
+  },
+  
+  interactionTypeList: {
+    maxHeight: 300,
   },
 });
 

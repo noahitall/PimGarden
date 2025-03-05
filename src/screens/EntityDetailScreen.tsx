@@ -5,7 +5,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import { RootStackParamList, Entity } from '../types';
-import { database, EntityType } from '../database/Database';
+import { database, EntityType, InteractionType } from '../database/Database';
 import { debounce } from 'lodash';
 
 // Define the InteractionLog interface
@@ -13,6 +13,7 @@ interface InteractionLog {
   id: string;
   timestamp: number;
   formattedDate: string;
+  type: string;
 }
 
 // Define the EntityPhoto interface 
@@ -66,6 +67,11 @@ const EntityDetailScreen: React.FC = () => {
   const [tagInput, setTagInput] = useState('');
   const [suggestedTags, setSuggestedTags] = useState<Tag[]>([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
+  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  
+  const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
+  const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
+  const [selectedInteractionType, setSelectedInteractionType] = useState<InteractionType | null>(null);
   
   // Load entity data
   useEffect(() => {
@@ -74,15 +80,11 @@ const EntityDetailScreen: React.FC = () => {
 
   // Load entity data from database
   const loadEntityData = async () => {
+    if (!route.params.id) return;
+    
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      // Get entity ID from route params
-      const entityId = route.params?.id || '123';
-      
-      // Get entity from database
-      const data = await database.getEntityById(entityId);
-      
+      const data = await database.getEntityById(route.params.id);
       if (data) {
         // Convert the database entity to the correct type
         const typedEntity: Entity = {
@@ -93,19 +95,25 @@ const EntityDetailScreen: React.FC = () => {
         };
         setEntity(typedEntity);
         
-        // Reset logs when loading a new entity
-        setLogsOffset(0);
-        await loadInteractionLogs(data.id, true, INITIAL_LOGS_LIMIT);
+        // Load interaction logs
+        await loadInteractionLogs(data.id);
         
-        // Load photos
-        setPhotosOffset(0);
-        await loadEntityPhotos(data.id, true);
+        // Load entity photos
+        await loadEntityPhotos(data.id);
         
-        // Load tags
+        // Load entity tags
         await loadEntityTags(data.id);
+        
+        // Load interaction types
+        await loadInteractionTypes(data.id);
+        
+        // Calculate photos count and set loading states
+        const photoCount = await database.getEntityPhotoCount(data.id);
+        setHasMorePhotos(photoCount > photos.length);
       }
     } catch (error) {
-      console.error('Error loading entity:', error);
+      console.error('Error loading entity data:', error);
+      Alert.alert('Error', 'Failed to load entity data');
     } finally {
       setLoading(false);
     }
@@ -190,6 +198,16 @@ const EntityDetailScreen: React.FC = () => {
       console.error('Error loading entity tags:', error);
     } finally {
       setLoadingTags(false);
+    }
+  };
+  
+  // Load interaction types for the entity
+  const loadInteractionTypes = async (entityId: string) => {
+    try {
+      const types = await database.getEntityInteractionTypes(entityId);
+      setInteractionTypes(types);
+    } catch (error) {
+      console.error('Error loading interaction types:', error);
     }
   };
   
@@ -296,9 +314,30 @@ const EntityDetailScreen: React.FC = () => {
   const handleInteraction = async () => {
     if (!entity) return;
     
-    await database.incrementInteractionScore(entity.id);
-    // Reload entity data and interaction logs
-    loadEntityData();
+    // Show interaction type selection menu
+    setInteractionMenuVisible(true);
+  };
+  
+  // Handle interaction type selection
+  const handleSelectInteractionType = async (type: InteractionType) => {
+    if (!entity) return;
+    
+    setInteractionMenuVisible(false);
+    setSelectedInteractionType(type);
+    
+    try {
+      await database.incrementInteractionScore(entity.id, type.name);
+      // Reload entity data and interaction logs
+      loadEntityData();
+    } catch (error) {
+      console.error('Error recording interaction:', error);
+      Alert.alert('Error', 'Failed to record interaction.');
+    }
+  };
+  
+  // Dismiss interaction menu
+  const dismissInteractionMenu = () => {
+    setInteractionMenuVisible(false);
   };
 
   // Handle edit button press
@@ -558,6 +597,35 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
 
+  // Handle tag selection toggle
+  const handleTagPress = (tagId: string) => {
+    if (selectedTagId === tagId) {
+      // If already selected, remove it
+      handleRemoveTag(tagId);
+      setSelectedTagId(null);
+    } else {
+      // Otherwise, select it
+      setSelectedTagId(tagId);
+    }
+  };
+
+  // Render an interaction log item
+  const renderInteractionLog = (item: InteractionLog) => {
+    // Find the interaction type to get its icon
+    const interactionType = interactionTypes.find(type => type.name === item.type);
+    const iconName = interactionType?.icon || 'account-check';
+    
+    return (
+      <List.Item
+        key={item.id}
+        title={item.type}
+        description={item.formattedDate}
+        left={props => <List.Icon {...props} icon={iconName} color="#6200ee" />}
+        style={styles.interactionLogItem}
+      />
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -568,37 +636,42 @@ const EntityDetailScreen: React.FC = () => {
 
   if (!entity) {
     return (
-      <View style={styles.errorContainer}>
+      <View style={styles.container}>
         <Text>Entity not found</Text>
-        <Button mode="contained" onPress={() => navigation.goBack()} style={styles.button}>
-          Go Back
-        </Button>
       </View>
     );
   }
 
   // Render a photo item
-  const renderPhotoItem = ({ item }: { item: EntityPhoto }) => (
-    <View style={styles.photoItem}>
-      <TouchableOpacity 
-        onPress={() => {
-          // Display photo full screen or with caption
-          Alert.alert(
-            item.caption || 'Photo',
-            'Photo taken on ' + new Date(item.timestamp).toLocaleDateString(),
-            [{ text: 'Close' }]
-          );
-        }}
-        onLongPress={() => handleDeletePhoto(item.id)}
-      >
-        <Image source={{ uri: item.uri }} style={styles.photoThumbnail} />
-        {item.caption && (
+  const renderPhotoItem = (item: EntityPhoto) => (
+    <TouchableOpacity
+      key={item.id}
+      style={styles.photoItem}
+      onPress={() => {
+        // Show photo in full screen or with more details
+        Alert.alert(
+          'Photo',
+          item.caption || 'No caption',
+          [
+            { text: 'Close' },
+            { 
+              text: 'Delete',
+              onPress: () => handleDeletePhoto(item.id),
+              style: 'destructive'
+            }
+          ]
+        );
+      }}
+    >
+      <Image source={{ uri: item.uri }} style={styles.photoImage} />
+      {item.caption && (
+        <View style={styles.photoCaptionContainer}>
           <Text numberOfLines={1} style={styles.photoCaption}>
             {item.caption}
           </Text>
-        )}
-      </TouchableOpacity>
-    </View>
+        </View>
+      )}
+    </TouchableOpacity>
   );
 
   // Render tag chip
@@ -606,8 +679,8 @@ const EntityDetailScreen: React.FC = () => {
     <Chip
       key={tag.id}
       style={styles.tagChip}
-      onClose={() => handleRemoveTag(tag.id)}
-      onPress={() => {}}
+      onClose={selectedTagId === tag.id ? () => handleRemoveTag(tag.id) : undefined}
+      onPress={() => handleTagPress(tag.id)}
       mode="outlined"
     >
       {tag.name}
@@ -615,10 +688,7 @@ const EntityDetailScreen: React.FC = () => {
   );
 
   return (
-    <ScrollView 
-      style={styles.container}
-      nestedScrollEnabled={true}
-    >
+    <ScrollView style={styles.container} nestedScrollEnabled={true}>
       <Card style={styles.card}>
         <View style={styles.headerContainer}>
           <TouchableOpacity onPress={handleImageSelection} style={styles.imageContainer}>
@@ -675,11 +745,11 @@ const EntityDetailScreen: React.FC = () => {
         <Card.Actions style={styles.actionsContainer}>
           <Button 
             mode="contained" 
-            icon="handshake" 
+            icon="account-plus"
             onPress={handleInteraction}
             style={[styles.button, styles.interactionButton]}
           >
-            Interact
+            Record Interaction
           </Button>
           <Button 
             mode="outlined" 
@@ -714,119 +784,79 @@ const EntityDetailScreen: React.FC = () => {
         
         {/* Interaction History Tab */}
         {activeTab === 'interactions' && (
-          <Card.Content>
+          <Card style={styles.sectionCard}>
             <Card.Title title="Interaction History" />
-            <Divider style={styles.divider} />
-            
-            {loadingLogs && interactionLogs.length === 0 ? (
-              <ActivityIndicator size="small" color="#6200ee" style={styles.logsLoading} />
-            ) : interactionLogs.length === 0 ? (
-              <Text style={styles.noLogsText}>No interactions recorded yet</Text>
-            ) : (
-              <View>
-                <ScrollView 
-                  style={styles.logsList}
+            <Card.Content>
+              {interactionLogs.length === 0 ? (
+                <Text style={styles.noDataText}>No interactions recorded yet.</Text>
+              ) : (
+                <ScrollView
+                  style={{ maxHeight: 300 }}
                   nestedScrollEnabled={true}
                 >
-                  {interactionLogs.map(item => (
-                    <List.Item
-                      key={item.id}
-                      title={item.formattedDate}
-                      left={props => <List.Icon {...props} icon="star" color="#6200ee" />}
-                    />
-                  ))}
+                  {interactionLogs.map(item => renderInteractionLog(item))}
                 </ScrollView>
-                
-                {hasMoreLogs && (
-                  <Button 
-                    mode="outlined" 
-                    onPress={handleViewMoreLogs}
-                    style={styles.viewMoreButton}
-                    loading={loadingLogs}
-                    disabled={loadingLogs}
-                  >
-                    View More
-                  </Button>
-                )}
-              </View>
-            )}
-          </Card.Content>
+              )}
+              {hasMoreLogs && (
+                <Button 
+                  mode="outlined" 
+                  onPress={handleViewMoreLogs}
+                  disabled={loadingLogs}
+                  loading={loadingLogs}
+                  style={styles.viewMoreButton}
+                >
+                  View More
+                </Button>
+              )}
+            </Card.Content>
+          </Card>
         )}
         
-        {/* Photos Tab */}
+        {/* Photo gallery */}
         {activeTab === 'photos' && (
-          <Card.Content>
-            <View style={styles.photoHeaderContainer}>
-              <Card.Title title="Photos" />
-              <View style={styles.photoActionsContainer}>
-                <IconButton
-                  icon="camera"
-                  size={24}
+          <Card style={styles.sectionCard}>
+            <Card.Title title="Photo Gallery" />
+            <Card.Content>
+              <View style={styles.photoActions}>
+                <Button 
+                  mode="contained" 
+                  icon="camera" 
                   onPress={handleTakePhoto}
-                  style={styles.photoActionButton}
-                />
-                <IconButton
-                  icon="image"
-                  size={24}
+                  style={styles.photoButton}
+                >
+                  Take Photo
+                </Button>
+                <Button 
+                  mode="contained" 
+                  icon="image" 
                   onPress={handlePickPhoto}
-                  style={styles.photoActionButton}
-                />
+                  style={styles.photoButton}
+                >
+                  Add Photo
+                </Button>
               </View>
-            </View>
-            <Divider style={styles.divider} />
-            
-            {loadingPhotos && photos.length === 0 ? (
-              <ActivityIndicator size="small" color="#6200ee" style={styles.logsLoading} />
-            ) : photos.length === 0 ? (
-              <View style={styles.noPhotosContainer}>
-                <Text style={styles.noLogsText}>No photos yet</Text>
-                <Text style={styles.noPhotosSubtext}>
-                  Add photos using the camera or gallery icons above
-                </Text>
-                <View style={styles.photoActionsRowContainer}>
-                  <Button
-                    mode="outlined"
-                    icon="camera"
-                    onPress={handleTakePhoto}
-                    style={styles.photoButton}
-                  >
-                    Take Photo
-                  </Button>
-                  <Button
-                    mode="outlined"
-                    icon="image"
-                    onPress={handlePickPhoto}
-                    style={styles.photoButton}
-                  >
-                    Upload Photo
-                  </Button>
+              
+              {photos.length === 0 ? (
+                <Text style={styles.noDataText}>No photos added yet.</Text>
+              ) : (
+                <View style={styles.photoGrid}>
+                  {photos.map(item => renderPhotoItem(item))}
                 </View>
-              </View>
-            ) : (
-              <View>
-                <FlatList
-                  data={photos}
-                  renderItem={renderPhotoItem}
-                  keyExtractor={item => item.id}
-                  numColumns={3}
-                  scrollEnabled={false} // We don't need scrolling here as it's inside a ScrollView
-                  contentContainerStyle={styles.photoGrid}
-                />
-                
-                {hasMorePhotos && (
-                  <Button 
-                    mode="outlined" 
-                    onPress={handleViewMorePhotos}
-                    style={styles.viewMoreButton}
-                    loading={loadingPhotos}
-                    disabled={loadingPhotos}
-                  >
-                    View More Photos
-                  </Button>
-                )}
-              </View>
-            )}
-          </Card.Content>
+              )}
+              
+              {hasMorePhotos && (
+                <Button 
+                  mode="outlined" 
+                  onPress={handleViewMorePhotos}
+                  disabled={loadingPhotos}
+                  loading={loadingPhotos}
+                  style={styles.viewMoreButton}
+                >
+                  View More
+                </Button>
+              )}
+            </Card.Content>
+          </Card>
         )}
       </Card>
       
@@ -891,6 +921,32 @@ const EntityDetailScreen: React.FC = () => {
             }}>
               Done
             </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+      
+      {/* Interaction Type Selection Dialog */}
+      <Portal>
+        <Dialog
+          visible={interactionMenuVisible}
+          onDismiss={dismissInteractionMenu}
+          style={styles.dialog}
+        >
+          <Dialog.Title>Select Interaction Type</Dialog.Title>
+          <Dialog.Content>
+            <ScrollView style={styles.interactionTypeList}>
+              {interactionTypes.map(item => (
+                <List.Item
+                  key={item.id}
+                  title={item.name}
+                  left={props => <List.Icon {...props} icon={item.icon} />}
+                  onPress={() => handleSelectInteractionType(item)}
+                />
+              ))}
+            </ScrollView>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={dismissInteractionMenu}>Cancel</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -1060,28 +1116,34 @@ const styles = StyleSheet.create({
     margin: 0,
   },
   photoGrid: {
-    padding: 4,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginVertical: 10,
   },
   photoItem: {
-    flex: 1/3,
+    width: '32%',
     aspectRatio: 1,
-    margin: 1,
-    borderRadius: 4,
+    marginBottom: 8,
+    borderRadius: 8,
     overflow: 'hidden',
   },
-  photoThumbnail: {
+  photoImage: {
     width: '100%',
     height: '100%',
   },
-  photoCaption: {
+  photoCaptionContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    color: 'white',
     padding: 4,
+  },
+  photoCaption: {
+    color: 'white',
     fontSize: 12,
+    textAlign: 'center',
   },
   noPhotosContainer: {
     alignItems: 'center',
@@ -1099,7 +1161,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   photoButton: {
-    margin: 8,
+    flex: 1,
+    marginHorizontal: 4,
   },
   tagsSectionContainer: {
     marginVertical: 8,
@@ -1165,6 +1228,31 @@ const styles = StyleSheet.create({
   newTagText: {
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  interactionTypeList: {
+    maxHeight: 300,
+  },
+  dialog: {
+    paddingBottom: 10,
+  },
+  sectionCard: {
+    margin: 16,
+    elevation: 4,
+    borderRadius: 8,
+    marginTop: 0,
+  },
+  noDataText: {
+    textAlign: 'center',
+    padding: 20,
+    color: '#666',
+  },
+  interactionLogItem: {
+    padding: 8,
+  },
+  photoActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
   },
 });
 
