@@ -33,9 +33,11 @@ const SparkLine: React.FC<{ data: number[] }> = ({ data }) => {
 interface EntityCardProps {
   entity: Entity;
   onPress: (id: string) => void;
+  onLongPress?: (id: string) => void;
+  selected?: boolean;
 }
 
-const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
+const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, selected = false }) => {
   const [interactionData, setInteractionData] = useState<number[]>([]);
   const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
   const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
@@ -142,44 +144,42 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress }) => {
 
   return (
     <View style={styles.cardWrapper}>
-      <Surface style={[styles.card, { backgroundColor: getTypeColor() }]}>
-        <TouchableOpacity 
-          style={styles.touchable} 
+      <Surface style={[styles.card, { backgroundColor: getTypeColor() }, selected && styles.selectedCard]}>
+        <TouchableOpacity
+          style={styles.touchable}
           onPress={() => onPress(entity.id)}
+          onLongPress={() => onLongPress && onLongPress(entity.id)}
+          delayLongPress={600}
           activeOpacity={0.7}
         >
           <View style={styles.nameContainer}>
             <Text style={styles.nameText} numberOfLines={2}>
-              {getEntityName()}
+              {entity.name}
             </Text>
           </View>
           
-          <TouchableOpacity 
-            style={styles.imageContainer}
-            onPress={(e) => {
-              e.stopPropagation();
-              handleInteraction();
-            }}
-          >
+          {/* Card content */}
+          <View style={styles.imageContainer}>
             {entity.image ? (
               <Image source={{ uri: entity.image }} style={styles.image} />
             ) : (
               <View style={styles.imagePlaceholder}>
-                <Text style={styles.placeholderText}>{getInitials()}</Text>
+                <Text style={styles.placeholderText}>
+                  {entity.name.charAt(0).toUpperCase()}
+                </Text>
               </View>
-            )}
-          </TouchableOpacity>
-          
-          <View style={styles.textContent}>
-            {entity.details && (
-              <Text numberOfLines={1} style={styles.details}>
-                {entity.details}
-              </Text>
             )}
           </View>
           
-          <View style={styles.spacer} />
+          <View style={styles.textContent}>
+            {entity.details ? (
+              <Text style={styles.details} numberOfLines={1}>
+                {entity.details}
+              </Text>
+            ) : null}
+          </View>
           
+          {/* Spark line chart for interaction data */}
           <View style={styles.sparkLineWrapper}>
             <SparkLine data={interactionData} />
           </View>
@@ -312,6 +312,11 @@ const styles = StyleSheet.create({
   
   interactionTypeList: {
     maxHeight: 300,
+  },
+  selectedCard: {
+    borderWidth: 2,
+    borderColor: '#6200ee',
+    borderRadius: 12,
   },
 });
 

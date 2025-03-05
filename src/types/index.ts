@@ -72,7 +72,7 @@ export interface Topic extends Entity {
 // Navigation params
 export type RootStackParamList = {
   Home: undefined;
-  EntityDetail: { id: string };
+  EntityDetail: { id: string; merge?: boolean };
   EditEntity: { id?: string; type?: EntityType };
   ContactImport: undefined;
   Debug: undefined;

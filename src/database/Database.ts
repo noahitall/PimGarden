@@ -1735,6 +1735,144 @@ export class Database {
     // Update person with modified contact data
     return this.updatePersonContactData(personId, contactData);
   }
+
+  // Merge two entities together
+  async mergeEntities(sourceEntityId: string, targetEntityId: string): Promise<boolean> {
+    // Get both entities
+    const sourceEntity = await this.getEntityById(sourceEntityId);
+    const targetEntity = await this.getEntityById(targetEntityId);
+    
+    // Check if both entities exist and are of the same type
+    if (!sourceEntity || !targetEntity) {
+      console.error('One or both entities not found for merge');
+      return false;
+    }
+    
+    if (sourceEntity.type !== targetEntity.type) {
+      console.error('Cannot merge entities of different types');
+      return false;
+    }
+    
+    try {
+      // Begin transaction
+      await this.db.execAsync('BEGIN TRANSACTION');
+      
+      // 1. Merge basic entity data (use target entity name and details, or append details)
+      const mergedDetails = targetEntity.details ? 
+        (targetEntity.details + "\n\n" + (sourceEntity.details || '')).trim() :
+        sourceEntity.details;
+      
+      // Update the target entity with merged details if needed
+      if (mergedDetails !== targetEntity.details) {
+        await this.db.runAsync(
+          'UPDATE entities SET details = ?, updated_at = ? WHERE id = ?',
+          [mergedDetails, Date.now(), targetEntityId]
+        );
+      }
+      
+      // 2. Move all interactions from source to target
+      await this.db.runAsync(
+        'UPDATE interactions SET entity_id = ? WHERE entity_id = ?',
+        [targetEntityId, sourceEntityId]
+      );
+      
+      // 3. Move all photos from source to target
+      await this.db.runAsync(
+        'UPDATE entity_photos SET entity_id = ? WHERE entity_id = ?',
+        [targetEntityId, sourceEntityId]
+      );
+      
+      // 4. Move all tag associations from source to target
+      // First, get all tags from source entity
+      const sourceTags = await this.getEntityTags(sourceEntityId);
+      
+      // Add each tag to target entity if not already present
+      for (const tag of sourceTags) {
+        const targetTags = await this.getEntityTags(targetEntityId);
+        if (!targetTags.some(t => t.id === tag.id)) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO entity_tags (entity_id, tag_id) VALUES (?, ?)',
+            [targetEntityId, tag.id]
+          );
+        }
+      }
+      
+      // 5. Merge contact data for Person entities
+      if (sourceEntity.type === EntityType.PERSON) {
+        // Get contact data from both entities
+        const sourcePerson = await this.getPersonWithContactData(sourceEntityId);
+        const targetPerson = await this.getPersonWithContactData(targetEntityId);
+        
+        if (sourcePerson && sourcePerson.contactData) {
+          // Create arrays to hold merged contact information
+          const mergedPhoneNumbers = [...(targetPerson?.contactData?.phoneNumbers || [])];
+          const mergedEmailAddresses = [...(targetPerson?.contactData?.emailAddresses || [])];
+          const mergedPhysicalAddresses = [...(targetPerson?.contactData?.physicalAddresses || [])];
+          
+          // Add source phone numbers that don't already exist in target
+          if (sourcePerson.contactData.phoneNumbers) {
+            for (const phone of sourcePerson.contactData.phoneNumbers) {
+              if (!mergedPhoneNumbers.some(p => p.value === phone.value)) {
+                mergedPhoneNumbers.push({...phone, isPrimary: false});
+              }
+            }
+          }
+          
+          // Add source email addresses that don't already exist in target
+          if (sourcePerson.contactData.emailAddresses) {
+            for (const email of sourcePerson.contactData.emailAddresses) {
+              if (!mergedEmailAddresses.some(e => e.value === email.value)) {
+                mergedEmailAddresses.push({...email, isPrimary: false});
+              }
+            }
+          }
+          
+          // Add source physical addresses that don't already exist in target
+          if (sourcePerson.contactData.physicalAddresses) {
+            for (const address of sourcePerson.contactData.physicalAddresses) {
+              // Check if the address already exists by comparing street and city
+              if (!mergedPhysicalAddresses.some(a => 
+                a.street === address.street && 
+                a.city === address.city && 
+                a.postalCode === address.postalCode
+              )) {
+                mergedPhysicalAddresses.push({...address, isPrimary: false});
+              }
+            }
+          }
+          
+          // Update target entity with merged contact data
+          await this.updatePersonContactData(targetEntityId, {
+            phoneNumbers: mergedPhoneNumbers,
+            emailAddresses: mergedEmailAddresses,
+            physicalAddresses: mergedPhysicalAddresses
+          });
+        }
+      }
+      
+      // 6. Delete the source entity after all data has been transferred
+      await this.db.runAsync(
+        'DELETE FROM entities WHERE id = ?',
+        [sourceEntityId]
+      );
+      
+      // 7. Delete any orphaned tag-entity associations
+      await this.db.runAsync(
+        'DELETE FROM entity_tags WHERE entity_id = ?',
+        [sourceEntityId]
+      );
+      
+      // Commit the transaction
+      await this.db.execAsync('COMMIT');
+      
+      return true;
+    } catch (error) {
+      // Rollback the transaction on error
+      await this.db.execAsync('ROLLBACK');
+      console.error('Error merging entities:', error);
+      return false;
+    }
+  }
 }
 
 // Create and export a singleton instance

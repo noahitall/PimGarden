@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { StyleSheet, View, FlatList, Dimensions, RefreshControl, Animated } from 'react-native';
-import { FAB, Appbar, Chip, Searchbar, Button } from 'react-native-paper';
+import { StyleSheet, View, FlatList, Dimensions, RefreshControl, Animated, Alert } from 'react-native';
+import { FAB, Appbar, Chip, Searchbar, Button, Snackbar, Banner } from 'react-native-paper';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Entity } from '../types';
@@ -17,6 +17,11 @@ const HomeScreen: React.FC = () => {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchBarHeight] = useState(new Animated.Value(0));
+  const [mergeMode, setMergeMode] = useState(false);
+  const [sourceEntityId, setSourceEntityId] = useState<string | null>(null);
+  const [sourceEntity, setSourceEntity] = useState<Entity | null>(null);
+  const [mergeMessage, setMergeMessage] = useState('');
+  const [showMergeSnackbar, setShowMergeSnackbar] = useState(false);
   
   // Calculate number of columns based on screen width
   const screenWidth = Dimensions.get('window').width;
@@ -56,9 +61,111 @@ const HomeScreen: React.FC = () => {
     }, [loadEntities])
   );
   
-  // Handle card press
+  // Handle card press - normal mode opens entity, merge mode selects target
   const handleCardPress = (id: string) => {
-    navigation.navigate('EntityDetail', { id });
+    if (!mergeMode) {
+      // Normal mode - navigate to entity detail
+      navigation.navigate('EntityDetail', { id });
+    } else {
+      // Merge mode - confirm merge operation if types match
+      handleMergeConfirmation(id);
+    }
+  };
+  
+  // Handle card long press - trigger merge mode
+  const handleCardLongPress = (id: string) => {
+    // Find the entity that was long-pressed
+    const entity = entities.find(e => e.id === id);
+    if (!entity) return;
+    
+    // Set merge mode
+    setMergeMode(true);
+    setSourceEntityId(id);
+    setSourceEntity(entity);
+    setMergeMessage(`Select a destination ${entity.type} to merge "${entity.name}" into`);
+    setShowMergeSnackbar(true);
+  };
+  
+  // Handle merge confirmation
+  const handleMergeConfirmation = (targetId: string) => {
+    if (!sourceEntityId || sourceEntityId === targetId) {
+      // Can't merge with self, cancel merge mode
+      cancelMergeMode();
+      return;
+    }
+    
+    // Find target entity
+    const targetEntity = entities.find(e => e.id === targetId);
+    if (!targetEntity || !sourceEntity) {
+      cancelMergeMode();
+      return;
+    }
+    
+    // Check if types match
+    if (targetEntity.type !== sourceEntity.type) {
+      Alert.alert(
+        'Type Mismatch',
+        `Cannot merge a ${sourceEntity.type} with a ${targetEntity.type}. Please select a ${sourceEntity.type} as the destination.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Confirm merge operation
+    Alert.alert(
+      'Confirm Merge',
+      `Are you sure you want to merge "${sourceEntity.name}" into "${targetEntity.name}"? This action cannot be undone.`,
+      [
+        { 
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => {} // Keep merge mode active
+        },
+        {
+          text: 'Merge',
+          style: 'default',
+          onPress: () => performMerge(sourceEntityId, targetId)
+        },
+        {
+          text: 'Exit Merge Mode',
+          style: 'destructive',
+          onPress: cancelMergeMode
+        }
+      ]
+    );
+  };
+  
+  // Perform the actual merge
+  const performMerge = async (sourceId: string, targetId: string) => {
+    try {
+      const success = await database.mergeEntities(sourceId, targetId);
+      
+      if (success) {
+        // Reload entities and show success message
+        await loadEntities();
+        setMergeMessage('Entities merged successfully!');
+        setShowMergeSnackbar(true);
+      } else {
+        // Show error message
+        setMergeMessage('Failed to merge entities. Please try again.');
+        setShowMergeSnackbar(true);
+      }
+      
+      // Exit merge mode
+      cancelMergeMode();
+    } catch (error) {
+      console.error('Error merging entities:', error);
+      setMergeMessage('An error occurred while merging entities.');
+      setShowMergeSnackbar(true);
+      cancelMergeMode();
+    }
+  };
+  
+  // Cancel merge mode
+  const cancelMergeMode = () => {
+    setMergeMode(false);
+    setSourceEntityId(null);
+    setSourceEntity(null);
   };
   
   // Handle filter selection
@@ -125,12 +232,33 @@ const HomeScreen: React.FC = () => {
   // Render entity card
   const renderItem = ({ item }: { item: Entity }) => (
     <View style={styles.cardContainer}>
-      <EntityCard entity={item} onPress={handleCardPress} />
+      <EntityCard 
+        entity={item} 
+        onPress={handleCardPress} 
+        onLongPress={handleCardLongPress}
+        selected={mergeMode && sourceEntityId === item.id}
+      />
     </View>
   );
   
   return (
     <View style={styles.container}>
+      {/* Merge mode banner */}
+      {mergeMode && (
+        <Banner
+          visible={true}
+          icon="merge"
+          actions={[
+            {
+              label: 'Cancel',
+              onPress: cancelMergeMode,
+            },
+          ]}
+        >
+          {mergeMessage}
+        </Banner>
+      )}
+      
       {renderFilterChips()}
       
       <Animated.View style={[styles.searchBarContainer, { height: searchBarHeight }]}>
@@ -173,6 +301,19 @@ const HomeScreen: React.FC = () => {
         icon="plus"
         onPress={() => navigation.navigate('EditEntity', { type: filter })}
       />
+      
+      {/* Merge result snackbar */}
+      <Snackbar
+        visible={showMergeSnackbar && !mergeMode}
+        onDismiss={() => setShowMergeSnackbar(false)}
+        duration={3000}
+        action={{
+          label: 'OK',
+          onPress: () => setShowMergeSnackbar(false),
+        }}
+      >
+        {mergeMessage}
+      </Snackbar>
     </View>
   );
 };
