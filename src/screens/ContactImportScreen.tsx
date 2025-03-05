@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, FlatList, Alert, RefreshControl, Platform, Linking } from 'react-native';
 import { List, Checkbox, Button, Divider, Snackbar, ActivityIndicator, Text, Chip, Searchbar, IconButton, Menu } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as Contacts from 'expo-contacts';
@@ -386,6 +387,13 @@ const ContactImportScreen: React.FC = () => {
           />
           
           <View style={styles.footerContainer}>
+            <View style={styles.infoContainer}>
+              <MaterialCommunityIcons name="information" size={20} color="#555" />
+              <Text style={styles.infoText}>
+                All contact fields will be imported, including phone numbers, email addresses, and physical addresses.
+              </Text>
+            </View>
+            
             <Button 
               mode="contained" 
               onPress={importSelectedContacts}
@@ -487,6 +495,20 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginBottom: 16,
+  },
+  infoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#555',
+    marginLeft: 8,
+    flex: 1,
   },
 });
 

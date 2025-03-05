@@ -12,12 +12,49 @@ export interface Entity {
   updated_at: number;
 }
 
+// Contact field interfaces
+export interface PhoneNumber {
+  id: string;
+  value: string;
+  label: string; // e.g., "Mobile", "Work", "Home"
+  isPrimary: boolean;
+}
+
+export interface EmailAddress {
+  id: string;
+  value: string;
+  label: string; // e.g., "Personal", "Work"
+  isPrimary: boolean;
+}
+
+export interface PhysicalAddress {
+  id: string;
+  street: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  label: string; // e.g., "Home", "Work"
+  isPrimary: boolean;
+  // For convenience when displaying or sorting
+  formattedAddress?: string;
+}
+
+export interface ContactData {
+  phoneNumbers: PhoneNumber[];
+  emailAddresses: EmailAddress[];
+  physicalAddresses: PhysicalAddress[];
+}
+
 // Person entity
 export interface Person extends Entity {
   type: EntityType.PERSON;
+  // Legacy fields - kept for backward compatibility
   phone?: string;
   email?: string;
   address?: string;
+  // New field for structured contact data
+  contactData?: ContactData;
 }
 
 // Group entity

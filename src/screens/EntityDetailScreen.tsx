@@ -4,9 +4,10 @@ import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
-import { RootStackParamList, Entity } from '../types';
+import { RootStackParamList, Entity, PhoneNumber, EmailAddress, PhysicalAddress } from '../types';
 import { database, EntityType, InteractionType } from '../database/Database';
 import { debounce } from 'lodash';
+import ContactFieldsSection from '../components/ContactFieldsSection';
 
 // Define the InteractionLog interface
 interface InteractionLog {
@@ -73,6 +74,16 @@ const EntityDetailScreen: React.FC = () => {
   const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
   const [selectedInteractionType, setSelectedInteractionType] = useState<InteractionType | null>(null);
   
+  const [contactData, setContactData] = useState<{
+    phoneNumbers: PhoneNumber[];
+    emailAddresses: EmailAddress[];
+    physicalAddresses: PhysicalAddress[];
+  }>({
+    phoneNumbers: [],
+    emailAddresses: [],
+    physicalAddresses: []
+  });
+  
   // Load entity data
   useEffect(() => {
     loadEntityData();
@@ -110,6 +121,11 @@ const EntityDetailScreen: React.FC = () => {
         // Calculate photos count and set loading states
         const photoCount = await database.getEntityPhotoCount(data.id);
         setHasMorePhotos(photoCount > photos.length);
+        
+        // Load contact data for person entities
+        if (data.type === EntityType.PERSON) {
+          await loadContactData(data.id);
+        }
       }
     } catch (error) {
       console.error('Error loading entity data:', error);
@@ -626,6 +642,36 @@ const EntityDetailScreen: React.FC = () => {
     );
   };
 
+  // Load contact data for person entities
+  const loadContactData = async (entityId: string) => {
+    try {
+      const personData = await database.getPersonWithContactData(entityId);
+      
+      if (personData && personData.contactData) {
+        setContactData({
+          phoneNumbers: personData.contactData.phoneNumbers || [],
+          emailAddresses: personData.contactData.emailAddresses || [],
+          physicalAddresses: personData.contactData.physicalAddresses || []
+        });
+      } else {
+        // Reset contact data
+        setContactData({
+          phoneNumbers: [],
+          emailAddresses: [],
+          physicalAddresses: []
+        });
+      }
+    } catch (error) {
+      console.error('Error loading contact data:', error);
+      // Reset contact data on error
+      setContactData({
+        phoneNumbers: [],
+        emailAddresses: [],
+        physicalAddresses: []
+      });
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -769,6 +815,17 @@ const EntityDetailScreen: React.FC = () => {
           </Button>
         </Card.Actions>
       </Card>
+
+      {/* Contact Fields Section - Only for Person entities */}
+      {entity && entity.type === EntityType.PERSON && (
+        <ContactFieldsSection
+          entityId={entity.id}
+          phoneNumbers={contactData.phoneNumbers}
+          emailAddresses={contactData.emailAddresses}
+          physicalAddresses={contactData.physicalAddresses}
+          onUpdate={() => loadContactData(entity.id)}
+        />
+      )}
 
       {/* Tabbed content for Interactions and Photos */}
       <Card style={styles.tabContentCard}>
