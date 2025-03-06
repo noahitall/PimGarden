@@ -41,8 +41,14 @@ const SafeDateTimePicker: React.FC<SafeDateTimePickerProps> = ({
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i);
   
-  // Generate months
+  // Generate months (abbreviations)
   const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  
+  // Full month names for display
+  const fullMonthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
@@ -239,7 +245,7 @@ const SafeDateTimePicker: React.FC<SafeDateTimePickerProps> = ({
             
             <View style={styles.currentSelection}>
               <Text style={styles.currentSelectionText}>
-                Selected Date: {month}/{day}/{year}
+                Selected Date: {fullMonthNames[parseInt(month) - 1]} {day}, {year}
               </Text>
             </View>
           </>
@@ -338,6 +344,7 @@ const styles = StyleSheet.create({
   title: {
     textAlign: 'center',
     marginBottom: 10,
+    fontSize: 18,
   },
   tabButtons: {
     flexDirection: 'row',
@@ -383,24 +390,29 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   pickerScrollView: {
-    height: 120,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 4,
+    height: 150,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   pickerItem: {
-    paddingVertical: 8,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
     alignItems: 'center',
+    justifyContent: 'center',
+    height: 46,
   },
   pickerItemSelected: {
-    backgroundColor: '#e0f2f1',
+    backgroundColor: '#e8f0fe',
     borderLeftWidth: 3,
     borderLeftColor: '#6200ee',
   },
   pickerItemText: {
     fontSize: 16,
+    textAlign: 'center',
   },
   pickerItemTextSelected: {
     fontWeight: 'bold',
@@ -409,20 +421,24 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginTop: 15,
+    marginTop: 20,
   },
   button: {
-    minWidth: 100,
+    minWidth: 120,
+    marginHorizontal: 5,
   },
   currentSelection: {
-    backgroundColor: '#f5f5f5',
-    padding: 10,
-    borderRadius: 4,
-    marginTop: 5,
+    backgroundColor: '#f0f0f0',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 10,
+    marginBottom: 5,
   },
   currentSelectionText: {
     textAlign: 'center',
     fontWeight: 'bold',
+    fontSize: 16,
+    color: '#333',
   }
 });
 
