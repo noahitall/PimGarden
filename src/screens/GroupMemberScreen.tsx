@@ -45,7 +45,7 @@ const GroupMemberScreen: React.FC = () => {
 
   // Check for unsaved changes
   useEffect(() => {
-    if (!members.length || !entities.length) return;
+    if (!entities.length) return;
 
     // Check if any membership has changed
     const memberIds = new Set(members.map(m => m.id));
@@ -62,6 +62,16 @@ const GroupMemberScreen: React.FC = () => {
         if (!currentMemberIds.has(id)) {
           changed = true;
           break;
+        }
+      }
+      
+      // Also check if there are new members selected that weren't in the original set
+      if (!changed) {
+        for (const id of currentMemberIds) {
+          if (!memberIds.has(id)) {
+            changed = true;
+            break;
+          }
         }
       }
     }
