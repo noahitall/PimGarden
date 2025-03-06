@@ -10,6 +10,7 @@ import EditEntityScreen from '../screens/EditEntityScreen';
 import ContactImportScreen from '../screens/ContactImportScreen';
 import DebugScreen from '../screens/DebugScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import GroupMemberScreen from '../screens/GroupMemberScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -59,6 +60,13 @@ export default function AppNavigator() {
           name="Settings" 
           component={SettingsScreen} 
           options={{ title: 'Settings' }} 
+        />
+        <Stack.Screen 
+          name="GroupMembers" 
+          component={GroupMemberScreen} 
+          options={({ route }) => ({ 
+            title: `${route.params.groupName} Members` 
+          })} 
         />
       </Stack.Navigator>
     </NavigationContainer>

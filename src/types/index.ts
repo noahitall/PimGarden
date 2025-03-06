@@ -77,4 +77,5 @@ export type RootStackParamList = {
   ContactImport: undefined;
   Debug: undefined;
   Settings: undefined;
+  GroupMembers: { groupId: string; groupName: string };
 }; 

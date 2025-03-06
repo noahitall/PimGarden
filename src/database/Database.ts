@@ -139,6 +139,18 @@ export class Database {
       );
     `);
     
+    // Create group_members table to track group membership
+    await this.db.execAsync(`
+      CREATE TABLE IF NOT EXISTS group_members (
+        group_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        added_at INTEGER NOT NULL,
+        PRIMARY KEY (group_id, member_id),
+        FOREIGN KEY (group_id) REFERENCES entities (id) ON DELETE CASCADE,
+        FOREIGN KEY (member_id) REFERENCES entities (id) ON DELETE CASCADE
+      );
+    `);
+    
     // Run migrations to update schema if needed
     await this.runMigrations();
     
@@ -619,11 +631,48 @@ export class Database {
   }
 
   // Increment interaction score and record interaction
-  async incrementInteractionScore(id: string, interactionType: string = 'General Contact'): Promise<boolean> {
+  async incrementInteractionScore(entityId: string, interactionType: string = 'General Contact'): Promise<boolean> {
     try {
-      // Start a transaction
-      await this.db.execAsync('BEGIN TRANSACTION');
+      // Check if this is a group
+      const entity = await this.getEntityById(entityId);
+      if (!entity) return false;
       
+      // For groups, propagate the interaction to all members
+      if (entity.type === EntityType.GROUP) {
+        // Start a transaction
+        await this.db.execAsync('BEGIN TRANSACTION');
+        
+        try {
+          // First record for the group itself
+          await this._recordSingleEntityInteraction(entityId, interactionType);
+          
+          // Then record for all members
+          const members = await this.getGroupMembers(entityId);
+          for (const member of members) {
+            await this._recordSingleEntityInteraction(member.id, interactionType);
+          }
+          
+          // Commit the transaction
+          await this.db.execAsync('COMMIT');
+          return true;
+        } catch (error) {
+          // Rollback on error
+          await this.db.execAsync('ROLLBACK');
+          throw error;
+        }
+      } else {
+        // For non-group entities, just record the interaction
+        return this._recordSingleEntityInteraction(entityId, interactionType);
+      }
+    } catch (error) {
+      console.error('Error incrementing interaction score:', error);
+      return false;
+    }
+  }
+  
+  // Internal method to record interaction for a single entity
+  private async _recordSingleEntityInteraction(entityId: string, interactionType: string): Promise<boolean> {
+    try {
       // Increment the interaction score
       const updateQuery = `
         UPDATE entities 
@@ -631,7 +680,7 @@ export class Database {
             updated_at = ? 
         WHERE id = ?
       `;
-      await this.db.runAsync(updateQuery, [Date.now(), id]);
+      await this.db.runAsync(updateQuery, [Date.now(), entityId]);
       
       // Record the interaction timestamp with type
       const interactionId = await this.generateId();
@@ -640,15 +689,11 @@ export class Database {
         INSERT INTO interactions (id, entity_id, timestamp, type)
         VALUES (?, ?, ?, ?)
       `;
-      await this.db.runAsync(insertQuery, [interactionId, id, timestamp, interactionType]);
+      await this.db.runAsync(insertQuery, [interactionId, entityId, timestamp, interactionType]);
       
-      // Commit the transaction
-      await this.db.execAsync('COMMIT');
       return true;
     } catch (error) {
-      // Rollback on error
-      await this.db.execAsync('ROLLBACK');
-      console.error('Error incrementing interaction score:', error);
+      console.error('Error recording single entity interaction:', error);
       return false;
     }
   }
@@ -2201,6 +2246,145 @@ export class Database {
     } catch (error) {
       console.error('Error merging entities:', error);
       await this.db.execAsync('ROLLBACK');
+      return false;
+    }
+  }
+
+  // Get group members
+  async getGroupMembers(groupId: string): Promise<Entity[]> {
+    try {
+      const query = `
+        SELECT e.* 
+        FROM entities e
+        JOIN group_members gm ON e.id = gm.member_id
+        WHERE gm.group_id = ?
+        ORDER BY e.name COLLATE NOCASE
+      `;
+      
+      const results = await this.db.getAllAsync(query, [groupId]);
+      return (results || []) as Entity[];
+    } catch (error) {
+      console.error('Error getting group members:', error);
+      return [];
+    }
+  }
+  
+  // Update the members of a group
+  async updateGroupMembers(groupId: string, memberIds: string[]): Promise<boolean> {
+    try {
+      // Start a transaction
+      await this.db.execAsync('BEGIN TRANSACTION');
+      
+      try {
+        // First, remove all existing members
+        await this.db.runAsync(
+          'DELETE FROM group_members WHERE group_id = ?',
+          [groupId]
+        );
+        
+        // Then add all the new members
+        const timestamp = Date.now(); // Current timestamp
+        for (const memberId of memberIds) {
+          await this.db.runAsync(
+            'INSERT INTO group_members (group_id, member_id, added_at) VALUES (?, ?, ?)',
+            [groupId, memberId, timestamp]
+          );
+        }
+        
+        // Commit the transaction
+        await this.db.execAsync('COMMIT');
+        return true;
+      } catch (error) {
+        // Rollback on error
+        await this.db.execAsync('ROLLBACK');
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error updating group members:', error);
+      return false;
+    }
+  }
+  
+  // Add a member to a group
+  async addGroupMember(groupId: string, memberId: string): Promise<boolean> {
+    try {
+      // Check if the group exists and is actually a group
+      const group = await this.getEntityById(groupId);
+      if (!group || group.type !== EntityType.GROUP) {
+        console.error('Entity is not a group:', groupId);
+        return false;
+      }
+      
+      // Check if the member exists
+      const member = await this.getEntityById(memberId);
+      if (!member) {
+        console.error('Member entity does not exist:', memberId);
+        return false;
+      }
+      
+      // Add the member to the group
+      await this.db.runAsync(
+        'INSERT OR REPLACE INTO group_members (group_id, member_id, added_at) VALUES (?, ?, ?)',
+        [groupId, memberId, Date.now()]
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error adding group member:', error);
+      return false;
+    }
+  }
+  
+  // Remove a member from a group
+  async removeGroupMember(groupId: string, memberId: string): Promise<boolean> {
+    try {
+      await this.db.runAsync(
+        'DELETE FROM group_members WHERE group_id = ? AND member_id = ?',
+        [groupId, memberId]
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error removing group member:', error);
+      return false;
+    }
+  }
+  
+  // Get all groups that an entity belongs to
+  async getEntityGroups(entityId: string): Promise<Entity[]> {
+    try {
+      const query = `
+        SELECT e.*
+        FROM entities e
+        JOIN group_members gm ON e.id = gm.group_id
+        WHERE gm.member_id = ?
+        ORDER BY e.name COLLATE NOCASE ASC
+      `;
+      
+      return await this.db.getAllAsync(query, [entityId]);
+    } catch (error) {
+      console.error('Error getting entity groups:', error);
+      return [];
+    }
+  }
+
+  // Record interaction for all group members
+  async recordGroupInteraction(groupId: string, interactionType: string): Promise<boolean> {
+    try {
+      // First, record the interaction for the group itself
+      await this.incrementInteractionScore(groupId, interactionType);
+      
+      // Then, get all members of the group
+      const members = await this.getGroupMembers(groupId);
+      
+      // Record the interaction for each member
+      for (const member of members) {
+        await this.incrementInteractionScore(member.id, interactionType);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error recording group interaction:', error);
       return false;
     }
   }

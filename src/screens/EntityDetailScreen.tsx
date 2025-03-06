@@ -3,7 +3,7 @@ import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList,
 import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons, Menu, Dialog, Portal, Modal } from 'react-native-paper';
 // @ts-ignore
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import { RootStackParamList, Entity, PhoneNumber, EmailAddress, PhysicalAddress } from '../types';
@@ -11,6 +11,7 @@ import { database, EntityType, InteractionType } from '../database/Database';
 import { debounce } from 'lodash';
 import ContactFieldsSection from '../components/ContactFieldsSection';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import GroupMembersSection from '../components/GroupMembersSection';
 
 // Define the InteractionLog interface
 interface InteractionLog {
@@ -104,6 +105,27 @@ const EntityDetailScreen: React.FC = () => {
   useEffect(() => {
     loadEntityData();
   }, [route.params.id]);
+
+  // Load entity data if editing
+  useEffect(() => {
+    if (route.params?.id) {
+      loadEntityData();
+    }
+  }, [route.params?.id]);
+  
+  // Reload entity data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (route.params?.id) {
+        console.log("EntityDetailScreen is focused - reloading entity data");
+        loadEntityData();
+      }
+      
+      return () => {
+        // Clean up if needed
+      };
+    }, [route.params?.id])
+  );
 
   // Load entity data from database
   const loadEntityData = async () => {
@@ -924,6 +946,14 @@ const EntityDetailScreen: React.FC = () => {
             </Button>
           </Card.Actions>
         </Card>
+
+        {/* Group Members Section - Only for Group entities */}
+        {entity && entity.type === EntityType.GROUP && (
+          <Card style={styles.card}>
+            <Card.Title title="Group Members" />
+            <GroupMembersSection groupId={entity.id} groupName={entity.name} navigation={navigation} />
+          </Card>
+        )}
 
         {/* Contact Fields Section - Only for Person entities */}
         {entity && entity.type === EntityType.PERSON && (
