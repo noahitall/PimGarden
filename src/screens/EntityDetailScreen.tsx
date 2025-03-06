@@ -44,6 +44,7 @@ const EntityDetailScreen: React.FC = () => {
   const navigation = useNavigation<EntityDetailScreenNavigationProp>();
   const [entity, setEntity] = useState<Entity | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isFavorite, setIsFavorite] = useState(false);
   const [interactionLogs, setInteractionLogs] = useState<InteractionLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
@@ -105,6 +106,10 @@ const EntityDetailScreen: React.FC = () => {
           image: data.image || undefined
         };
         setEntity(typedEntity);
+        
+        // Check if entity is a favorite
+        const favoriteStatus = await database.isFavorite(data.id);
+        setIsFavorite(favoriteStatus);
         
         // Load interaction logs
         await loadInteractionLogs(data.id);
@@ -672,6 +677,53 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
 
+  // Toggle favorite status
+  const handleToggleFavorite = async () => {
+    if (!entity) return;
+    
+    try {
+      if (isFavorite) {
+        // Confirm before removing from favorites
+        Alert.alert(
+          'Remove from Favorites',
+          `Are you sure you want to remove ${entity.name} from your favorites?`,
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel'
+            },
+            {
+              text: 'Remove',
+              onPress: async () => {
+                const success = await database.removeFromFavorites(entity.id);
+                if (success) {
+                  setIsFavorite(false);
+                }
+              }
+            }
+          ]
+        );
+      } else {
+        // Add to favorites without confirmation
+        const success = await database.addToFavorites(entity.id);
+        if (success) {
+          setIsFavorite(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      Alert.alert('Error', 'Failed to update favorite status');
+    }
+  };
+
+  // Set the favorite star in the header
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      // Remove the favorite star from the header
+      headerRight: () => null,
+    });
+  }, [navigation]);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -751,7 +803,16 @@ const EntityDetailScreen: React.FC = () => {
           </TouchableOpacity>
           
           <View style={styles.headerInfo}>
-            <Title style={styles.title}>{entity.name}</Title>
+            <View style={styles.titleContainer}>
+              <Title style={styles.title}>{entity.name}</Title>
+              <IconButton
+                icon={isFavorite ? 'star' : 'star-outline'}
+                iconColor={isFavorite ? '#FFD700' : '#757575'}
+                size={28}
+                onPress={handleToggleFavorite}
+                style={styles.favoriteButton}
+              />
+            </View>
             <Text style={styles.type}>{getTypeIcon(entity.type)} {entity.type}</Text>
           </View>
         </View>
@@ -1062,6 +1123,12 @@ const styles = StyleSheet.create({
   headerInfo: {
     flex: 1,
   },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
   title: {
     fontSize: 24,
     padding: 0,
@@ -1310,6 +1377,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginBottom: 16,
+  },
+  favoriteButton: {
+    margin: 0,
   },
 });
 

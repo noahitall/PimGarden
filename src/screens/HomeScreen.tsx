@@ -14,6 +14,7 @@ const HomeScreen: React.FC = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const [entities, setEntities] = useState<Entity[]>([]);
   const [filter, setFilter] = useState<EntityType | undefined>(undefined);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,7 +35,23 @@ const HomeScreen: React.FC = () => {
       setRefreshing(true);
       let data;
       
-      if (searchQuery.trim()) {
+      if (favoritesOnly) {
+        // Get only favorite entities
+        data = await database.getFavorites();
+        
+        // Apply additional type filter if needed
+        if (filter) {
+          data = data.filter(entity => entity.type === filter);
+        }
+        
+        // Apply search filter if needed
+        if (searchQuery.trim()) {
+          data = await database.searchEntities(searchQuery, filter);
+          // Filter favorites from search results
+          const favoriteIds = new Set((await database.getFavorites()).map(entity => entity.id));
+          data = data.filter(entity => favoriteIds.has(entity.id));
+        }
+      } else if (searchQuery.trim()) {
         data = await database.searchEntities(searchQuery, filter);
       } else {
         data = await database.getAllEntities(filter);
@@ -53,7 +70,7 @@ const HomeScreen: React.FC = () => {
     } finally {
       setRefreshing(false);
     }
-  }, [filter, searchQuery]);
+  }, [filter, searchQuery, favoritesOnly]);
   
   // Refresh data when screen comes into focus
   useFocusEffect(
@@ -174,6 +191,11 @@ const HomeScreen: React.FC = () => {
     setFilter(type === filter ? undefined : type);
   };
   
+  // Toggle favorites only filter
+  const handleFavoritesToggle = () => {
+    setFavoritesOnly(!favoritesOnly);
+  };
+  
   // Toggle search bar visibility
   const toggleSearchBar = (show: boolean) => {
     setSearchVisible(show);
@@ -206,6 +228,14 @@ const HomeScreen: React.FC = () => {
   // Render filter chips
   const renderFilterChips = () => (
     <View style={styles.filterContainer}>
+      <Chip 
+        selected={favoritesOnly}
+        onPress={handleFavoritesToggle}
+        style={styles.chip}
+        icon="star"
+      >
+        Favorites
+      </Chip>
       <Chip 
         selected={filter === EntityType.PERSON} 
         onPress={() => handleFilterChange(EntityType.PERSON)}
@@ -277,7 +307,7 @@ const HomeScreen: React.FC = () => {
       
       <Animated.View style={[styles.searchBarContainer, { height: searchBarHeight }]}>
         <Searchbar
-          placeholder="Search by name, phone, or email"
+          placeholder="Search by name, phone, email, or address"
           onChangeText={handleSearch}
           value={searchQuery}
           style={styles.searchBar}

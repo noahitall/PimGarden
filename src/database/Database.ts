@@ -218,6 +218,13 @@ export class Database {
         await this.db.runAsync(`PRAGMA user_version = 4`);
       }
       
+      if (currentVersion < 5) {
+        console.log('Running migration 5: Add favorites support');
+        await this.addFavoritesSupport();
+        console.log('Setting database version to 5');
+        await this.db.runAsync(`PRAGMA user_version = 5`);
+      }
+      
       console.log('All migrations completed. Current version:', await this.db.getFirstAsync('PRAGMA user_version'));
       
     } catch (error) {
@@ -731,29 +738,108 @@ export class Database {
       .sort((a, b) => a.month.localeCompare(b.month));
   }
 
-  // Search entities by name, phone number, or email
+  // Search entities by name, phone number, email, or address
   async searchEntities(searchTerm: string, type?: EntityType): Promise<Entity[]> {
     if (!searchTerm.trim()) {
       return this.getAllEntities(type);
     }
 
     const searchPattern = `%${searchTerm}%`;
-    let query = `
-      SELECT * FROM entities 
-      WHERE (name LIKE ? OR details LIKE ?)
-    `;
+    const searchTermLower = searchTerm.toLowerCase();
     
-    const params: any[] = [searchPattern, searchPattern];
-    
-    if (type) {
-      query += ' AND type = ?';
-      params.push(type);
+    try {
+      // Start with entities that match name or details
+      let query = `
+        SELECT e.* FROM entities e 
+        WHERE (e.name LIKE ? OR e.details LIKE ?)
+      `;
+      
+      if (type) {
+        query += ` AND e.type = ?`;
+      }
+      
+      const params = type 
+        ? [searchPattern, searchPattern, type]
+        : [searchPattern, searchPattern];
+      
+      const nameMatchResults = await this.db.getAllAsync<Entity>(query, params);
+      const resultMap = new Map<string, Entity>();
+      
+      // Add name/details matches to result map
+      nameMatchResults.forEach(entity => {
+        resultMap.set(entity.id, entity);
+      });
+      
+      // For person entities, also search in contact data (stored in encrypted_data)
+      if (!type || type === EntityType.PERSON) {
+        // Only get person entities not already in our results
+        let personQuery = `
+          SELECT e.* FROM entities e 
+          WHERE e.type = '${EntityType.PERSON}'
+        `;
+        
+        // If we have a specific type that's not PERSON, skip this part
+        if (type && type !== EntityType.PERSON) {
+          return Array.from(resultMap.values());
+        }
+        
+        // Get all person entities
+        const personEntities = await this.db.getAllAsync<Entity>(personQuery);
+        
+        // Filter for those with matching contact data
+        for (const entity of personEntities) {
+          // Skip if already in results
+          if (resultMap.has(entity.id)) continue;
+          
+          if (!entity.encrypted_data) continue;
+          
+          try {
+            let contactData;
+            try {
+              contactData = JSON.parse(entity.encrypted_data).contactData;
+            } catch (e) {
+              continue; // Cannot parse, skip
+            }
+            
+            if (!contactData) continue;
+            
+            // Check phone numbers
+            const hasMatchingPhone = contactData.phoneNumbers?.some((phone: any) => 
+              phone.value?.toLowerCase().includes(searchTermLower));
+              
+            // Check email addresses
+            const hasMatchingEmail = contactData.emailAddresses?.some((email: any) => 
+              email.value?.toLowerCase().includes(searchTermLower));
+              
+            // Check physical addresses
+            const hasMatchingAddress = contactData.physicalAddresses?.some((address: any) => {
+              return (
+                (address.street && address.street.toLowerCase().includes(searchTermLower)) ||
+                (address.city && address.city.toLowerCase().includes(searchTermLower)) ||
+                (address.state && address.state.toLowerCase().includes(searchTermLower)) ||
+                (address.postalCode && address.postalCode.toLowerCase().includes(searchTermLower)) ||
+                (address.formattedAddress && address.formattedAddress.toLowerCase().includes(searchTermLower))
+              );
+            });
+              
+            if (hasMatchingPhone || hasMatchingEmail || hasMatchingAddress) {
+              resultMap.set(entity.id, entity);
+            }
+          } catch (error) {
+            console.error('Error searching contact data:', error);
+          }
+        }
+      }
+      
+      // Convert results map back to array and sort by updated_at
+      const results = Array.from(resultMap.values());
+      results.sort((a, b) => b.updated_at - a.updated_at);
+      
+      return results;
+    } catch (error) {
+      console.error('Error searching entities:', error);
+      throw error;
     }
-    
-    query += ' ORDER BY updated_at DESC';
-    
-    const result = await this.db.getAllAsync(query, params) as Entity[];
-    return result;
   }
 
   // Remove duplicate entities
@@ -1437,6 +1523,121 @@ export class Database {
       console.log('Completed migration: Add multiple tags and entity type support');
     } catch (error) {
       console.error('Error in migration addMultipleTagsAndEntityTypeSupport:', error);
+    }
+  }
+
+  // Migration 5: Add favorites support
+  private async addFavoritesSupport(): Promise<void> {
+    try {
+      // Check if favorites table exists
+      const tables = await this.db.getAllAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='favorites'");
+      if (tables.length === 0) {
+        console.log('Creating favorites table');
+        // Create favorites table
+        await this.db.runAsync(`
+          CREATE TABLE IF NOT EXISTS favorites (
+            entity_id TEXT PRIMARY KEY,
+            added_at INTEGER NOT NULL,
+            FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+          )
+        `);
+      } else {
+        console.log('Favorites table already exists, skipping');
+      }
+    } catch (error) {
+      console.error('Error adding favorites support:', error);
+    }
+  }
+
+  // Add entity to favorites
+  async addToFavorites(entityId: string): Promise<boolean> {
+    try {
+      // Check if entity exists
+      const entity = await this.getEntityById(entityId);
+      if (!entity) {
+        console.error('Entity not found:', entityId);
+        return false;
+      }
+      
+      // Check if already favorited
+      const isFavorite = await this.isFavorite(entityId);
+      if (isFavorite) {
+        return true; // Already a favorite
+      }
+      
+      // Add to favorites
+      await this.db.runAsync(
+        'INSERT INTO favorites (entity_id, added_at) VALUES (?, ?)',
+        [entityId, Date.now()]
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error adding to favorites:', error);
+      return false;
+    }
+  }
+  
+  // Remove entity from favorites
+  async removeFromFavorites(entityId: string): Promise<boolean> {
+    try {
+      await this.db.runAsync(
+        'DELETE FROM favorites WHERE entity_id = ?',
+        [entityId]
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error removing from favorites:', error);
+      return false;
+    }
+  }
+  
+  // Toggle favorite status
+  async toggleFavorite(entityId: string): Promise<boolean> {
+    try {
+      const isFavorite = await this.isFavorite(entityId);
+      
+      if (isFavorite) {
+        return await this.removeFromFavorites(entityId);
+      } else {
+        return await this.addToFavorites(entityId);
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      return false;
+    }
+  }
+  
+  // Check if entity is a favorite
+  async isFavorite(entityId: string): Promise<boolean> {
+    try {
+      const result = await this.db.getFirstAsync(
+        'SELECT entity_id FROM favorites WHERE entity_id = ?',
+        [entityId]
+      );
+      
+      return !!result;
+    } catch (error) {
+      console.error('Error checking favorite status:', error);
+      return false;
+    }
+  }
+  
+  // Get all favorite entities
+  async getFavorites(): Promise<Entity[]> {
+    try {
+      const entities = await this.db.getAllAsync(`
+        SELECT e.* 
+        FROM entities e
+        JOIN favorites f ON e.id = f.entity_id
+        ORDER BY f.added_at DESC
+      `) as Entity[];
+      
+      return entities;
+    } catch (error) {
+      console.error('Error getting favorites:', error);
+      return [];
     }
   }
 
