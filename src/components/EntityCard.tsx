@@ -4,11 +4,12 @@ import { Text, Surface, Badge, IconButton, Dialog, Portal, Button, List, Avatar 
 import { Entity } from '../types';
 import { database, InteractionType } from '../database/Database';
 
-// Custom SparkLine component for regular cards
+// Custom SparkLine component with compact mode support
 const SparkLine: React.FC<{ 
   data: number[]; 
   timespan: 'month' | 'year';
-}> = ({ data, timespan }) => {
+  isCompact?: boolean;
+}> = ({ data, timespan, isCompact }) => {
   if (!data.length) return null;
   
   // Normalize data to fit in the available space
@@ -16,17 +17,20 @@ const SparkLine: React.FC<{
   const normalizedData = data.map(value => value / max);
   
   return (
-    <View style={styles.sparkLineContainer}>
+    <View style={[
+      styles.sparkLineContainer,
+      isCompact && styles.compactSparkLineContainer
+    ]}>
       {normalizedData.map((value, index) => (
         <View 
           key={index} 
           style={[
             styles.sparkLineBar, 
             { 
-              height: Math.max(value * 20, 1), // Min height of 1
+              height: Math.max(value * (isCompact ? 10 : 20), 1), // Smaller height for compact
               backgroundColor: value > 0 ? '#6200ee' : '#e0e0e0',
-              width: timespan === 'year' ? 9 : 3, // Wider bars for yearly data
-              marginHorizontal: timespan === 'year' ? 0 : 1, // Adjust spacing
+              width: isCompact ? 2 : (timespan === 'year' ? 9 : 3), // Thinner bars for compact
+              marginHorizontal: isCompact ? 0.5 : (timespan === 'year' ? 0 : 1), // Less spacing
             }
           ]} 
         />
@@ -199,18 +203,29 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, s
                 )}
               </TouchableOpacity>
               
-              {/* Center: Name - now takes the rest of the space */}
-              <TouchableOpacity 
-                style={styles.compactContent}
-                onPress={() => onPress(entity.id)}
-                onLongPress={() => onLongPress && onLongPress(entity.id)}
-                delayLongPress={600}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.compactNameText} numberOfLines={1}>
-                  {entity.name}
-                </Text>
-              </TouchableOpacity>
+              {/* Center/Right: Content area with name and spark chart */}
+              <View style={styles.compactContentWrapper}>
+                <TouchableOpacity 
+                  style={styles.compactContent}
+                  onPress={() => onPress(entity.id)}
+                  onLongPress={() => onLongPress && onLongPress(entity.id)}
+                  delayLongPress={600}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.compactNameText} numberOfLines={1}>
+                    {entity.name}
+                  </Text>
+                  
+                  {/* Compact spark chart */}
+                  <View style={styles.compactSparkLineWrapper}>
+                    <SparkLine 
+                      data={interactionData.slice(-7)} // Show only last 7 data points
+                      timespan={interactionTimespan}
+                      isCompact={true}
+                    />
+                  </View>
+                </TouchableOpacity>
+              </View>
             </View>
           </Surface>
         </View>
@@ -385,7 +400,7 @@ const styles = StyleSheet.create({
     margin: 4,
   },
   compactCard: {
-    height: 48,
+    height: 58, // Increased height to accommodate the spark line
     width: compactCardWidth,
     borderRadius: 8,
     elevation: 1,
@@ -399,15 +414,29 @@ const styles = StyleSheet.create({
   compactAvatarContainer: {
     marginRight: 8,
   },
+  compactContentWrapper: {
+    flex: 1,
+    height: '100%',
+  },
   compactContent: {
     flex: 1,
     height: '100%',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
   },
   compactNameText: {
     fontSize: 13,
     fontWeight: '500',
     color: '#333',
+  },
+  compactSparkLineContainer: {
+    height: 10,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+  },
+  compactSparkLineWrapper: {
+    height: 14,
+    paddingTop: 4,
   },
   
   // Dialog styles
