@@ -613,7 +613,7 @@ export class Database {
       // Insert the interaction with the historical timestamp
       await this.db.runAsync(
         `INSERT INTO interactions (
-          id, entity_id, type, created_at, notes
+          id, entity_id, type, timestamp, notes
         ) VALUES (?, ?, ?, ?, ?)`,
         [interactionId, entityId, interactionType, timestamp, 'Added via debug interface']
       );
@@ -1955,6 +1955,73 @@ export class Database {
       return person;
     } catch (error) {
       console.error('Error getting person with contact data:', error);
+      return null;
+    }
+  }
+
+  // Update an existing interaction with new timestamp and type
+  async updateInteraction(
+    interactionId: string,
+    updates: {
+      timestamp?: number;
+      type?: string;
+    }
+  ): Promise<boolean> {
+    try {
+      // Build the SQL update parts based on what fields are being updated
+      const updateParts: string[] = [];
+      const params: any[] = [];
+
+      if (updates.timestamp !== undefined) {
+        updateParts.push('timestamp = ?');
+        params.push(updates.timestamp);
+      }
+
+      if (updates.type !== undefined) {
+        updateParts.push('type = ?');
+        params.push(updates.type);
+      }
+
+      // If nothing to update, return early
+      if (updateParts.length === 0) {
+        return false;
+      }
+
+      // Complete the parameters with the interaction ID
+      params.push(interactionId);
+
+      // Perform the update
+      const result = await this.db.runAsync(
+        `UPDATE interactions SET ${updateParts.join(', ')} WHERE id = ?`,
+        params
+      );
+
+      // If the interaction was found and updated
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Error updating interaction:', error);
+      return false;
+    }
+  }
+
+  // Get a single interaction by ID
+  async getInteraction(interactionId: string): Promise<Interaction | null> {
+    try {
+      const query = `
+        SELECT id, entity_id, timestamp, type, notes
+        FROM interactions
+        WHERE id = ?
+      `;
+      
+      const result = await this.db.getFirstAsync<Interaction>(query, [interactionId]);
+      
+      if (!result) {
+        return null;
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error getting interaction:', error);
       return null;
     }
   }

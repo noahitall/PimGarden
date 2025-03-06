@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList, Dimensions, TextInput } from 'react-native';
-import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons, Menu, Dialog, Portal } from 'react-native-paper';
+import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList, Dimensions, TextInput, SafeAreaView, Pressable } from 'react-native';
+import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons, Menu, Dialog, Portal, Modal } from 'react-native-paper';
+// @ts-ignore
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,6 +10,7 @@ import { RootStackParamList, Entity, PhoneNumber, EmailAddress, PhysicalAddress 
 import { database, EntityType, InteractionType } from '../database/Database';
 import { debounce } from 'lodash';
 import ContactFieldsSection from '../components/ContactFieldsSection';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 // Define the InteractionLog interface
 interface InteractionLog {
@@ -31,6 +34,15 @@ interface Tag {
   id: string;
   name: string;
   count: number;
+}
+
+// Interface for EditInteractionModal
+interface EditInteractionModalProps {
+  visible: boolean;
+  onDismiss: () => void;
+  interaction: InteractionLog | null;
+  interactionTypes: InteractionType[];
+  onSave: (interactionId: string, updates: { timestamp: number; type: string }) => Promise<void>;
 }
 
 type EntityDetailScreenRouteProp = RouteProp<RootStackParamList, 'EntityDetail'>;
@@ -84,6 +96,9 @@ const EntityDetailScreen: React.FC = () => {
     emailAddresses: [],
     physicalAddresses: []
   });
+  
+  const [editInteractionModalVisible, setEditInteractionModalVisible] = useState(false);
+  const [selectedInteraction, setSelectedInteraction] = useState<InteractionLog | null>(null);
   
   // Load entity data
   useEffect(() => {
@@ -643,6 +658,10 @@ const EntityDetailScreen: React.FC = () => {
         description={item.formattedDate}
         left={props => <List.Icon {...props} icon={iconName} color="#6200ee" />}
         style={styles.interactionLogItem}
+        onPress={() => {
+          setSelectedInteraction(item);
+          setEditInteractionModalVisible(true);
+        }}
       />
     );
   };
@@ -724,6 +743,34 @@ const EntityDetailScreen: React.FC = () => {
     });
   }, [navigation]);
 
+  // Save interaction updates
+  const handleSaveInteraction = async (interactionId: string, updates: { timestamp: number; type: string }) => {
+    try {
+      const success = await database.updateInteraction(interactionId, updates);
+      
+      if (success) {
+        // Reload interaction logs to reflect changes
+        await loadInteractionLogs(entity?.id || '', true);
+        setEditInteractionModalVisible(false);
+        setSelectedInteraction(null);
+        
+        // Show simpler success message
+        Alert.alert('Updated');
+      } else {
+        Alert.alert(
+          'Update Failed',
+          'Could not update the interaction.'
+        );
+      }
+    } catch (error) {
+      console.error('Error updating interaction:', error);
+      Alert.alert(
+        'Error',
+        'An error occurred while updating the interaction.'
+      );
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -786,289 +833,422 @@ const EntityDetailScreen: React.FC = () => {
   );
 
   return (
-    <ScrollView style={styles.container} nestedScrollEnabled={true}>
-      <Card style={styles.card}>
-        <View style={styles.headerContainer}>
-          <TouchableOpacity onPress={handleImageSelection} style={styles.imageContainer}>
-            {entity.image ? (
-              <Image source={{ uri: entity.image }} style={styles.image} />
-            ) : (
-              <View style={styles.imagePlaceholder}>
-                <Text style={styles.placeholderText}>{entity.name.charAt(0)}</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView style={styles.container} nestedScrollEnabled={true}>
+        <Card style={styles.card}>
+          <View style={styles.headerContainer}>
+            <TouchableOpacity onPress={handleImageSelection} style={styles.imageContainer}>
+              {entity.image ? (
+                <Image source={{ uri: entity.image }} style={styles.image} />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <Text style={styles.placeholderText}>{entity.name.charAt(0)}</Text>
+                </View>
+              )}
+              <View style={styles.editImageBadge}>
+                <IconButton icon="camera" size={16} style={styles.editImageIcon} />
               </View>
-            )}
-            <View style={styles.editImageBadge}>
-              <IconButton icon="camera" size={16} style={styles.editImageIcon} />
-            </View>
-          </TouchableOpacity>
-          
-          <View style={styles.headerInfo}>
-            <View style={styles.titleContainer}>
-              <Title style={styles.title}>{entity.name}</Title>
-              <IconButton
-                icon={isFavorite ? 'star' : 'star-outline'}
-                iconColor={isFavorite ? '#FFD700' : '#757575'}
-                size={28}
-                onPress={handleToggleFavorite}
-                style={styles.favoriteButton}
-              />
-            </View>
-            <Text style={styles.type}>{getTypeIcon(entity.type)} {entity.type}</Text>
-          </View>
-        </View>
-        
-        <Divider style={styles.divider} />
-        
-        <Card.Content>
-          {/* Tags section */}
-          <View style={styles.tagsSectionContainer}>
-            <View style={styles.tagsSectionHeader}>
-              <Text style={styles.sectionTitle}>Tags</Text>
-              <IconButton
-                icon="plus"
-                size={20}
-                onPress={() => setTagDialogVisible(true)}
-              />
-            </View>
+            </TouchableOpacity>
             
-            {loadingTags ? (
-              <ActivityIndicator size="small" color="#6200ee" style={styles.tagsLoading} />
-            ) : tags.length === 0 ? (
-              <Text style={styles.noTagsText}>No tags yet</Text>
-            ) : (
-              <View style={styles.tagsContainer}>
-                {tags.map(renderTagChip)}
+            <View style={styles.headerInfo}>
+              <View style={styles.titleContainer}>
+                <Title style={styles.title}>{entity.name}</Title>
+                <IconButton
+                  icon={isFavorite ? 'star' : 'star-outline'}
+                  iconColor={isFavorite ? '#FFD700' : '#757575'}
+                  size={28}
+                  onPress={handleToggleFavorite}
+                  style={styles.favoriteButton}
+                />
               </View>
-            )}
+              <Text style={styles.type}>{getTypeIcon(entity.type)} {entity.type}</Text>
+            </View>
           </View>
           
           <Divider style={styles.divider} />
           
-          {entity.details && (
-            <Paragraph style={styles.details}>{entity.details}</Paragraph>
-          )}
-        </Card.Content>
-        
-        <Card.Actions style={styles.actionsContainer}>
-          <Button 
-            mode="contained" 
-            icon="account-plus"
-            onPress={handleInteraction}
-            style={[styles.button, styles.interactionButton]}
-          >
-            Record Interaction
-          </Button>
-          <Button 
-            mode="outlined" 
-            icon="pencil" 
-            onPress={handleEdit}
-            style={styles.button}
-          >
-            Edit
-          </Button>
-          <Button 
-            mode="outlined" 
-            icon="delete" 
-            onPress={handleDelete}
-            style={[styles.button, styles.deleteButton]}
-          >
-            Delete
-          </Button>
-        </Card.Actions>
-      </Card>
-
-      {/* Contact Fields Section - Only for Person entities */}
-      {entity && entity.type === EntityType.PERSON && (
-        <ContactFieldsSection
-          entityId={entity.id}
-          phoneNumbers={contactData.phoneNumbers}
-          emailAddresses={contactData.emailAddresses}
-          physicalAddresses={contactData.physicalAddresses}
-          onUpdate={() => loadContactData(entity.id)}
-        />
-      )}
-
-      {/* Tabbed content for Interactions and Photos */}
-      <Card style={styles.tabContentCard}>
-        <SegmentedButtons
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as TabValue)}
-          buttons={[
-            { value: 'interactions', label: 'Interactions' },
-            { value: 'photos', label: 'Photos' }
-          ]}
-          style={styles.segmentedButtons}
-        />
-        
-        {/* Interaction History Tab */}
-        {activeTab === 'interactions' && (
-          <Card style={styles.sectionCard}>
-            <Card.Title title="Interaction History" />
-            <Card.Content>
-              {interactionLogs.length === 0 ? (
-                <Text style={styles.noDataText}>No interactions recorded yet.</Text>
-              ) : (
-                <ScrollView
-                  style={{ maxHeight: 300 }}
-                  nestedScrollEnabled={true}
-                >
-                  {interactionLogs.map(item => renderInteractionLog(item))}
-                </ScrollView>
-              )}
-              {hasMoreLogs && (
-                <Button 
-                  mode="outlined" 
-                  onPress={handleViewMoreLogs}
-                  disabled={loadingLogs}
-                  loading={loadingLogs}
-                  style={styles.viewMoreButton}
-                >
-                  View More
-                </Button>
-              )}
-            </Card.Content>
-          </Card>
-        )}
-        
-        {/* Photo gallery */}
-        {activeTab === 'photos' && (
-          <Card style={styles.sectionCard}>
-            <Card.Title title="Photo Gallery" />
-            <Card.Content>
-              <View style={styles.photoActions}>
-                <Button 
-                  mode="contained" 
-                  icon="camera" 
-                  onPress={handleTakePhoto}
-                  style={styles.photoButton}
-                >
-                  Take Photo
-                </Button>
-                <Button 
-                  mode="contained" 
-                  icon="image" 
-                  onPress={handlePickPhoto}
-                  style={styles.photoButton}
-                >
-                  Add Photo
-                </Button>
+          <Card.Content>
+            {/* Tags section */}
+            <View style={styles.tagsSectionContainer}>
+              <View style={styles.tagsSectionHeader}>
+                <Text style={styles.sectionTitle}>Tags</Text>
+                <IconButton
+                  icon="plus"
+                  size={20}
+                  onPress={() => setTagDialogVisible(true)}
+                />
               </View>
               
-              {photos.length === 0 ? (
-                <Text style={styles.noDataText}>No photos added yet.</Text>
+              {loadingTags ? (
+                <ActivityIndicator size="small" color="#6200ee" style={styles.tagsLoading} />
+              ) : tags.length === 0 ? (
+                <Text style={styles.noTagsText}>No tags yet</Text>
               ) : (
-                <View style={styles.photoGrid}>
-                  {photos.map(item => renderPhotoItem(item))}
+                <View style={styles.tagsContainer}>
+                  {tags.map(renderTagChip)}
                 </View>
               )}
-              
-              {hasMorePhotos && (
-                <Button 
-                  mode="outlined" 
-                  onPress={handleViewMorePhotos}
-                  disabled={loadingPhotos}
-                  loading={loadingPhotos}
-                  style={styles.viewMoreButton}
-                >
-                  View More
-                </Button>
-              )}
-            </Card.Content>
-          </Card>
-        )}
-      </Card>
-      
-      {/* Tag dialog */}
-      <Portal>
-        <Dialog
-          visible={tagDialogVisible}
-          onDismiss={() => {
-            setTagDialogVisible(false);
-            setTagInput('');
-            setSuggestedTags([]);
-          }}
-          style={styles.tagDialog}
-        >
-          <Dialog.Title>Add Tags</Dialog.Title>
-          <Dialog.Content>
-            <View style={styles.tagInputContainer}>
-              <TextInput
-                style={styles.tagInput}
-                placeholder="Enter tag name"
-                value={tagInput}
-                onChangeText={handleTagInputChange}
-                onSubmitEditing={handleSubmitTag}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <IconButton
-                icon="plus"
-                size={20}
-                onPress={handleSubmitTag}
-                disabled={!tagInput.trim()}
-              />
             </View>
             
-            {isFetchingSuggestions ? (
-              <ActivityIndicator size="small" color="#6200ee" style={styles.suggestionsLoading} />
-            ) : suggestedTags.length > 0 ? (
-              <View style={styles.suggestionsContainer}>
-                <Text style={styles.suggestionsTitle}>Suggestions:</Text>
-                {suggestedTags.map(tag => (
-                  <TouchableOpacity
-                    key={tag.id}
-                    style={styles.suggestionItem}
-                    onPress={() => handleSelectTag(tag)}
+            <Divider style={styles.divider} />
+            
+            {entity.details && (
+              <Paragraph style={styles.details}>{entity.details}</Paragraph>
+            )}
+          </Card.Content>
+          
+          <Card.Actions style={styles.actionsContainer}>
+            <Button 
+              mode="contained" 
+              icon="account-plus"
+              onPress={handleInteraction}
+              style={[styles.button, styles.interactionButton]}
+            >
+              Record Interaction
+            </Button>
+            <Button 
+              mode="outlined" 
+              icon="pencil" 
+              onPress={handleEdit}
+              style={styles.button}
+            >
+              Edit
+            </Button>
+            <Button 
+              mode="outlined" 
+              icon="delete" 
+              onPress={handleDelete}
+              style={[styles.button, styles.deleteButton]}
+            >
+              Delete
+            </Button>
+          </Card.Actions>
+        </Card>
+
+        {/* Contact Fields Section - Only for Person entities */}
+        {entity && entity.type === EntityType.PERSON && (
+          <ContactFieldsSection
+            entityId={entity.id}
+            phoneNumbers={contactData.phoneNumbers}
+            emailAddresses={contactData.emailAddresses}
+            physicalAddresses={contactData.physicalAddresses}
+            onUpdate={() => loadContactData(entity.id)}
+          />
+        )}
+
+        {/* Tabbed content for Interactions and Photos */}
+        <Card style={styles.tabContentCard}>
+          <SegmentedButtons
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as TabValue)}
+            buttons={[
+              { value: 'interactions', label: 'Interactions' },
+              { value: 'photos', label: 'Photos' }
+            ]}
+            style={styles.segmentedButtons}
+          />
+          
+          {/* Interaction History Tab */}
+          {activeTab === 'interactions' && (
+            <Card style={styles.sectionCard}>
+              <Card.Title title="Interaction History" />
+              <Card.Content>
+                {interactionLogs.length === 0 ? (
+                  <Text style={styles.noDataText}>No interactions recorded yet.</Text>
+                ) : (
+                  <ScrollView
+                    style={{ maxHeight: 300 }}
+                    nestedScrollEnabled={true}
                   >
-                    <Text>{tag.name}</Text>
-                    <Text style={styles.suggestionCount}>({tag.count})</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : tagInput.trim() ? (
-              <Text style={styles.newTagText}>
-                Press + to add "{tagInput.trim()}" as a new tag
-              </Text>
-            ) : null}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => {
+                    {interactionLogs.map(item => renderInteractionLog(item))}
+                  </ScrollView>
+                )}
+                {hasMoreLogs && (
+                  <Button 
+                    mode="outlined" 
+                    onPress={handleViewMoreLogs}
+                    disabled={loadingLogs}
+                    loading={loadingLogs}
+                    style={styles.viewMoreButton}
+                  >
+                    View More
+                  </Button>
+                )}
+              </Card.Content>
+            </Card>
+          )}
+          
+          {/* Photo gallery */}
+          {activeTab === 'photos' && (
+            <Card style={styles.sectionCard}>
+              <Card.Title title="Photo Gallery" />
+              <Card.Content>
+                <View style={styles.photoActions}>
+                  <Button 
+                    mode="contained" 
+                    icon="camera" 
+                    onPress={handleTakePhoto}
+                    style={styles.photoButton}
+                  >
+                    Take Photo
+                  </Button>
+                  <Button 
+                    mode="contained" 
+                    icon="image" 
+                    onPress={handlePickPhoto}
+                    style={styles.photoButton}
+                  >
+                    Add Photo
+                  </Button>
+                </View>
+                
+                {photos.length === 0 ? (
+                  <Text style={styles.noDataText}>No photos added yet.</Text>
+                ) : (
+                  <View style={styles.photoGrid}>
+                    {photos.map(item => renderPhotoItem(item))}
+                  </View>
+                )}
+                
+                {hasMorePhotos && (
+                  <Button 
+                    mode="outlined" 
+                    onPress={handleViewMorePhotos}
+                    disabled={loadingPhotos}
+                    loading={loadingPhotos}
+                    style={styles.viewMoreButton}
+                  >
+                    View More
+                  </Button>
+                )}
+              </Card.Content>
+            </Card>
+          )}
+        </Card>
+        
+        {/* Tag dialog */}
+        <Portal>
+          <Dialog
+            visible={tagDialogVisible}
+            onDismiss={() => {
               setTagDialogVisible(false);
               setTagInput('');
               setSuggestedTags([]);
-            }}>
-              Done
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+            }}
+            style={styles.tagDialog}
+          >
+            <Dialog.Title>Add Tags</Dialog.Title>
+            <Dialog.Content>
+              <View style={styles.tagInputContainer}>
+                <TextInput
+                  style={styles.tagInput}
+                  placeholder="Enter tag name"
+                  value={tagInput}
+                  onChangeText={handleTagInputChange}
+                  onSubmitEditing={handleSubmitTag}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <IconButton
+                  icon="plus"
+                  size={20}
+                  onPress={handleSubmitTag}
+                  disabled={!tagInput.trim()}
+                />
+              </View>
+              
+              {isFetchingSuggestions ? (
+                <ActivityIndicator size="small" color="#6200ee" style={styles.suggestionsLoading} />
+              ) : suggestedTags.length > 0 ? (
+                <View style={styles.suggestionsContainer}>
+                  <Text style={styles.suggestionsTitle}>Suggestions:</Text>
+                  {suggestedTags.map(tag => (
+                    <TouchableOpacity
+                      key={tag.id}
+                      style={styles.suggestionItem}
+                      onPress={() => handleSelectTag(tag)}
+                    >
+                      <Text>{tag.name}</Text>
+                      <Text style={styles.suggestionCount}>({tag.count})</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : tagInput.trim() ? (
+                <Text style={styles.newTagText}>
+                  Press + to add "{tagInput.trim()}" as a new tag
+                </Text>
+              ) : null}
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => {
+                setTagDialogVisible(false);
+                setTagInput('');
+                setSuggestedTags([]);
+              }}>
+                Done
+              </Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+        
+        {/* Interaction Type Selection Dialog */}
+        <Portal>
+          <Dialog
+            visible={interactionMenuVisible}
+            onDismiss={dismissInteractionMenu}
+            style={styles.dialog}
+          >
+            <Dialog.Title>Select Interaction Type</Dialog.Title>
+            <Dialog.Content>
+              <ScrollView style={styles.interactionTypeList}>
+                {interactionTypes.map(item => (
+                  <List.Item
+                    key={item.id}
+                    title={item.name}
+                    left={props => <List.Icon {...props} icon={item.icon} />}
+                    onPress={() => handleSelectInteractionType(item)}
+                  />
+                ))}
+              </ScrollView>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={dismissInteractionMenu}>Cancel</Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+      </ScrollView>
       
-      {/* Interaction Type Selection Dialog */}
-      <Portal>
-        <Dialog
-          visible={interactionMenuVisible}
-          onDismiss={dismissInteractionMenu}
-          style={styles.dialog}
-        >
-          <Dialog.Title>Select Interaction Type</Dialog.Title>
-          <Dialog.Content>
-            <ScrollView style={styles.interactionTypeList}>
-              {interactionTypes.map(item => (
-                <List.Item
-                  key={item.id}
-                  title={item.name}
-                  left={props => <List.Icon {...props} icon={item.icon} />}
-                  onPress={() => handleSelectInteractionType(item)}
+      {/* Edit Interaction Modal */}
+      <EditInteractionModal
+        visible={editInteractionModalVisible}
+        onDismiss={() => {
+          setEditInteractionModalVisible(false);
+          setSelectedInteraction(null);
+        }}
+        interaction={selectedInteraction}
+        interactionTypes={interactionTypes}
+        onSave={handleSaveInteraction}
+      />
+    </SafeAreaView>
+  );
+};
+
+// Define the EditInteractionModal component
+const EditInteractionModal = ({
+  visible,
+  onDismiss,
+  interaction,
+  interactionTypes,
+  onSave,
+}: EditInteractionModalProps) => {
+  // Only initialize state when we have an interaction
+  const [selectedDate, setSelectedDate] = useState<Date | null>(
+    interaction ? new Date(interaction.timestamp) : null
+  );
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedType, setSelectedType] = useState<string>(interaction?.type || '');
+  const [typeMenuVisible, setTypeMenuVisible] = useState(false);
+
+  // Update state when interaction changes
+  useEffect(() => {
+    if (interaction) {
+      setSelectedDate(new Date(interaction.timestamp));
+      setSelectedType(interaction.type);
+    }
+  }, [interaction]);
+
+  // Can't render anything meaningful without an interaction
+  if (!interaction) {
+    return null;
+  }
+
+  const handleSave = async () => {
+    if (selectedDate && selectedType && interaction) {
+      await onSave(interaction.id, {
+        timestamp: selectedDate.getTime(),
+        type: selectedType,
+      });
+    }
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <Portal>
+      <Modal visible={visible} onDismiss={onDismiss} contentContainerStyle={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Edit Interaction</Text>
+          
+          <Pressable 
+            style={styles.dateSelector} 
+            onPress={() => setShowDatePicker(true)}
+          >
+            <Text style={styles.fieldLabel}>Date & Time:</Text>
+            <View style={styles.dateDisplay}>
+              <Text>{selectedDate ? formatDate(selectedDate) : 'Select date'}</Text>
+              <MaterialCommunityIcons name="calendar" size={20} color="#6200ee" />
+            </View>
+          </Pressable>
+          
+          {showDatePicker && (
+            <DateTimePicker
+              value={selectedDate || new Date()}
+              mode="datetime"
+              display="default"
+              onChange={(event, selectedDate) => {
+                setShowDatePicker(false);
+                if (selectedDate) setSelectedDate(selectedDate);
+              }}
+            />
+          )}
+          
+          <View style={styles.typeSelector}>
+            <Text style={styles.fieldLabel}>Interaction Type:</Text>
+            <Menu
+              visible={typeMenuVisible}
+              onDismiss={() => setTypeMenuVisible(false)}
+              anchor={
+                <Pressable 
+                  style={styles.typeDisplay} 
+                  onPress={() => setTypeMenuVisible(true)}
+                >
+                  <Text>{selectedType || 'Select type'}</Text>
+                  <MaterialCommunityIcons name="chevron-down" size={20} color="#6200ee" />
+                </Pressable>
+              }
+            >
+              {interactionTypes.map((type) => (
+                <Menu.Item
+                  key={type.id}
+                  onPress={() => {
+                    setSelectedType(type.name);
+                    setTypeMenuVisible(false);
+                  }}
+                  title={type.name}
+                  leadingIcon={props => <List.Icon {...props} icon={type.icon} />}
                 />
               ))}
-            </ScrollView>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={dismissInteractionMenu}>Cancel</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-    </ScrollView>
+            </Menu>
+          </View>
+          
+          <View style={styles.modalButtons}>
+            <Button mode="outlined" onPress={onDismiss} style={styles.modalButton}>
+              Cancel
+            </Button>
+            <Button 
+              mode="contained" 
+              onPress={handleSave} 
+              style={styles.modalButton}
+              disabled={!selectedDate || !selectedType}
+            >
+              Save
+            </Button>
+          </View>
+        </View>
+      </Modal>
+    </Portal>
   );
 };
 
@@ -1380,6 +1560,66 @@ const styles = StyleSheet.create({
   },
   favoriteButton: {
     margin: 0,
+  },
+  // Modal styles
+  modalContainer: {
+    backgroundColor: 'white',
+    padding: 20,
+    margin: 20,
+    borderRadius: 10,
+    elevation: 5,
+  },
+  modalContent: {
+    width: '100%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  dateSelector: {
+    marginBottom: 20,
+  },
+  dateDisplay: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 5,
+    marginTop: 5,
+  },
+  typeSelector: {
+    marginBottom: 20,
+  },
+  typeDisplay: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 5,
+    marginTop: 5,
+  },
+  fieldLabel: {
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  modalButton: {
+    flex: 1,
+    margin: 5,
+  },
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f0f0f0',
   },
 });
 
