@@ -34,6 +34,46 @@ rules:
     pattern: ".*\\.(js|ts|jsx|tsx|swift|kotlin|java)$"
     message: "Data must be encrypted at rest using secure encryption algorithms"
 
+  - name: "Accessibility Requirements"
+    description: "Ensure components meet accessibility standards"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Components must include appropriate accessibility attributes (e.g., aria-labels, role, etc.)"
+
+  - name: "Performance Optimization"
+    description: "Check for performance bottlenecks in component rendering"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Use React.memo, useMemo, or useCallback where appropriate to optimize performance"
+
+  - name: "Error Handling"
+    description: "Ensure proper error handling is implemented"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Add try/catch blocks and user-friendly error messages for critical operations"
+
+  - name: "Responsive Design"
+    description: "Ensure UI is responsive across different screen sizes"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Check that components adapt properly to different screen sizes and orientations"
+
+  - name: "TypeScript Typing"
+    description: "Ensure proper TypeScript types are used"
+    pattern: ".*\\.(ts|tsx)$"
+    message: "Avoid using 'any' type; define proper interfaces and types for all components and functions"
+
+  - name: "Component Size Limit"
+    description: "Keep components focused and manageable"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Consider breaking down components that exceed 200 lines into smaller, more focused components"
+
+  - name: "Memory Management"
+    description: "Prevent memory leaks in components"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Clean up subscriptions, timers, and event listeners in useEffect cleanup functions"
+
+  - name: "Testing Requirements"
+    description: "Ensure new features have appropriate tests"
+    pattern: ".*\\.(js|ts|jsx|tsx)$"
+    message: "Add unit tests for new components and integration tests for complex workflows"
+
 # Project Structure Information
 project:
   name: "ContactManager"
@@ -41,4 +81,4 @@ project:
   git:
     repository: "ContactManager"
     location: "One subdirectory down from the main project folder called 'garden'"
-    path: "/Users/noah/ai/garden/ContactManager" 
+    path: "/Users/noah/ai/garden/ContactManager"
