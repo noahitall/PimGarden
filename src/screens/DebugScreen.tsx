@@ -213,6 +213,11 @@ const DebugScreen: React.FC = () => {
               Use for testing or data restoration purposes only.
             </Text>
             
+            <Text style={[styles.warningText, { marginTop: 10, fontStyle: 'italic' }]}>
+              Note: A similar feature is now available directly on the Entity Detail screen
+              that can generate multiple random historical interactions automatically.
+            </Text>
+            
             <View style={styles.formField}>
               <Text style={styles.label}>Entity:</Text>
               <TextInput

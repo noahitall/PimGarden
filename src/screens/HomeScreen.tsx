@@ -294,7 +294,8 @@ const HomeScreen: React.FC = () => {
   // Handle scroll events to show/hide search bar
   const handleScroll = (event: any) => {
     const scrollY = event.nativeEvent.contentOffset.y;
-    if (scrollY < -50 && !searchVisible) {
+    // Use a smaller threshold for detecting pull-down on Android
+    if (scrollY < -20 && !searchVisible) {
       toggleSearchBar(true);
     } else if (scrollY > 50 && searchVisible) {
       toggleSearchBar(false);
@@ -367,14 +368,21 @@ const HomeScreen: React.FC = () => {
   React.useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <Appbar.Action 
-          icon="cog" 
-          color="white" 
-          onPress={() => navigation.navigate('Settings')} 
-        />
+        <View style={{ flexDirection: 'row' }}>
+          <Appbar.Action 
+            icon="magnify" 
+            color="white" 
+            onPress={() => toggleSearchBar(!searchVisible)} 
+          />
+          <Appbar.Action 
+            icon="cog" 
+            color="white" 
+            onPress={() => navigation.navigate('Settings')} 
+          />
+        </View>
       ),
     });
-  }, [navigation]);
+  }, [navigation, searchVisible]);
   
   return (
     <View style={styles.container}>
@@ -479,10 +487,15 @@ const HomeScreen: React.FC = () => {
         numColumns={numColumns}
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={loadEntities} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={loadEntities}
+            progressViewOffset={10} // Better positioning on Android
+          />
         }
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        overScrollMode="always" // Ensure overscroll works on Android
       />
       
       {/* Debug button (only show if feature flag is enabled) */}

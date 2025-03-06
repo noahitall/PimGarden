@@ -13,6 +13,7 @@ import ContactFieldsSection from '../components/ContactFieldsSection';
 import SafeDateTimePicker from '../components/SafeDateTimePicker';
 import GroupMembersSection from '../components/GroupMembersSection';
 import EditInteractionModal from '../components/EditInteractionModal';
+import { isFeatureEnabledSync } from '../config/FeatureFlags';
 
 // Define the InteractionLog interface
 interface InteractionLog {
@@ -216,6 +217,71 @@ const EntityDetailScreen: React.FC = () => {
       setHasMoreLogs(totalCount > currentOffset + logs.length);
     } catch (error) {
       console.error('Error loading interaction logs:', error);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  // Generate 20 random historical interactions over the past year
+  const generateHistoricalInteractions = async () => {
+    if (!entity) return;
+    
+    try {
+      setLoadingLogs(true);
+      const entityId = entity.id;
+      
+      // Load interaction types appropriate for this entity
+      const availableTypes = await database.getEntityInteractionTypes(entityId);
+      if (!availableTypes || availableTypes.length === 0) {
+        Alert.alert('Error', 'No interaction types available for this entity');
+        return;
+      }
+      
+      // Current time
+      const now = Date.now();
+      // One year ago
+      const oneYearAgo = now - (365 * 24 * 60 * 60 * 1000);
+      
+      // Generate 20 random timestamps between one year ago and now
+      const timestamps: number[] = [];
+      for (let i = 0; i < 20; i++) {
+        const randomTimestamp = oneYearAgo + Math.random() * (now - oneYearAgo);
+        timestamps.push(randomTimestamp);
+      }
+      
+      // Sort timestamps chronologically
+      timestamps.sort();
+      
+      // Add each interaction
+      let successCount = 0;
+      for (const timestamp of timestamps) {
+        // Select a random interaction type
+        const randomTypeIndex = Math.floor(Math.random() * availableTypes.length);
+        const randomType = availableTypes[randomTypeIndex].name;
+        
+        // Add the historical interaction
+        const interactionId = await database.addHistoricalInteraction(
+          entityId,
+          timestamp,
+          randomType
+        );
+        
+        if (interactionId) {
+          successCount++;
+        }
+      }
+      
+      // Reload interaction logs to show the new historical interactions
+      await loadInteractionLogs(entityId, true);
+      await loadEntityData(); // Reload entity data to update the score
+      
+      Alert.alert(
+        'Success', 
+        `Generated ${successCount} random historical interactions over the past year.`
+      );
+    } catch (error) {
+      console.error('Error generating historical interactions:', error);
+      Alert.alert('Error', 'Failed to generate historical interactions');
     } finally {
       setLoadingLogs(false);
     }
@@ -1072,6 +1138,20 @@ const EntityDetailScreen: React.FC = () => {
                     style={styles.viewMoreButton}
                   >
                     View More
+                  </Button>
+                )}
+                
+                {/* Generate Historical Interactions button - Only visible if feature flag is enabled */}
+                {isFeatureEnabledSync('ENABLE_HISTORICAL_INTERACTIONS') && (
+                  <Button 
+                    mode="outlined" 
+                    onPress={generateHistoricalInteractions}
+                    disabled={loadingLogs}
+                    loading={loadingLogs}
+                    style={[styles.viewMoreButton, { marginTop: 8 }]}
+                    icon="clock-time-four-outline"
+                  >
+                    Generate Historical Data
                   </Button>
                 )}
               </Card.Content>

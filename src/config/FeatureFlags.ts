@@ -17,7 +17,7 @@ export const FEATURE_FLAGS_STORAGE_KEY = 'contact_manager_feature_flags';
 export const FeatureFlags = {
   // Development features
   SHOW_DEBUG_BUTTON: false, // Keep disabled for production builds
-  ENABLE_HISTORICAL_INTERACTIONS: false, // Debug feature for adding historical interactions
+  ENABLE_HISTORICAL_INTERACTIONS: false, // Controls the button to generate random historical interactions on entity detail screen
   ENABLE_DATA_RESET: false, // Debug feature for resetting all data
   
   // Feature toggles - enable stable features for production

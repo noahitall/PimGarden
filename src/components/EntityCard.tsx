@@ -75,8 +75,8 @@ const EntityCard: React.FC<EntityCardProps> = ({
       const hasRecentActivity = dailyData.some(count => count > 0);
       
       if (hasRecentActivity) {
-        // If there's recent activity, show the last 14 days
-        setInteractionData(dailyData.slice(-14));
+        // If there's recent activity, show the last 30 days
+        setInteractionData(dailyData.slice(-30));
         setInteractionTimespan('month');
       } else {
         // If no recent activity, get yearly data
@@ -248,7 +248,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
                   {/* Compact spark chart */}
                   <View style={styles.compactSparkLineWrapper}>
                     <SparkLine 
-                      data={interactionData.slice(-7)} // Show only last 7 data points
+                      data={interactionData.slice(-15)} // Show only last 15 data points
                       timespan={interactionTimespan}
                       isCompact={true}
                     />
@@ -299,7 +299,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
             <View style={styles.sparkLineWrapper}>
               <View style={styles.timespanIndicator}>
                 <Text style={styles.timespanText}>
-                  {interactionTimespan === 'month' ? 'Last 14 days' : 'Last 12 months'}
+                  {interactionTimespan === 'month' ? 'Last 30 days' : 'Last 12 months'}
                 </Text>
               </View>
               <SparkLine data={interactionData} timespan={interactionTimespan} />

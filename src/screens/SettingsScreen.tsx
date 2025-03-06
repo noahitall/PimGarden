@@ -150,11 +150,6 @@ const SettingsScreen: React.FC = () => {
   
   return (
     <View style={styles.container}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => navigation.goBack()} />
-        <Appbar.Content title="Settings" />
-      </Appbar.Header>
-      
       <ScrollView style={styles.content}>
         {/* Interaction Score Settings Card */}
         <Card style={styles.card}>
@@ -254,7 +249,7 @@ const SettingsScreen: React.FC = () => {
               
               <List.Item
                 title="Enable Historical Interactions"
-                description="Allow adding interactions with custom dates"
+                description="Show button to generate random historical interactions on entity detail screen"
                 left={props => <List.Icon {...props} icon="clock-time-four-outline" />}
                 right={props => (
                   <Switch
