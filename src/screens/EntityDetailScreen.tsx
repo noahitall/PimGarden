@@ -746,6 +746,7 @@ const EntityDetailScreen: React.FC = () => {
         emailAddresses: [],
         physicalAddresses: []
       });
+      // Don't show error alert to user as it would disrupt their experience
     }
   };
 
@@ -801,9 +802,13 @@ const EntityDetailScreen: React.FC = () => {
     try {
       const success = await database.updateInteraction(interactionId, updates);
       
-      if (success) {
+      if (success && entity) {
         // Reload interaction logs to reflect changes
-        await loadInteractionLogs(entity?.id || '', true);
+        await loadInteractionLogs(entity.id, true);
+        
+        // Reload entity data to refresh its score in the UI
+        await loadEntityData();
+        
         setEditInteractionModalVisible(false);
         setSelectedInteraction(null);
         
@@ -915,7 +920,6 @@ const EntityDetailScreen: React.FC = () => {
                 />
               </View>
               <View style={styles.entityInfoRow}>
-                <Text style={styles.type}>{getTypeIcon(entity.type)} {entity.type}</Text>
                 <View style={styles.scoreIndicator}>
                   <Text style={styles.scoreValue}>{entity.interaction_score}</Text>
                   <Text style={styles.scoreLabel}>Interaction Score</Text>

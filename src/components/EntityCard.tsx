@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { StyleSheet, View, Image, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
 import { Text, Surface, Badge, IconButton, Dialog, Portal, Button, List, Avatar } from 'react-native-paper';
 import { Entity } from '../types';
@@ -45,45 +45,74 @@ interface EntityCardProps {
   onLongPress?: (id: string) => void;
   selected?: boolean;
   isCompact?: boolean;
+  forceRefresh?: number; // Timestamp to force refresh when changed
 }
 
-const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, selected = false, isCompact = false }) => {
+const EntityCard: React.FC<EntityCardProps> = ({ 
+  entity, 
+  onPress, 
+  onLongPress, 
+  selected = false, 
+  isCompact = false,
+  forceRefresh = 0
+}) => {
   const [interactionData, setInteractionData] = useState<number[]>([]);
   const [interactionTimespan, setInteractionTimespan] = useState<'month' | 'year'>('month');
   const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
   const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
   
-  // Load interaction data
-  useEffect(() => {
-    const loadInteractionData = async () => {
-      try {
-        // Get the daily data for the last month
-        const countsByDay = await database.getInteractionCountsByDay(entity.id);
-        const dailyData = countsByDay.slice(-30).map(item => item.count);
-        
-        // Check if there's any activity in the last month
-        const hasRecentActivity = dailyData.some(count => count > 0);
-        
-        if (hasRecentActivity) {
-          // If there's recent activity, show the last 14 days
-          setInteractionData(dailyData.slice(-14));
-          setInteractionTimespan('month');
-        } else {
-          // If no recent activity, get yearly data
-          const countsByMonth = await database.getInteractionCountsByMonth(entity.id);
-          const monthlyData = countsByMonth.map(item => item.count);
-          setInteractionData(monthlyData);
-          setInteractionTimespan('year');
-        }
-      } catch (error) {
-        console.error('Error loading interaction data:', error);
-        setInteractionData(Array(14).fill(0));
+  // Function to refresh interaction data
+  const refreshInteractionData = useCallback(async () => {
+    try {
+      console.log(`Refreshing interaction data for entity ${entity.id} (updated_at: ${new Date(entity.updated_at).toISOString()})`);
+      
+      // Get the daily data for the last month
+      const countsByDay = await database.getInteractionCountsByDay(entity.id);
+      const dailyData = countsByDay.slice(-30).map(item => item.count);
+      
+      // Check if there's any activity in the last month
+      const hasRecentActivity = dailyData.some(count => count > 0);
+      
+      if (hasRecentActivity) {
+        // If there's recent activity, show the last 14 days
+        setInteractionData(dailyData.slice(-14));
         setInteractionTimespan('month');
+      } else {
+        // If no recent activity, get yearly data
+        const countsByMonth = await database.getInteractionCountsByMonth(entity.id);
+        const monthlyData = countsByMonth.map(item => item.count);
+        setInteractionData(monthlyData);
+        setInteractionTimespan('year');
       }
-    };
+      
+      // Update last refresh timestamp
+      setLastRefresh(Date.now());
+    } catch (error) {
+      console.error('Error loading interaction data:', error);
+      setInteractionData(Array(14).fill(0));
+      setInteractionTimespan('month');
+    }
+  }, [entity.id, entity.updated_at]);
+  
+  // Load interaction data on mount and when entity changes
+  useEffect(() => {
+    refreshInteractionData();
     
-    loadInteractionData();
-  }, [entity.id, entity.interaction_score]);
+    // Set up a periodic refresh every 60 minutes instead of 30 seconds
+    const refreshTimer = setInterval(() => {
+      refreshInteractionData();
+    }, 3600000); // 60 minutes = 3600000 ms
+    
+    return () => clearInterval(refreshTimer);
+  }, [entity.id, entity.interaction_score, entity.updated_at, refreshInteractionData]);
+  
+  // Force refresh when forceRefresh prop changes
+  useEffect(() => {
+    if (forceRefresh > 0) {
+      refreshInteractionData();
+    }
+  }, [forceRefresh, refreshInteractionData]);
   
   // Load interaction types
   useEffect(() => {

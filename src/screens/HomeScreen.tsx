@@ -462,7 +462,7 @@ const HomeScreen: React.FC = () => {
             />
           </Menu>
           <Searchbar
-            placeholder="Search by name, phone, email, or address"
+            placeholder="Search by name, phone, email, address, or tags"
             onChangeText={handleSearch}
             value={searchQuery}
             style={styles.searchBar}

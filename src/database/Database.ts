@@ -550,12 +550,9 @@ export class Database {
   // Encrypt data using a symmetric key
   private async encryptData(data: any): Promise<string> {
     try {
-      const jsonString = JSON.stringify(data);
-      const digest = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        jsonString
-      );
-      return digest;
+      // Instead of hashing, we'll just JSON stringify the data
+      // In a real app, you would use proper encryption
+      return JSON.stringify(data);
     } catch (error) {
       console.error('Error encrypting data:', error);
       throw error;
@@ -564,10 +561,8 @@ export class Database {
 
   // Decrypt data using the same symmetric key
   private async decryptData(encryptedData: string): Promise<string> {
-    // For now, since we're using a hash function in encryptData,
-    // we can't actually decrypt. In a real app, you would use proper
-    // encryption/decryption with a symmetric key.
-    // This is just for demonstration purposes.
+    // Since we're just storing JSON strings, we can return it directly
+    // In a real app, you would use proper decryption
     return encryptedData;
   }
 
@@ -1060,7 +1055,7 @@ export class Database {
       .sort((a, b) => a.month.localeCompare(b.month));
   }
 
-  // Search entities by name, phone number, email, or address
+  // Search entities by name, phone number, email, address, or tag names
   async searchEntities(searchTerm: string, type?: EntityType): Promise<Entity[]> {
     if (!searchTerm.trim()) {
       return this.getAllEntities(type);
@@ -1070,10 +1065,12 @@ export class Database {
     const searchTermLower = searchTerm.toLowerCase();
     
     try {
-      // Start with entities that match name or details
+      // Start with entities that match name, details, or tags
       let query = `
-        SELECT e.* FROM entities e 
-        WHERE (e.name LIKE ? OR e.details LIKE ?)
+        SELECT DISTINCT e.* FROM entities e 
+        LEFT JOIN entity_tags et ON e.id = et.entity_id
+        LEFT JOIN tags t ON et.tag_id = t.id
+        WHERE (e.name LIKE ? OR e.details LIKE ? OR t.name LIKE ?)
       `;
       
       if (type) {
@@ -1081,13 +1078,13 @@ export class Database {
       }
       
       const params = type 
-        ? [searchPattern, searchPattern, type]
-        : [searchPattern, searchPattern];
+        ? [searchPattern, searchPattern, searchPattern, type]
+        : [searchPattern, searchPattern, searchPattern];
       
       const nameMatchResults = await this.db.getAllAsync<Entity>(query, params);
       const resultMap = new Map<string, Entity>();
       
-      // Add name/details matches to result map
+      // Add name/details/tag matches to result map
       nameMatchResults.forEach(entity => {
         resultMap.set(entity.id, entity);
       });
@@ -1123,9 +1120,18 @@ export class Database {
             try {
               parsedData = JSON.parse(encryptedData);
             } catch (e) {
-              // Skip this entity if we can't parse the data
+              // Log the error but don't stop the search process
               console.error('Error parsing contact data:', e);
-              continue;
+              
+              // Attempt to repair the corrupted data
+              await this.resetCorruptedContactData(entity.id);
+              
+              // Instead of skipping entirely, set an empty object
+              parsedData = {
+                phoneNumbers: [],
+                emailAddresses: [],
+                physicalAddresses: []
+              };
             }
             
             // We need to directly access phoneNumbers, emailAddresses, etc. since that's how updatePersonContactData stores them
@@ -2442,16 +2448,17 @@ export class Database {
   // Get a person entity with its contact data
   async getPersonWithContactData(entityId: string): Promise<PersonEntity | null> {
     try {
-      // Get the entity
       const entity = await this.getEntityById(entityId);
       if (!entity || entity.type !== EntityType.PERSON) {
         return null;
       }
       
-      // Create a person entity
       const person: PersonEntity = {
         ...entity,
-        type: EntityType.PERSON
+        type: EntityType.PERSON,
+        phone: undefined,
+        email: undefined,
+        address: undefined
       };
       
       // Parse the encrypted_data field if it exists
@@ -2461,14 +2468,25 @@ export class Database {
           // For this demo, we're just parsing the JSON
           const contactData = JSON.parse(entity.encrypted_data);
           person.contactData = contactData;
-        } catch (e) {
-          console.error('Error parsing contact data:', e);
+        } catch (e: any) { // Type 'e' as any to fix linter error
+          // Provide more detailed error logging
+          console.error(`Error parsing contact data for entity ${entityId}: ${e.message || e}`);
+          
+          // Attempt to repair the corrupted data
+          await this.resetCorruptedContactData(entityId);
+          
+          // Set empty contact data to prevent UI issues
+          person.contactData = {
+            phoneNumbers: [],
+            emailAddresses: [],
+            physicalAddresses: []
+          };
         }
       }
       
       return person;
     } catch (error) {
-      console.error('Error getting person with contact data:', error);
+      console.error('Error retrieving person with contact data:', error);
       return null;
     }
   }
@@ -2504,13 +2522,44 @@ export class Database {
       // Complete the parameters with the interaction ID
       params.push(interactionId);
 
+      // Get the entity ID for this interaction
+      const interaction = await this.db.getFirstAsync<{ entity_id: string }>(
+        'SELECT entity_id FROM interactions WHERE id = ?',
+        [interactionId]
+      );
+
+      if (!interaction) {
+        console.error('Interaction not found:', interactionId);
+        return false;
+      }
+
       // Perform the update
       const result = await this.db.runAsync(
         `UPDATE interactions SET ${updateParts.join(', ')} WHERE id = ?`,
         params
       );
 
-      // If the interaction was found and updated
+      // If the interaction was found and updated, also update the entity's score
+      if (result.changes > 0) {
+        // Get the entity ID for this interaction
+        const entityId = interaction.entity_id;
+
+        // Get current settings for decay
+        const settings = await this.getSettings();
+        const decayFactor = settings?.decayFactor || 0;
+        const decayType = settings?.decayType || 'linear';
+
+        // Calculate new score
+        const newScore = await this.calculateInteractionScore(entityId, decayFactor, decayType);
+        const now = Date.now();
+
+        // Update entity with new score and timestamp
+        await this.db.runAsync(
+          'UPDATE entities SET interaction_score = ?, updated_at = ? WHERE id = ?',
+          [newScore, now, entityId]
+        );
+      }
+
       return result.changes > 0;
     } catch (error) {
       console.error('Error updating interaction:', error);
@@ -2585,60 +2634,89 @@ export class Database {
 
       // Merge contact data if it exists
       if (sourceEntity.encrypted_data && targetEntity.encrypted_data) {
-        const sourceData = JSON.parse(await this.decryptData(sourceEntity.encrypted_data)) as ContactData;
-        const targetData = JSON.parse(await this.decryptData(targetEntity.encrypted_data)) as ContactData;
-
-        // Merge phone numbers
-        const mergedPhoneNumbers = [...targetData.phoneNumbers];
-        for (const phone of sourceData.phoneNumbers) {
-          if (!mergedPhoneNumbers.some(p => p.value === phone.value)) {
-            mergedPhoneNumbers.push(phone);
+        let sourceData: ContactData | null = null;
+        let targetData: ContactData | null = null;
+        
+        try {
+          sourceData = JSON.parse(await this.decryptData(sourceEntity.encrypted_data)) as ContactData;
+          targetData = JSON.parse(await this.decryptData(targetEntity.encrypted_data)) as ContactData;
+        } catch (e: any) {
+          // Log the error but continue with the merge
+          console.log(`Error parsing contact data during merge: ${e.message || e}`);
+          
+          // Attempt to repair corrupted data
+          let repaired = false;
+          if (sourceEntity.encrypted_data && !this.isValidJson(sourceEntity.encrypted_data)) {
+            await this.resetCorruptedContactData(sourceEntity.id);
+            repaired = true;
           }
-        }
-
-        // Merge email addresses
-        const mergedEmails = [...targetData.emailAddresses];
-        for (const email of sourceData.emailAddresses) {
-          if (!mergedEmails.some(e => e.value === email.value)) {
-            mergedEmails.push(email);
+          
+          if (targetEntity.encrypted_data && !this.isValidJson(targetEntity.encrypted_data)) {
+            await this.resetCorruptedContactData(targetEntity.id);
+            repaired = true;
           }
-        }
-
-        // Merge physical addresses
-        const mergedAddresses = [...targetData.physicalAddresses];
-        for (const address of sourceData.physicalAddresses) {
-          if (!mergedAddresses.some(a => 
-            a.street === address.street && 
-            a.city === address.city && 
-            a.state === address.state && 
-            a.postalCode === address.postalCode
-          )) {
-            mergedAddresses.push(address);
+          
+          if (repaired) {
+            console.log("Corrupted contact data was repaired during merge");
           }
+          
+          // Skip the contact data merge but continue with other operations
         }
-
-        // Update target entity with merged data
-        const mergedContactData: ContactData = {
-          phoneNumbers: mergedPhoneNumbers,
-          emailAddresses: mergedEmails,
-          physicalAddresses: mergedAddresses
-        };
-
-        // Create a summary of the merged contact details
-        const detailsSummary = [
-          ...mergedPhoneNumbers.map(p => p.value),
-          ...mergedEmails.map(e => e.value),
-          ...mergedAddresses.map(a => a.formattedAddress || `${a.street}, ${a.city}, ${a.state} ${a.postalCode}`)
-        ].join('\n');
-
-        // Encrypt the merged data
-        const encryptedMergedData = await this.encryptData(mergedContactData);
-
-        // Update the target entity
-        await this.db.runAsync(
-          'UPDATE entities SET details = ?, encrypted_data = ? WHERE id = ?',
-          [detailsSummary, encryptedMergedData, targetId]
-        );
+        
+        // Only proceed with contact data merge if parsing was successful
+        if (sourceData && targetData) {
+          // Merge phone numbers
+          const mergedPhoneNumbers = [...(targetData.phoneNumbers || [])];
+          for (const phone of (sourceData.phoneNumbers || [])) {
+            if (!mergedPhoneNumbers.some(p => p.value === phone.value)) {
+              mergedPhoneNumbers.push(phone);
+            }
+          }
+          
+          // Merge email addresses
+          const mergedEmails = [...(targetData.emailAddresses || [])];
+          for (const email of (sourceData.emailAddresses || [])) {
+            if (!mergedEmails.some(e => e.value === email.value)) {
+              mergedEmails.push(email);
+            }
+          }
+          
+          // Merge physical addresses
+          const mergedAddresses = [...(targetData.physicalAddresses || [])];
+          for (const address of (sourceData.physicalAddresses || [])) {
+            if (!mergedAddresses.some(a => 
+              a.street === address.street && 
+              a.city === address.city && 
+              a.state === address.state && 
+              a.postalCode === address.postalCode
+            )) {
+              mergedAddresses.push(address);
+            }
+          }
+          
+          // Update target entity with merged data
+          const mergedContactData: ContactData = {
+            phoneNumbers: mergedPhoneNumbers,
+            emailAddresses: mergedEmails,
+            physicalAddresses: mergedAddresses
+          };
+          
+          // Create a summary of the merged contact details
+          const detailsSummary = [
+            ...mergedPhoneNumbers.map(p => p.value),
+            ...mergedEmails.map(e => e.value),
+            ...mergedAddresses.map(a => a.formattedAddress || `${a.street}, ${a.city}, ${a.state} ${a.postalCode}`)
+          ].join('\n');
+          
+          // Encrypt the merged data
+          const encryptedMergedData = await this.encryptData(mergedContactData);
+          
+          // Update the target entity
+          await this.db.runAsync(
+            'UPDATE entities SET details = ?, encrypted_data = ? WHERE id = ?',
+            [detailsSummary, encryptedMergedData, targetId]
+          );
+        }
       }
 
       // Delete the source entity
@@ -2902,11 +2980,12 @@ export class Database {
       // Update each entity's interaction score
       for (const entity of entities) {
         const score = await this.calculateInteractionScore(entity.id, decayFactor, decayType);
+        const now = Date.now();
         
-        // Update the entity's interaction_score
+        // Update the entity's interaction_score AND updated_at timestamp
         await this.db.runAsync(
-          'UPDATE entities SET interaction_score = ? WHERE id = ?',
-          [score, entity.id]
+          'UPDATE entities SET interaction_score = ?, updated_at = ? WHERE id = ?',
+          [score, now, entity.id]
         );
       }
       
@@ -2995,41 +3074,46 @@ export class Database {
     }
   }
 
-  // Updates user settings
-  async updateSettings(settings: AppSettings): Promise<void> {
+  // Helper function to check if encrypted_data is valid JSON
+  private isValidJson(str: string): boolean {
     try {
-      const db = await this.getDBConnection();
-      
-      await db.transaction(tx => {
-        tx.executeSql(
-          'INSERT OR REPLACE INTO settings (id, key, value) VALUES (?, ?, ?)',
-          [1, 'score_settings', JSON.stringify(settings)]
-        );
-      });
-    } catch (error) {
-      console.error('Error updating settings:', error);
-      throw error;
+      JSON.parse(str);
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 
-  // Reset database version (DEVELOPMENT/TESTING ONLY)
-  async resetDatabaseVersion(version: number): Promise<void> {
+  // Reset corrupted encrypted_data for an entity
+  async resetCorruptedContactData(entityId: string): Promise<boolean> {
     try {
-      console.log(`Resetting database version to ${version}...`);
+      const entity = await this.getEntityById(entityId);
+      if (!entity) return false;
       
-      // Delete existing version record
-      await this.db.runAsync('DELETE FROM db_version');
+      // Check if encrypted_data exists and is corrupted
+      if (entity.encrypted_data && !this.isValidJson(entity.encrypted_data)) {
+        console.log(`Resetting corrupted contact data for entity ${entityId}`);
+        
+        // Create empty contact data structure
+        const emptyContactData = {
+          phoneNumbers: [],
+          emailAddresses: [],
+          physicalAddresses: []
+        };
+        
+        // Update the entity with empty valid contact data
+        const result = await this.db.runAsync(
+          `UPDATE entities SET encrypted_data = ?, updated_at = ? WHERE id = ?`,
+          [JSON.stringify(emptyContactData), Date.now(), entityId]
+        );
+        
+        return result.changes > 0;
+      }
       
-      // Insert new version
-      await this.db.runAsync(
-        'INSERT INTO db_version (version) VALUES (?)',
-        [version]
-      );
-      
-      console.log(`Database version reset to ${version}. Migrations will run on next app start.`);
+      return false; // No corruption detected or no data to repair
     } catch (error) {
-      console.error('Error resetting database version:', error);
-      throw error;
+      console.error('Error resetting corrupted contact data:', error);
+      return false;
     }
   }
 }
