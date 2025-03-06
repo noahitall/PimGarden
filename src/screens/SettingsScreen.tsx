@@ -9,14 +9,16 @@ import {
   Text,
   Card,
   Dialog,
-  Portal
+  Portal,
+  RadioButton
 } from 'react-native-paper';
+import Slider from '@react-native-community/slider';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { FeatureFlags, updateFeatureFlag, FEATURE_FLAGS_STORAGE_KEY, isFeatureEnabledSync } from '../config/FeatureFlags';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { database } from '../database/Database';
+import { database, AppSettings } from '../database/Database';
 
 type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -29,21 +31,35 @@ const SettingsScreen: React.FC = () => {
   const [resetDataDialogVisible, setResetDataDialogVisible] = useState(false);
   const [resetDataConfirmDialogVisible, setResetDataConfirmDialogVisible] = useState(false);
   
-  // Load saved feature flags on mount
+  // Interaction score settings
+  const [scoreSettings, setScoreSettings] = useState<AppSettings>({
+    decayFactor: 0,
+    decayType: 'linear'
+  });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  
+  // Load saved feature flags and score settings on mount
   useEffect(() => {
-    const loadFeatureFlags = async () => {
+    const loadSettings = async () => {
       try {
+        // Load feature flags
         const savedFlags = await AsyncStorage.getItem(FEATURE_FLAGS_STORAGE_KEY);
         if (savedFlags) {
           const parsedFlags = JSON.parse(savedFlags);
           setFeatureFlags({...FeatureFlags, ...parsedFlags});
         }
+        
+        // Load score settings
+        const settings = await database.getSettings();
+        if (settings) {
+          setScoreSettings(settings);
+        }
       } catch (error) {
-        console.error('Error loading feature flags:', error);
+        console.error('Error loading settings:', error);
       }
     };
     
-    loadFeatureFlags();
+    loadSettings();
   }, []);
   
   // Toggle a feature flag
@@ -106,6 +122,32 @@ const SettingsScreen: React.FC = () => {
     }
   };
   
+  // Save score settings
+  const saveScoreSettings = async () => {
+    try {
+      setIsSavingSettings(true);
+      await database.updateSettings(scoreSettings);
+      Alert.alert('Settings Saved', 'Interaction score settings have been updated.');
+    } catch (error) {
+      console.error('Error saving score settings:', error);
+      Alert.alert('Error', 'Failed to save interaction score settings.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+  
+  // Run database migrations manually (for development/testing)
+  const runDatabaseMigrations = async () => {
+    try {
+      // Set database version to 0 to force all migrations to run
+      await database.resetDatabaseVersion(0);
+      Alert.alert('Success', 'Database migrations have been triggered. Restart the app to complete the process.');
+    } catch (error) {
+      console.error('Error triggering database migrations:', error);
+      Alert.alert('Error', 'Failed to trigger database migrations.');
+    }
+  };
+  
   return (
     <View style={styles.container}>
       <Appbar.Header>
@@ -114,6 +156,79 @@ const SettingsScreen: React.FC = () => {
       </Appbar.Header>
       
       <ScrollView style={styles.content}>
+        {/* Interaction Score Settings Card */}
+        <Card style={styles.card}>
+          <Card.Title 
+            title="Interaction Score Settings" 
+            subtitle="Configure how interaction scores are calculated" 
+          />
+          <Card.Content>
+            <Text style={styles.sectionDescription}>
+              These settings control how interaction scores decay over time. 
+              Higher decay factors cause older interactions to contribute less to the total score.
+            </Text>
+            
+            <Text style={styles.sliderLabel}>
+              Decay Factor: {scoreSettings.decayFactor.toFixed(2)}
+            </Text>
+            <View style={styles.sliderContainer}>
+              <Text style={styles.sliderEndLabel}>No Decay</Text>
+              <Slider
+                value={scoreSettings.decayFactor}
+                onValueChange={(value: number) => setScoreSettings({...scoreSettings, decayFactor: value})}
+                minimumValue={0}
+                maximumValue={1}
+                step={0.01}
+                style={styles.slider}
+              />
+              <Text style={styles.sliderEndLabel}>Fast Decay</Text>
+            </View>
+            
+            <Text style={styles.radioLabel}>Decay Type:</Text>
+            <RadioButton.Group
+              onValueChange={(value: string) => setScoreSettings({...scoreSettings, decayType: value})}
+              value={scoreSettings.decayType}
+            >
+              <View style={styles.radioOption}>
+                <RadioButton value="linear" />
+                <Text>Linear (Constant Rate)</Text>
+              </View>
+              <View style={styles.radioOption}>
+                <RadioButton value="exponential" />
+                <Text>Exponential (Accelerating)</Text>
+              </View>
+              <View style={styles.radioOption}>
+                <RadioButton value="logarithmic" />
+                <Text>Logarithmic (Slowing)</Text>
+              </View>
+            </RadioButton.Group>
+            
+            <Button 
+              mode="contained"
+              onPress={saveScoreSettings}
+              disabled={isSavingSettings}
+              style={styles.button}
+              loading={isSavingSettings}
+            >
+              Save Score Settings
+            </Button>
+          </Card.Content>
+        </Card>
+        
+        {__DEV__ && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Developer Options</Text>
+            <Button 
+              mode="outlined"
+              onPress={runDatabaseMigrations}
+              style={[styles.button, {marginTop: 10}]}
+              color="#FF5722"
+            >
+              Reset DB Version & Run Migrations
+            </Button>
+          </View>
+        )}
+        
         <Card style={styles.card}>
           <Card.Title title="Feature Flags" subtitle="Toggle experimental features" />
           <Card.Content>
@@ -370,6 +485,44 @@ const styles = StyleSheet.create({
   dialogBulletPoint: {
     marginLeft: 8,
     marginTop: 4,
+  },
+  sliderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  slider: {
+    flex: 1,
+    height: 40,
+  },
+  sliderLabel: {
+    marginTop: 10,
+    marginBottom: 5,
+    fontWeight: 'bold',
+  },
+  sliderEndLabel: {
+    width: 70,
+    fontSize: 12,
+    color: '#666',
+  },
+  radioLabel: {
+    marginTop: 10,
+    marginBottom: 5,
+    fontWeight: 'bold',
+  },
+  radioOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  button: {
+    marginTop: 20,
+  },
+  section: {
+    marginTop: 16,
+  },
+  sectionTitle: {
+    fontWeight: 'bold',
+    marginBottom: 8,
   },
 });
 

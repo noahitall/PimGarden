@@ -1573,20 +1573,9 @@ export class Database {
       const entity = await this.getEntityById(entityId);
       if (!entity) return [];
       
-      // Start with an empty array to collect all types
-      let allTypesRaw: any[] = [];
-      
-      // Try each query separately and handle errors individually
-      
-      // Define patterns for JSON array matching up front (used in multiple queries)
-      // These LIKE patterns match JSON arrays containing this entity type
-      const jsonPattern1 = `%"${entity.type}"]%`; // Matches at the end of array
-      const jsonPattern2 = `%"${entity.type}",%`; // Matches at beginning or middle with comma after
-      const jsonPattern3 = `%,\"${entity.type}\"%`; // Matches in the middle with comma before
-      
-      // Check if the color column exists
       let hasColorColumn = true;
       try {
+        // Check if the color column exists
         const columnCheck = await this.db.getFirstAsync<{ cnt: number }>(
           "SELECT COUNT(*) as cnt FROM pragma_table_info('interaction_types') WHERE name = 'color'"
         );
@@ -1596,172 +1585,145 @@ export class Database {
         hasColorColumn = false;
       }
       
-      // 1. Get general interaction types (not associated with any tags or entity types)
-      try {
-        const columnSelection = hasColorColumn 
-          ? "id, name, tag_id, icon, entity_type, color, score" 
-          : "id, name, tag_id, icon, entity_type, score";
-        
-        const generalTypesQuery = `
-          SELECT ${columnSelection}
-          FROM interaction_types
-          WHERE tag_id IS NULL 
-          AND entity_type IS NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM interaction_type_tags itt
-            WHERE itt.interaction_type_id = interaction_types.id
-          )
-          ORDER BY name
-        `;
-        
-        const generalTypes = await this.db.getAllAsync(generalTypesQuery);
-        allTypesRaw = [...allTypesRaw, ...generalTypes];
-      } catch (error) {
-        console.warn('Error getting general interaction types:', error);
-      }
+      // Build the column selection based on whether color exists
+      const columnSelection = hasColorColumn 
+        ? "it.id, it.name, it.tag_id, it.icon, it.entity_type, it.color, it.score" 
+        : "it.id, it.name, it.tag_id, it.icon, it.entity_type, it.score";
       
-      // 2. Get entity-type specific interaction types
-      try {
-        const columnSelection = hasColorColumn 
-          ? "id, name, tag_id, icon, entity_type, color, score" 
-          : "id, name, tag_id, icon, entity_type, score";
-        
-        // These LIKE patterns match JSON arrays containing this entity type
-        const jsonPattern1 = `%"${entity.type}"]%`; // Matches at the end of array
-        const jsonPattern2 = `%"${entity.type}",%`; // Matches at beginning or middle with comma after
-        const jsonPattern3 = `%,\"${entity.type}\"%`; // Matches in the middle with comma before
-        
-        const entityTypeQuery = `
-          SELECT ${columnSelection}
-          FROM interaction_types
-          WHERE entity_type IS NULL 
-             OR entity_type = ? 
-             OR entity_type LIKE ?
-             OR entity_type LIKE ?
-             OR entity_type LIKE ?
-          ORDER BY name
-        `;
-        
-        const entityTypeTypes = await this.db.getAllAsync(entityTypeQuery, [
-          entity.type, 
-          jsonPattern1,
-          jsonPattern2,
-          jsonPattern3
-        ]);
-        
-        allTypesRaw = [...allTypesRaw, ...entityTypeTypes];
-      } catch (error) {
-        console.warn('Error getting entity-type specific interaction types:', error);
-      }
+      // Get general interaction types (not associated with any tags or entity types)
+      const generalTypesQuery = `
+        SELECT ${columnSelection}
+        FROM interaction_types it
+        WHERE it.tag_id IS NULL 
+        AND it.entity_type IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM interaction_type_tags itt
+          WHERE itt.interaction_type_id = it.id
+        )
+        ORDER BY it.name
+      `;
       
-      // 3. Get the entity's tags
+      const generalTypes = await this.db.getAllAsync(generalTypesQuery);
+      
+      // Get entity-type specific interaction types - modified to handle JSON arrays
+      // More inclusive: Get ALL interactions associated with this entity type
+      const entityTypeQuery = `
+        SELECT ${columnSelection}
+        FROM interaction_types
+        WHERE entity_type IS NULL 
+           OR entity_type = ? 
+           OR entity_type LIKE ?
+           OR entity_type LIKE ?
+           OR entity_type LIKE ?
+        ORDER BY name
+      `;
+      
+      // These LIKE patterns match JSON arrays containing this entity type
+      const jsonPattern1 = `%"${entity.type}"]%`; // Matches at the end of array
+      const jsonPattern2 = `%"${entity.type}",%`; // Matches at beginning or middle with comma after
+      const jsonPattern3 = `%,\"${entity.type}\"%`; // Matches in the middle with comma before
+      
+      const entityTypeTypes = await this.db.getAllAsync(entityTypeQuery, [
+        entity.type, 
+        jsonPattern1,
+        jsonPattern2,
+        jsonPattern3
+      ]);
+      
+      // Get the entity's tags
       const entityTags = await this.getEntityTags(entityId);
       const entityTagIds = entityTags.map(tag => tag.id);
       
-      // 4. Get tag-specific interaction types
+      // More inclusive approach: Get ALL interaction types associated with ANY tag
+      // If the entity has no tags, we'll skip this query
+      let tagTypes: any[] = [];
+      
       if (entityTagIds.length > 0) {
-        try {
-          const columnSelection = hasColorColumn 
-            ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
-            : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
-          
-          // Build placeholders for the IN clause
-          const placeholders = entityTagIds.map(() => '?').join(',');
-          
-          const tagTypesQuery = `
-            SELECT DISTINCT ${columnSelection}
-            FROM interaction_types
-            JOIN interaction_type_tags itt ON interaction_types.id = itt.interaction_type_id
-            WHERE itt.tag_id IN (${placeholders})
-            AND (interaction_types.entity_type IS NULL 
-                 OR interaction_types.entity_type = ? 
-                 OR interaction_types.entity_type LIKE ?
-                 OR interaction_types.entity_type LIKE ?
-                 OR interaction_types.entity_type LIKE ?)
-            ORDER BY interaction_types.name
-          `;
-          
-          // Params start with tag IDs, then entity type patterns
-          const params = [...entityTagIds, entity.type, jsonPattern1, jsonPattern2, jsonPattern3];
-          const tagTypes = await this.db.getAllAsync(tagTypesQuery, params);
-          allTypesRaw = [...allTypesRaw, ...tagTypes];
-        } catch (error) {
-          console.warn('Error getting tag-specific interaction types:', error);
-        }
+        // Build placeholders for the IN clause
+        const placeholders = entityTagIds.map(() => '?').join(',');
         
-        // 5. Get ALL tag-related interaction types regardless of entity type
-        try {
-          const columnSelection = hasColorColumn 
-            ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
-            : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
-          
-          const placeholders = entityTagIds.map(() => '?').join(',');
-          const allTagTypesQuery = `
-            SELECT DISTINCT ${columnSelection}
-            FROM interaction_types
-            JOIN interaction_type_tags itt ON interaction_types.id = itt.interaction_type_id
-            WHERE itt.tag_id IN (${placeholders})
-            ORDER BY interaction_types.name
-          `;
-          
-          const allTagTypes = await this.db.getAllAsync(allTagTypesQuery, entityTagIds);
-          allTypesRaw = [...allTypesRaw, ...allTagTypes];
-        } catch (error) {
-          console.warn('Error getting all tag-related interaction types:', error);
-        }
+        const tagTypesQuery = `
+          SELECT DISTINCT ${columnSelection}
+          FROM interaction_types it
+          JOIN interaction_type_tags itt ON it.id = itt.interaction_type_id
+          WHERE itt.tag_id IN (${placeholders})
+          AND (it.entity_type IS NULL 
+               OR it.entity_type = ? 
+               OR it.entity_type LIKE ?
+               OR it.entity_type LIKE ?
+               OR it.entity_type LIKE ?)
+          ORDER BY it.name
+        `;
         
-        // 6. Check for the legacy tag_id field for backward compatibility
-        try {
-          const columnSelection = hasColorColumn 
-            ? "id, name, tag_id, icon, entity_type, color, score" 
-            : "id, name, tag_id, icon, entity_type, score";
-          
-          const placeholders = entityTagIds.map(() => '?').join(',');
-          
-          const legacyTagTypesQuery = `
-            SELECT DISTINCT ${columnSelection}
-            FROM interaction_types
-            WHERE tag_id IN (${placeholders})
-            AND (entity_type IS NULL 
-                 OR entity_type = ? 
-                 OR entity_type LIKE ?
-                 OR entity_type LIKE ?
-                 OR entity_type LIKE ?)
-            ORDER BY name
-          `;
-          
-          // Params start with tag IDs, then entity type patterns
-          const params = [...entityTagIds, entity.type, jsonPattern1, jsonPattern2, jsonPattern3];
-          const legacyTagTypes = await this.db.getAllAsync(legacyTagTypesQuery, params);
-          allTypesRaw = [...allTypesRaw, ...legacyTagTypes];
-          
-          // Also get ALL legacy tag types regardless of entity type
-          const allLegacyTagTypesQuery = `
-            SELECT DISTINCT ${columnSelection}
-            FROM interaction_types
-            WHERE tag_id IN (${placeholders})
-            ORDER BY name
-          `;
-          
-          const allLegacyTagTypes = await this.db.getAllAsync(allLegacyTagTypesQuery, entityTagIds);
-          allTypesRaw = [...allTypesRaw, ...allLegacyTagTypes];
-        } catch (error) {
-          console.warn('Error getting legacy tag interaction types:', error);
-        }
+        // Params start with tag IDs, then entity type patterns
+        const params = [...entityTagIds, entity.type, jsonPattern1, jsonPattern2, jsonPattern3];
+        tagTypes = await this.db.getAllAsync(tagTypesQuery, params);
       }
       
-      // Add default color and score if missing and convert to InteractionType objects
-      const allTypes = allTypesRaw
-        .filter(type => type && type.id) // Filter out any null or invalid types
-        .map(type => ({
-          id: type.id,
-          name: type.name,
-          tag_id: type.tag_id,
-          entity_type: type.entity_type,
-          icon: type.icon || 'account-check',
-          score: type.score || 1,
-          color: type.color || '#666666'
-        })) as InteractionType[];
+      // Also get ALL tag-related interaction types regardless of entity type
+      // This makes the logic more inclusive
+      let allTagTypes: any[] = [];
+      if (entityTagIds.length > 0) {
+        const placeholders = entityTagIds.map(() => '?').join(',');
+        const allTagTypesQuery = `
+          SELECT DISTINCT ${columnSelection}
+          FROM interaction_types it
+          JOIN interaction_type_tags itt ON it.id = itt.interaction_type_id
+          WHERE itt.tag_id IN (${placeholders})
+          ORDER BY it.name
+        `;
+        
+        allTagTypes = await this.db.getAllAsync(allTagTypesQuery, entityTagIds);
+      }
+      
+      // Also check for the legacy tag_id field for backward compatibility
+      let legacyTagTypes: any[] = [];
+      
+      if (entityTagIds.length > 0) {
+        // Build placeholders for the IN clause
+        const placeholders = entityTagIds.map(() => '?').join(',');
+        
+        const legacyTagTypesQuery = `
+          SELECT DISTINCT ${columnSelection}
+          FROM interaction_types it
+          WHERE it.tag_id IN (${placeholders})
+          AND (it.entity_type IS NULL 
+               OR it.entity_type = ? 
+               OR it.entity_type LIKE ?
+               OR it.entity_type LIKE ?
+               OR it.entity_type LIKE ?)
+          ORDER BY it.name
+        `;
+        
+        // Params start with tag IDs, then entity type patterns
+        const params = [...entityTagIds, entity.type, jsonPattern1, jsonPattern2, jsonPattern3];
+        legacyTagTypes = await this.db.getAllAsync(legacyTagTypesQuery, params);
+        
+        // Also get ALL legacy tag types regardless of entity type
+        const allLegacyTagTypesQuery = `
+          SELECT DISTINCT ${columnSelection}
+          FROM interaction_types it
+          WHERE it.tag_id IN (${placeholders})
+          ORDER BY it.name
+        `;
+        
+        const allLegacyTagTypes = await this.db.getAllAsync(allLegacyTagTypesQuery, entityTagIds);
+        legacyTagTypes = [...legacyTagTypes, ...allLegacyTagTypes];
+      }
+      
+      // Combine all types
+      const allTypesRaw = [...generalTypes, ...entityTypeTypes, ...tagTypes, ...allTagTypes, ...legacyTagTypes];
+      
+      // Add default color if it's missing and convert to InteractionType objects
+      const allTypes = allTypesRaw.map(type => ({
+        id: type.id,
+        name: type.name,
+        tag_id: type.tag_id,
+        entity_type: type.entity_type,
+        icon: type.icon,
+        score: type.score || 1,
+        color: type.color || '#666666'
+      })) as InteractionType[];
       
       // Remove duplicates by id
       const interactionTypesMap = new Map<string, InteractionType>();
@@ -1859,81 +1821,37 @@ export class Database {
 
   // Get tags associated with an interaction type
   async getInteractionTypeTags(typeId: string): Promise<Tag[]> {
+    // First try to get tags from the junction table
+    const query = `
+      SELECT t.id, t.name, COUNT(et.entity_id) as count
+      FROM tags t
+      JOIN interaction_type_tags itt ON t.id = itt.tag_id
+      LEFT JOIN entity_tags et ON t.id = et.tag_id
+      WHERE itt.interaction_type_id = ?
+      GROUP BY t.id
+      ORDER BY t.name COLLATE NOCASE
+    `;
+    
     try {
-      // First try to get tags from the junction table
-      const query = `
-        SELECT t.id, t.name, COALESCE(COUNT(et.entity_id), 0) as count
+      const tags = await this.db.getAllAsync<Tag>(query, [typeId]);
+      
+      // If tags were found in the junction table, return them
+      if (tags.length > 0) {
+        return tags;
+      }
+      
+      // Otherwise, check if there's a tag_id directly in the interaction_types table (for backward compatibility)
+      const legacyQuery = `
+        SELECT t.id, t.name, COUNT(et.entity_id) as count
         FROM tags t
-        JOIN interaction_type_tags itt ON t.id = itt.tag_id
         LEFT JOIN entity_tags et ON t.id = et.tag_id
-        WHERE itt.interaction_type_id = ?
+        WHERE t.id = (SELECT tag_id FROM interaction_types WHERE id = ? AND tag_id IS NOT NULL)
         GROUP BY t.id
         ORDER BY t.name COLLATE NOCASE
       `;
       
-      try {
-        const tags = await this.db.getAllAsync<Tag>(query, [typeId]);
-        
-        // If tags were found in the junction table, return them
-        if (tags.length > 0) {
-          return tags;
-        }
-      } catch (queryError) {
-        console.warn('Error with main interaction type tags query:', queryError);
-        // If the first query fails, we'll fall through to the next one
-      }
-      
-      // Try a simpler query without the count and joins if the previous one failed
-      try {
-        const simpleQuery = `
-          SELECT t.id, t.name, 0 as count
-          FROM tags t
-          JOIN interaction_type_tags itt ON t.id = itt.tag_id
-          WHERE itt.interaction_type_id = ?
-          GROUP BY t.id
-          ORDER BY t.name COLLATE NOCASE
-        `;
-        
-        const tags = await this.db.getAllAsync<Tag>(simpleQuery, [typeId]);
-        
-        if (tags.length > 0) {
-          return tags;
-        }
-      } catch (simpleQueryError) {
-        console.warn('Error with simplified interaction type tags query:', simpleQueryError);
-        // If this also fails, we'll try the legacy query
-      }
-      
-      // Otherwise, check if there's a tag_id directly in the interaction_types table (for backward compatibility)
-      try {
-        const legacyQuery = `
-          SELECT t.id, t.name, COALESCE(COUNT(et.entity_id), 0) as count
-          FROM tags t
-          LEFT JOIN entity_tags et ON t.id = et.tag_id
-          WHERE t.id = (SELECT tag_id FROM interaction_types WHERE id = ? AND tag_id IS NOT NULL)
-          GROUP BY t.id
-          ORDER BY t.name COLLATE NOCASE
-        `;
-        
-        const legacyTags = await this.db.getAllAsync<Tag>(legacyQuery, [typeId]);
-        return legacyTags;
-      } catch (legacyQueryError) {
-        console.warn('Error with legacy interaction type tags query:', legacyQueryError);
-        
-        // Final fallback - try without count
-        const simplestQuery = `
-          SELECT t.id, t.name, 0 as count
-          FROM tags t
-          WHERE t.id = (SELECT tag_id FROM interaction_types WHERE id = ? AND tag_id IS NOT NULL)
-        `;
-        
-        try {
-          return await this.db.getAllAsync<Tag>(simplestQuery, [typeId]);
-        } catch (finalError) {
-          console.error('All interaction type tags queries failed:', finalError);
-          return [];
-        }
-      }
+      const legacyTags = await this.db.getAllAsync<Tag>(legacyQuery, [typeId]);
+      return legacyTags;
     } catch (error) {
       console.error('Error getting interaction type tags:', error);
       return [];

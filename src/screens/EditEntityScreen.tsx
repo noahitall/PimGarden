@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Alert, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
-import { TextInput, Button, Text, ActivityIndicator, Chip, Divider, List, IconButton, SegmentedButtons, Dialog, Portal, RadioButton, Menu, Checkbox } from 'react-native-paper';
+import { TextInput, Button, Text, ActivityIndicator, Chip, Divider, List, IconButton, SegmentedButtons, Dialog, Portal, RadioButton, Menu, Checkbox, HelperText } from 'react-native-paper';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { database, EntityType, InteractionType, Tag } from '../database/Database';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import Slider from '@react-native-community/slider';
 
 type EditEntityScreenRouteProp = RouteProp<RootStackParamList, 'EditEntity'>;
 type EditEntityScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EditEntity'>;
@@ -61,6 +63,8 @@ const EditEntityScreen: React.FC = () => {
   const [iconMenuVisible, setIconMenuVisible] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
+  const [actionScore, setActionScore] = useState<number>(1);
+  const [actionColor, setActionColor] = useState<string>('#666666');
   
   // State to track loaded tags for each action
   const [actionTagsMap, setActionTagsMap] = useState<Record<string, Tag[]>>({});
@@ -280,7 +284,14 @@ const EditEntityScreen: React.FC = () => {
       
       if (editingActionId) {
         // Update existing action
-        await database.associateInteractionTypeWithEntityType(editingActionId, entityType);
+        await database.updateInteractionType(
+          editingActionId, 
+          actionName, 
+          selectedIcon, 
+          entityType,
+          actionColor,
+          actionScore
+        );
         await database.associateInteractionTypeWithMultipleTags(editingActionId, selectedTagIds);
         
         // Reset form
@@ -288,13 +299,22 @@ const EditEntityScreen: React.FC = () => {
         setSelectedIcon('account-check');
         setSelectedTagIds([]);
         setSelectedEntityTypes([]);
+        setActionScore(1);
+        setActionColor('#666666');
         setEditingActionId(null);
         setDialogVisible(false);
         Alert.alert('Success', 'Action updated successfully');
         console.log('Action updated successfully');
       } else {
         // Create new action with no initial tag (we'll add them after)
-        const newTypeId = await database.addInteractionType(actionName, selectedIcon, null, entityType);
+        const newTypeId = await database.addInteractionType(
+          actionName, 
+          selectedIcon, 
+          null, 
+          entityType,
+          actionColor,
+          actionScore
+        );
         console.log(`Created new action with ID: ${newTypeId}`);
         
         // Associate with selected tags
@@ -308,6 +328,8 @@ const EditEntityScreen: React.FC = () => {
         setSelectedIcon('account-check');
         setSelectedTagIds([]);
         setSelectedEntityTypes([]);
+        setActionScore(1);
+        setActionColor('#666666');
         setDialogVisible(false);
         Alert.alert('Success', 'Action created successfully');
         console.log('Action created successfully');
@@ -337,6 +359,8 @@ const EditEntityScreen: React.FC = () => {
       
       setActionName(action.name || '');
       setSelectedIcon(action.icon || 'account-check');
+      setActionScore(action.score || 1);
+      setActionColor(action.color || '#666666');
       
       // Parse entity_type if it's a JSON string
       let entityTypes: string[] = [];
@@ -662,7 +686,7 @@ const EditEntityScreen: React.FC = () => {
         <Dialog visible={dialogVisible} onDismiss={() => !saving && setDialogVisible(false)}>
           <Dialog.Title>{editingActionId ? 'Edit Action' : 'New Action'}</Dialog.Title>
           <Dialog.ScrollArea style={styles.dialogScrollArea}>
-            <ScrollView>
+            <ScrollView contentContainerStyle={{ paddingBottom: 16 }}>
               <TextInput
                 label="Action Name"
                 value={actionName}
@@ -672,39 +696,47 @@ const EditEntityScreen: React.FC = () => {
                 disabled={saving}
               />
               
-              <Text style={styles.label}>Action Icon</Text>
-              <View style={styles.iconSelector}>
-                <List.Icon icon={selectedIcon} />
-                <Button 
-                  mode="outlined" 
-                  onPress={() => setIconMenuVisible(true)}
-                  style={{ flex: 1 }}
-                  disabled={saving}
-                >
-                  {iconOptions.find(i => i.icon === selectedIcon)?.label || 'Select Icon'}
-                </Button>
-                
-                <Menu
-                  visible={iconMenuVisible}
-                  onDismiss={() => setIconMenuVisible(false)}
-                  anchor={{ x: 0, y: 0 }}
-                  style={styles.iconMenu}
-                >
-                  <ScrollView style={{ maxHeight: 300 }}>
-                    {iconOptions.map(option => (
-                      <Menu.Item
-                        key={option.icon}
-                        onPress={() => {
-                          setSelectedIcon(option.icon);
-                          setIconMenuVisible(false);
-                        }}
-                        title={option.label}
-                        leadingIcon={option.icon}
-                      />
-                    ))}
-                  </ScrollView>
-                </Menu>
+              <Text style={styles.label}>Score Value: {actionScore}</Text>
+              <View style={styles.sliderContainer}>
+                <Text style={styles.sliderLabel}>0</Text>
+                <Slider
+                  value={actionScore}
+                  onValueChange={(value: number) => setActionScore(value)}
+                  minimumValue={0}
+                  maximumValue={10}
+                  step={1}
+                  style={styles.slider}
+                />
+                <Text style={styles.sliderLabel}>10</Text>
               </View>
+              <HelperText type="info">
+                Higher scores have more impact on interaction rankings
+              </HelperText>
+              
+              <Text style={styles.label}>Icon:</Text>
+              <ScrollView 
+                horizontal 
+                style={{ marginBottom: 16 }}
+                contentContainerStyle={{ flexDirection: 'row', alignItems: 'center' }}
+              >
+                {iconOptions.map(option => (
+                  <TouchableOpacity
+                    key={option.icon}
+                    style={[
+                      styles.iconOption,
+                      selectedIcon === option.icon && styles.selectedIconOption
+                    ]}
+                    onPress={() => setSelectedIcon(option.icon)}
+                  >
+                    <MaterialCommunityIcons 
+                      // @ts-ignore - icon names are valid but TypeScript doesn't recognize them
+                      name={option.icon} 
+                      size={24} 
+                      color={selectedIcon === option.icon ? '#fff' : '#000'} 
+                    />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
               
               <Text style={styles.label}>Entity Types</Text>
               <Text style={styles.helperText}>
@@ -867,11 +899,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
   },
-  iconSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
   iconMenu: {
     marginTop: 40,
   },
@@ -915,6 +942,25 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 8,
     color: '#666',
+  },
+  sliderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  slider: {
+    flex: 1,
+    height: 40,
+  },
+  sliderLabel: {
+    width: 20,
+    textAlign: 'center',
+  },
+  iconOption: {
+    padding: 8,
+  },
+  selectedIconOption: {
+    backgroundColor: '#666',
   },
 });
 

@@ -693,9 +693,10 @@ const EntityDetailScreen: React.FC = () => {
 
   // Render an interaction log item
   const renderInteractionLog = (item: InteractionLog) => {
-    // Find the interaction type to get its icon
+    // Find the interaction type to get its icon and score
     const interactionType = interactionTypes.find(type => type.name === item.type);
     const iconName = interactionType?.icon || 'account-check';
+    const score = interactionType?.score || 1;
     
     return (
       <List.Item
@@ -703,6 +704,12 @@ const EntityDetailScreen: React.FC = () => {
         title={item.type}
         description={item.formattedDate}
         left={props => <List.Icon {...props} icon={iconName} color="#6200ee" />}
+        right={props => (
+          <View style={styles.scoreContainer}>
+            <Text style={styles.scoreText}>{score}</Text>
+            <Text style={styles.scoreLabel}>pts</Text>
+          </View>
+        )}
         style={styles.interactionLogItem}
         onPress={() => {
           setSelectedInteraction(item);
@@ -907,7 +914,13 @@ const EntityDetailScreen: React.FC = () => {
                   style={styles.favoriteButton}
                 />
               </View>
-              <Text style={styles.type}>{getTypeIcon(entity.type)} {entity.type}</Text>
+              <View style={styles.entityInfoRow}>
+                <Text style={styles.type}>{getTypeIcon(entity.type)} {entity.type}</Text>
+                <View style={styles.scoreIndicator}>
+                  <Text style={styles.scoreValue}>{entity.interaction_score}</Text>
+                  <Text style={styles.scoreLabel}>Interaction Score</Text>
+                </View>
+              </View>
             </View>
           </View>
           
@@ -1674,6 +1687,39 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#f0f0f0',
+  },
+  scoreContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  scoreText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  scoreLabel: {
+    fontSize: 12,
+    color: '#666',
+  },
+  entityInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 4,
+  },
+  scoreIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  scoreValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#6200ee',
+    marginRight: 4,
   },
 });
 
