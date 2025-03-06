@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert } from 'react-native';
-import { Text, Button, Card, Divider, List, ActivityIndicator } from 'react-native-paper';
-import { database } from '../database/Database';
+import { StyleSheet, View, ScrollView, Alert, Platform } from 'react-native';
+import { Text, Button, Card, Divider, List, ActivityIndicator, TextInput, Chip } from 'react-native-paper';
+import { database, EntityType, InteractionType } from '../database/Database';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { isFeatureEnabledSync } from '../config/FeatureFlags';
 
 const DebugScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -12,9 +14,36 @@ const DebugScreen: React.FC = () => {
     interactionsColumns: { name: string, type: string }[];
   } | null>(null);
 
+  // State for historical interactions feature
+  const [entities, setEntities] = useState<Array<{id: string, name: string, type: string}>>([]);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
+  const [selectedInteractionType, setSelectedInteractionType] = useState<string>('General Contact');
+  const [date, setDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredEntities, setFilteredEntities] = useState<Array<{id: string, name: string, type: string}>>([]);
+  const [showEntitiesList, setShowEntitiesList] = useState(false);
+  const [loadingEntities, setLoadingEntities] = useState(false);
+
   useEffect(() => {
     loadDatabaseInfo();
+    if (isFeatureEnabledSync('ENABLE_HISTORICAL_INTERACTIONS')) {
+      loadEntities();
+      loadInteractionTypes();
+    }
   }, []);
+
+  useEffect(() => {
+    if (!searchQuery) {
+      setFilteredEntities(entities);
+    } else {
+      const filtered = entities.filter(entity => 
+        entity.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredEntities(filtered);
+    }
+  }, [searchQuery, entities]);
 
   const loadDatabaseInfo = async () => {
     try {
@@ -30,6 +59,36 @@ const DebugScreen: React.FC = () => {
     }
   };
 
+  const loadEntities = async () => {
+    try {
+      setLoadingEntities(true);
+      const allEntities = await database.getAllEntities();
+      // Convert to simpler format for the dropdown
+      const entityOptions = allEntities.map(entity => ({
+        id: entity.id,
+        name: entity.name,
+        type: entity.type
+      }));
+      
+      setEntities(entityOptions);
+      setFilteredEntities(entityOptions);
+    } catch (error) {
+      console.error('Error loading entities:', error);
+      Alert.alert('Error', 'Failed to load entities');
+    } finally {
+      setLoadingEntities(false);
+    }
+  };
+  
+  const loadInteractionTypes = async () => {
+    try {
+      const types = await database.getInteractionTypes();
+      setInteractionTypes(types);
+    } catch (error) {
+      console.error('Error loading interaction types:', error);
+    }
+  };
+  
   const resetDatabase = async (version: number) => {
     Alert.alert(
       'Confirm Reset',
@@ -55,6 +114,50 @@ const DebugScreen: React.FC = () => {
         },
       ]
     );
+  };
+  
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    if (selectedDate) {
+      setDate(selectedDate);
+    }
+  };
+  
+  const handleAddHistoricalInteraction = async () => {
+    if (!selectedEntityId) {
+      Alert.alert('Error', 'Please select an entity');
+      return;
+    }
+    
+    try {
+      // Get the timestamp from the selected date
+      const timestamp = date.getTime();
+      
+      // Add historical interaction
+      const interactionId = await database.addHistoricalInteraction(
+        selectedEntityId,
+        timestamp,
+        selectedInteractionType
+      );
+      
+      if (interactionId) {
+        Alert.alert('Success', 'Historical interaction added successfully');
+      } else {
+        Alert.alert('Error', 'Failed to add historical interaction');
+      }
+    } catch (error) {
+      console.error('Error adding historical interaction:', error);
+      Alert.alert('Error', 'Failed to add historical interaction');
+    }
+  };
+  
+  const handleEntitySelect = (id: string) => {
+    const entity = entities.find(e => e.id === id);
+    if (entity) {
+      setSelectedEntityId(id);
+      setSearchQuery(entity.name);
+    }
+    setShowEntitiesList(false);
   };
 
   if (loading) {
@@ -99,6 +202,101 @@ const DebugScreen: React.FC = () => {
           ))}
         </Card.Content>
       </Card>
+      
+      {/* Historical Interactions Section - Only visible if feature flag is enabled */}
+      {isFeatureEnabledSync('ENABLE_HISTORICAL_INTERACTIONS') && (
+        <Card style={styles.card}>
+          <Card.Title title="Add Historical Interaction" subtitle="Debug Feature" />
+          <Card.Content>
+            <Text style={styles.warningText}>
+              This feature allows adding interactions with custom dates in the past.
+              Use for testing or data restoration purposes only.
+            </Text>
+            
+            <View style={styles.formField}>
+              <Text style={styles.label}>Entity:</Text>
+              <TextInput
+                value={searchQuery}
+                onChangeText={text => {
+                  setSearchQuery(text);
+                  setShowEntitiesList(true);
+                }}
+                placeholder="Search for an entity..."
+                onFocus={() => setShowEntitiesList(true)}
+                style={styles.input}
+              />
+              
+              {showEntitiesList && (
+                <View style={styles.dropdownList}>
+                  {loadingEntities ? (
+                    <ActivityIndicator size="small" color="#6200ee" style={{padding: 10}} />
+                  ) : filteredEntities.length > 0 ? (
+                    filteredEntities.slice(0, 5).map(entity => (
+                      <List.Item
+                        key={entity.id}
+                        title={entity.name}
+                        description={entity.type}
+                        onPress={() => handleEntitySelect(entity.id)}
+                        left={props => <List.Icon {...props} icon={
+                          entity.type === EntityType.PERSON ? 'account' :
+                          entity.type === EntityType.GROUP ? 'account-group' : 'tag'
+                        } />}
+                      />
+                    ))
+                  ) : (
+                    <List.Item title="No entities found" />
+                  )}
+                </View>
+              )}
+            </View>
+            
+            <View style={styles.formField}>
+              <Text style={styles.label}>Interaction Type:</Text>
+              <View style={styles.chipContainer}>
+                {interactionTypes.map(type => (
+                  <Chip
+                    key={type.id}
+                    selected={selectedInteractionType === type.name}
+                    onPress={() => setSelectedInteractionType(type.name)}
+                    style={[styles.chip, selectedInteractionType === type.name && styles.selectedChip]}
+                  >
+                    {type.name}
+                  </Chip>
+                ))}
+              </View>
+            </View>
+            
+            <View style={styles.formField}>
+              <Text style={styles.label}>Date & Time:</Text>
+              <Button 
+                mode="outlined" 
+                onPress={() => setShowDatePicker(true)}
+                style={styles.datePickerButton}
+              >
+                {date.toLocaleString()}
+              </Button>
+              
+              {showDatePicker && (
+                <DateTimePicker
+                  value={date}
+                  mode="datetime"
+                  display="default"
+                  onChange={handleDateChange}
+                />
+              )}
+            </View>
+            
+            <Button 
+              mode="contained" 
+              onPress={handleAddHistoricalInteraction}
+              style={styles.addButton}
+              disabled={!selectedEntityId}
+            >
+              Add Historical Interaction
+            </Button>
+          </Card.Content>
+        </Card>
+      )}
       
       <Card style={styles.card}>
         <Card.Title title="Database Management" />
@@ -193,6 +391,44 @@ const styles = StyleSheet.create({
   refreshButton: {
     marginTop: 8,
   },
+  formField: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 16,
+    marginBottom: 8,
+    fontWeight: 'bold',
+  },
+  input: {
+    backgroundColor: '#fff',
+    height: 50,
+  },
+  dropdownList: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    marginTop: 4,
+    maxHeight: 200,
+    elevation: 4,
+  },
+  chipContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  chip: {
+    margin: 4,
+  },
+  selectedChip: {
+    backgroundColor: '#6200ee',
+  },
+  datePickerButton: {
+    height: 50,
+    justifyContent: 'center',
+  },
+  addButton: {
+    marginTop: 16,
+  }
 });
 
 export default DebugScreen; 

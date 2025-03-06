@@ -14,8 +14,9 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
-import { FeatureFlags, updateFeatureFlag, FEATURE_FLAGS_STORAGE_KEY } from '../config/FeatureFlags';
+import { FeatureFlags, updateFeatureFlag, FEATURE_FLAGS_STORAGE_KEY, isFeatureEnabledSync } from '../config/FeatureFlags';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { database } from '../database/Database';
 
 type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -23,6 +24,10 @@ const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<SettingsScreenNavigationProp>();
   const [featureFlags, setFeatureFlags] = useState<Record<string, boolean>>({...FeatureFlags});
   const [resetDialogVisible, setResetDialogVisible] = useState(false);
+  
+  // Reset all data dialog state
+  const [resetDataDialogVisible, setResetDataDialogVisible] = useState(false);
+  const [resetDataConfirmDialogVisible, setResetDataConfirmDialogVisible] = useState(false);
   
   // Load saved feature flags on mount
   useEffect(() => {
@@ -69,6 +74,38 @@ const SettingsScreen: React.FC = () => {
     setResetDialogVisible(false);
   };
   
+  // Reset all data in the app
+  const resetAllData = async () => {
+    try {
+      // Use the clearAllData method to actually delete all data from the database
+      const deletedRecords = await database.clearAllData();
+      
+      // Clear feature flags
+      await AsyncStorage.removeItem(FEATURE_FLAGS_STORAGE_KEY);
+      setFeatureFlags({...FeatureFlags});
+      
+      // Reset dialogs
+      setResetDataDialogVisible(false);
+      setResetDataConfirmDialogVisible(false);
+      
+      // Show success message with count of deleted records
+      Alert.alert(
+        'Data Reset Complete', 
+        `All data has been erased:\n\n` +
+        `• ${deletedRecords.entities} entities\n` +
+        `• ${deletedRecords.interactions} interactions\n` +
+        `• ${deletedRecords.photos} photos\n` +
+        `• ${deletedRecords.tags} tags\n` +
+        `• ${deletedRecords.favorites} favorites\n\n` +
+        `Total: ${deletedRecords.total} records`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('Error resetting data:', error);
+      Alert.alert('Error', 'Failed to reset data');
+    }
+  };
+  
   return (
     <View style={styles.container}>
       <Appbar.Header>
@@ -96,6 +133,30 @@ const SettingsScreen: React.FC = () => {
                   <Switch
                     value={featureFlags.SHOW_DEBUG_BUTTON}
                     onValueChange={() => toggleFeatureFlag('SHOW_DEBUG_BUTTON')}
+                  />
+                )}
+              />
+              
+              <List.Item
+                title="Enable Historical Interactions"
+                description="Allow adding interactions with custom dates"
+                left={props => <List.Icon {...props} icon="clock-time-four-outline" />}
+                right={props => (
+                  <Switch
+                    value={featureFlags.ENABLE_HISTORICAL_INTERACTIONS}
+                    onValueChange={() => toggleFeatureFlag('ENABLE_HISTORICAL_INTERACTIONS')}
+                  />
+                )}
+              />
+              
+              <List.Item
+                title="Enable Data Reset"
+                description="Allow resetting all app data (dangerous)"
+                left={props => <List.Icon {...props} icon="delete-forever" />}
+                right={props => (
+                  <Switch
+                    value={featureFlags.ENABLE_DATA_RESET}
+                    onValueChange={() => toggleFeatureFlag('ENABLE_DATA_RESET')}
                   />
                 )}
               />
@@ -155,6 +216,32 @@ const SettingsScreen: React.FC = () => {
           </Card.Content>
         </Card>
         
+        {/* Data Management Card - Only visible if ENABLE_DATA_RESET is enabled */}
+        {isFeatureEnabledSync('ENABLE_DATA_RESET') && (
+          <Card style={styles.card}>
+            <Card.Title 
+              title="Data Management" 
+              subtitle="Danger zone" 
+            />
+            <Card.Content>
+              <Text style={styles.dangerText}>
+                These actions permanently affect your data and cannot be undone.
+                Please use with extreme caution.
+              </Text>
+              
+              <Button 
+                mode="outlined" 
+                onPress={() => setResetDataDialogVisible(true)}
+                style={styles.dangerButton}
+                labelStyle={{color: '#d32f2f'}}
+                icon="delete-forever"
+              >
+                Reset All Data
+              </Button>
+            </Card.Content>
+          </Card>
+        )}
+        
         <Card style={styles.card}>
           <Card.Title title="About" />
           <Card.Content>
@@ -183,6 +270,61 @@ const SettingsScreen: React.FC = () => {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+      
+      {/* Reset all data first confirmation dialog */}
+      <Portal>
+        <Dialog visible={resetDataDialogVisible} onDismiss={() => setResetDataDialogVisible(false)}>
+          <Dialog.Title>Reset All Data</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.dialogWarningText}>
+              Warning: This action will permanently delete ALL your data, including:
+            </Text>
+            <Text style={styles.dialogBulletPoint}>• All contacts and entities</Text>
+            <Text style={styles.dialogBulletPoint}>• All interaction records</Text>
+            <Text style={styles.dialogBulletPoint}>• All photos and tags</Text>
+            <Text style={styles.dialogBulletPoint}>• All settings and preferences</Text>
+            <Text style={styles.dialogText}>
+              This action cannot be undone. Are you sure you want to proceed?
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setResetDataDialogVisible(false)}>Cancel</Button>
+            <Button 
+              onPress={() => {
+                setResetDataDialogVisible(false);
+                setResetDataConfirmDialogVisible(true);
+              }}
+              textColor="#d32f2f"
+            >
+              Yes, I'm Sure
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+      
+      {/* Reset all data second confirmation dialog */}
+      <Portal>
+        <Dialog visible={resetDataConfirmDialogVisible} onDismiss={() => setResetDataConfirmDialogVisible(false)}>
+          <Dialog.Title>Final Confirmation</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.dialogWarningText}>
+              Warning: This is your final confirmation
+            </Text>
+            <Text style={{marginTop: 15}}>
+              This will permanently erase all data. Are you absolutely sure?
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setResetDataConfirmDialogVisible(false)}>Cancel</Button>
+            <Button 
+              onPress={resetAllData}
+              textColor="#d32f2f"
+            >
+              Reset Everything
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 };
@@ -208,6 +350,26 @@ const styles = StyleSheet.create({
   },
   aboutText: {
     marginBottom: 8,
+  },
+  dangerText: {
+    marginBottom: 16,
+    color: '#d32f2f',
+    fontStyle: 'italic',
+  },
+  dangerButton: {
+    borderColor: '#d32f2f',
+  },
+  dialogWarningText: {
+    fontWeight: 'bold',
+    color: '#d32f2f',
+    marginBottom: 8,
+  },
+  dialogText: {
+    marginTop: 12,
+  },
+  dialogBulletPoint: {
+    marginLeft: 8,
+    marginTop: 4,
   },
 });
 

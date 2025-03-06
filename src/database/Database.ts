@@ -588,6 +588,49 @@ export class Database {
     }
   }
 
+  // Add a historical interaction with a custom timestamp for debugging
+  async addHistoricalInteraction(
+    entityId: string,
+    timestamp: number,
+    interactionType: string = 'General Contact'
+  ): Promise<string | null> {
+    try {
+      // Start a transaction
+      await this.db.execAsync('BEGIN TRANSACTION');
+      
+      // Increment the interaction score for this entity
+      await this.db.runAsync(
+        `UPDATE entities 
+         SET interaction_score = interaction_score + 1, 
+             updated_at = ? 
+         WHERE id = ?`,
+        [timestamp, entityId]
+      );
+      
+      // Generate a unique interaction ID
+      const interactionId = await this.generateId();
+      
+      // Insert the interaction with the historical timestamp
+      await this.db.runAsync(
+        `INSERT INTO interactions (
+          id, entity_id, type, created_at, notes
+        ) VALUES (?, ?, ?, ?, ?)`,
+        [interactionId, entityId, interactionType, timestamp, 'Added via debug interface']
+      );
+      
+      // Commit the transaction
+      await this.db.execAsync('COMMIT');
+      
+      console.log(`Added historical interaction for entity ${entityId} with timestamp ${new Date(timestamp).toLocaleString()}`);
+      return interactionId;
+    } catch (error) {
+      // Rollback on error
+      await this.db.execAsync('ROLLBACK');
+      console.error('Error adding historical interaction:', error);
+      return null;
+    }
+  }
+
   // Get interaction timestamps for an entity within a date range
   async getInteractionTimestamps(
     entityId: string, 
@@ -1644,14 +1687,128 @@ export class Database {
   // Add a method to reset database version (for debugging)
   async resetDatabaseVersion(version: number = 0): Promise<void> {
     try {
-      console.log(`Resetting database version to ${version}`);
-      await this.db.runAsync(`PRAGMA user_version = ${version}`);
+      await this.db.runAsync('PRAGMA user_version = ?', [version]);
       console.log('Database version reset complete. You must restart the app for migrations to run.');
     } catch (error) {
       console.error('Error resetting database version:', error);
+      throw error;
     }
   }
 
+  // Clear all data from the database but keep the structure
+  async clearAllData(): Promise<{
+    entities: number;
+    interactions: number;
+    photos: number;
+    tags: number;
+    favorites: number;
+    total: number;
+  }> {
+    try {
+      // Start a transaction
+      await this.db.execAsync('BEGIN TRANSACTION');
+      
+      // Get counts before deletion for reporting
+      const entityCountResult = await this.db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM entities');
+      const interactionCountResult = await this.db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM interactions');
+      const photoCountResult = await this.db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM entity_photos');
+      
+      const entityCount = entityCountResult?.count || 0;
+      const interactionCount = interactionCountResult?.count || 0;
+      const photoCount = photoCountResult?.count || 0;
+      
+      // Get tag related counts
+      let tagCount = 0;
+      let entityTagCount = 0;
+      let interactionTypeTagCount = 0;
+      
+      try {
+        const tagCountResult = await this.db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM tags');
+        const entityTagCountResult = await this.db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM entity_tags');
+        const interactionTypeTagCountResult = await this.db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM interaction_type_tags');
+        
+        tagCount = tagCountResult?.count || 0;
+        entityTagCount = entityTagCountResult?.count || 0;
+        interactionTypeTagCount = interactionTypeTagCountResult?.count || 0;
+      } catch (e) {
+        console.log('Some tag tables may not exist yet');
+      }
+      
+      // Get favorites count
+      let favoritesCount = 0;
+      try {
+        const favoritesCountResult = await this.db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM favorites');
+        favoritesCount = favoritesCountResult?.count || 0;
+      } catch (e) {
+        console.log('Favorites table may not exist yet');
+      }
+      
+      // Clear all tables that have foreign keys to entities first
+      const tables = [
+        'interactions',
+        'entity_photos',
+        'entity_tags',
+        'favorites'
+      ];
+      
+      for (const table of tables) {
+        try {
+          await this.db.runAsync(`DELETE FROM ${table}`);
+        } catch (e) {
+          console.log(`Table ${table} may not exist yet or could not be cleared:`, e);
+        }
+      }
+      
+      // Clear interaction_type_tags
+      try {
+        await this.db.runAsync('DELETE FROM interaction_type_tags');
+      } catch (e) {
+        console.log('Table interaction_type_tags may not exist yet');
+      }
+      
+      // Clear tags
+      try {
+        await this.db.runAsync('DELETE FROM tags');
+      } catch (e) {
+        console.log('Table tags may not exist yet');
+      }
+      
+      // Clear interaction_types
+      try {
+        await this.db.runAsync('DELETE FROM interaction_types');
+      } catch (e) {
+        console.log('Table interaction_types may not exist yet');
+      }
+      
+      // Clear entities last (as other tables refer to it)
+      await this.db.runAsync('DELETE FROM entities');
+      
+      // Commit the transaction
+      await this.db.execAsync('COMMIT');
+      
+      // Initialize default interaction types after clearing
+      await this.initDefaultInteractionTypes();
+      
+      // Calculate total
+      const total = entityCount + interactionCount + photoCount + tagCount + 
+                   entityTagCount + interactionTypeTagCount + favoritesCount;
+      
+      return {
+        entities: entityCount,
+        interactions: interactionCount,
+        photos: photoCount,
+        tags: tagCount + entityTagCount + interactionTypeTagCount,
+        favorites: favoritesCount,
+        total
+      };
+    } catch (error) {
+      // Rollback on error
+      await this.db.execAsync('ROLLBACK');
+      console.error('Error clearing all data:', error);
+      throw error;
+    }
+  }
+  
   // Add a method to get database schema info for debugging
   async getDatabaseInfo(): Promise<{
     version: number;
@@ -1692,418 +1849,6 @@ export class Database {
         interactionTypesColumns: [],
         interactionsColumns: []
       };
-    }
-  }
-
-  // Get person with contact data
-  async getPersonWithContactData(id: string): Promise<PersonEntity | null> {
-    const entity = await this.getEntityById(id);
-    if (!entity || entity.type !== EntityType.PERSON) return null;
-    
-    // Create person entity
-    const person: PersonEntity = {
-      ...entity,
-      type: EntityType.PERSON
-    };
-    
-    // Decrypt and parse additional data if available
-    if (entity.encrypted_data) {
-      try {
-        let decryptedData;
-        
-        // Try parsing as JSON first
-        try {
-          decryptedData = JSON.parse(entity.encrypted_data);
-        } catch (parseError) {
-          // If it fails, this might be old hashed data (not actual JSON)
-          console.log('Data appears to be in old format or invalid, creating empty contact data');
-          decryptedData = { contactData: { phoneNumbers: [], emailAddresses: [], physicalAddresses: [] } };
-        }
-        
-        // Set legacy fields if available
-        if (decryptedData.phone) person.phone = decryptedData.phone;
-        if (decryptedData.email) person.email = decryptedData.email;
-        if (decryptedData.address) person.address = decryptedData.address;
-        
-        // Set contact data if available
-        if (decryptedData.contactData) {
-          person.contactData = decryptedData.contactData;
-        } else {
-          // Initialize empty contact data
-          person.contactData = {
-            phoneNumbers: [],
-            emailAddresses: [], 
-            physicalAddresses: []
-          };
-        }
-      } catch (error) {
-        console.error('Error processing contact data:', error);
-        // Initialize with empty contact data on error
-        person.contactData = {
-          phoneNumbers: [],
-          emailAddresses: [],
-          physicalAddresses: []
-        };
-      }
-    } else {
-      // Initialize with empty contact data if no encrypted data
-      person.contactData = {
-        phoneNumbers: [],
-        emailAddresses: [],
-        physicalAddresses: []
-      };
-    }
-    
-    return person;
-  }
-  
-  // Update contact data for a person
-  async updatePersonContactData(
-    id: string, 
-    contactData: {
-      phoneNumbers?: Array<{ id: string; value: string; label: string; isPrimary: boolean }>;
-      emailAddresses?: Array<{ id: string; value: string; label: string; isPrimary: boolean }>;
-      physicalAddresses?: Array<{ 
-        id: string; 
-        street: string; 
-        city: string; 
-        state: string; 
-        postalCode: string; 
-        country: string; 
-        label: string; 
-        isPrimary: boolean;
-        formattedAddress?: string;
-      }>;
-    }
-  ): Promise<boolean> {
-    const entity = await this.getEntityById(id);
-    if (!entity || entity.type !== EntityType.PERSON) return false;
-    
-    // Get existing data or create empty structure
-    let existingData = {};
-    if (entity.encrypted_data) {
-      try {
-        existingData = JSON.parse(entity.encrypted_data);
-      } catch (error) {
-        console.error('Error parsing existing data:', error);
-        // If parsing fails, likely due to old hash format, create new data structure
-        existingData = {};
-        
-        // Try to preserve any data we have by using the person entity
-        const person = await this.getPersonWithContactData(id);
-        if (person && person.contactData) {
-          existingData = { contactData: person.contactData };
-        }
-      }
-    }
-    
-    // Merge new contact data with existing data
-    const updatedData = {
-      ...existingData,
-      contactData: {
-        phoneNumbers: contactData.phoneNumbers || (existingData as any).contactData?.phoneNumbers || [],
-        emailAddresses: contactData.emailAddresses || (existingData as any).contactData?.emailAddresses || [],
-        physicalAddresses: contactData.physicalAddresses || (existingData as any).contactData?.physicalAddresses || [],
-      }
-    };
-    
-    // Save updated data
-    return this.updateEntity(id, { additionalData: updatedData });
-  }
-  
-  // Add a phone number to a person
-  async addPhoneNumber(
-    personId: string,
-    phone: { value: string; label: string; isPrimary?: boolean }
-  ): Promise<string | null> {
-    const person = await this.getPersonWithContactData(personId);
-    if (!person) return null;
-    
-    // Generate ID for the new phone number
-    const id = await this.generateId();
-    
-    // Get existing contact data or create new structure
-    const contactData = person.contactData || { 
-      phoneNumbers: [], 
-      emailAddresses: [], 
-      physicalAddresses: [] 
-    };
-    
-    // If this is set as primary, unset other primaries
-    if (phone.isPrimary) {
-      contactData.phoneNumbers.forEach((p: any) => p.isPrimary = false);
-    }
-    
-    // Add new phone number
-    contactData.phoneNumbers.push({
-      id,
-      value: phone.value,
-      label: phone.label,
-      isPrimary: phone.isPrimary === true
-    });
-    
-    // Update person with new contact data
-    const success = await this.updatePersonContactData(personId, contactData);
-    return success ? id : null;
-  }
-  
-  // Add an email address to a person
-  async addEmailAddress(
-    personId: string,
-    email: { value: string; label: string; isPrimary?: boolean }
-  ): Promise<string | null> {
-    const person = await this.getPersonWithContactData(personId);
-    if (!person) return null;
-    
-    // Generate ID for the new email
-    const id = await this.generateId();
-    
-    // Get existing contact data or create new structure
-    const contactData = person.contactData || { 
-      phoneNumbers: [], 
-      emailAddresses: [], 
-      physicalAddresses: [] 
-    };
-    
-    // If this is set as primary, unset other primaries
-    if (email.isPrimary) {
-      contactData.emailAddresses.forEach((e: any) => e.isPrimary = false);
-    }
-    
-    // Add new email
-    contactData.emailAddresses.push({
-      id,
-      value: email.value,
-      label: email.label,
-      isPrimary: email.isPrimary === true
-    });
-    
-    // Update person with new contact data
-    const success = await this.updatePersonContactData(personId, contactData);
-    return success ? id : null;
-  }
-  
-  // Add a physical address to a person
-  async addPhysicalAddress(
-    personId: string,
-    address: { 
-      street: string; 
-      city: string; 
-      state: string; 
-      postalCode: string; 
-      country: string; 
-      label: string; 
-      isPrimary?: boolean 
-    }
-  ): Promise<string | null> {
-    const person = await this.getPersonWithContactData(personId);
-    if (!person) return null;
-    
-    // Generate ID for the new address
-    const id = await this.generateId();
-    
-    // Get existing contact data or create new structure
-    const contactData = person.contactData || { 
-      phoneNumbers: [], 
-      emailAddresses: [], 
-      physicalAddresses: [] 
-    };
-    
-    // If this is set as primary, unset other primaries
-    if (address.isPrimary) {
-      contactData.physicalAddresses.forEach((a: any) => a.isPrimary = false);
-    }
-    
-    // Create formatted address
-    const formattedAddress = [
-      address.street,
-      address.city,
-      address.state,
-      address.postalCode,
-      address.country
-    ].filter(Boolean).join(', ');
-    
-    // Add new address
-    contactData.physicalAddresses.push({
-      id,
-      street: address.street,
-      city: address.city,
-      state: address.state,
-      postalCode: address.postalCode,
-      country: address.country,
-      label: address.label,
-      isPrimary: address.isPrimary === true,
-      formattedAddress
-    });
-    
-    // Update person with new contact data
-    const success = await this.updatePersonContactData(personId, contactData);
-    return success ? id : null;
-  }
-  
-  // Remove a contact field (phone, email, or address)
-  async removeContactField(
-    personId: string, 
-    fieldType: 'phoneNumber' | 'emailAddress' | 'physicalAddress',
-    fieldId: string
-  ): Promise<boolean> {
-    const person = await this.getPersonWithContactData(personId);
-    if (!person || !person.contactData) return false;
-    
-    const contactData = {...person.contactData};
-    
-    // Remove the field based on type
-    switch (fieldType) {
-      case 'phoneNumber':
-        contactData.phoneNumbers = contactData.phoneNumbers.filter((p: any) => p.id !== fieldId);
-        break;
-      case 'emailAddress':
-        contactData.emailAddresses = contactData.emailAddresses.filter((e: any) => e.id !== fieldId);
-        break;
-      case 'physicalAddress':
-        contactData.physicalAddresses = contactData.physicalAddresses.filter((a: any) => a.id !== fieldId);
-        break;
-    }
-    
-    // Update person with modified contact data
-    return this.updatePersonContactData(personId, contactData);
-  }
-
-  // Merge two entities together
-  async mergeEntities(sourceEntityId: string, targetEntityId: string): Promise<boolean> {
-    // Get both entities
-    const sourceEntity = await this.getEntityById(sourceEntityId);
-    const targetEntity = await this.getEntityById(targetEntityId);
-    
-    // Check if both entities exist and are of the same type
-    if (!sourceEntity || !targetEntity) {
-      console.error('One or both entities not found for merge');
-      return false;
-    }
-    
-    if (sourceEntity.type !== targetEntity.type) {
-      console.error('Cannot merge entities of different types');
-      return false;
-    }
-    
-    try {
-      // Begin transaction
-      await this.db.execAsync('BEGIN TRANSACTION');
-      
-      // 1. Merge basic entity data (use target entity name and details, or append details)
-      const mergedDetails = targetEntity.details ? 
-        (targetEntity.details + "\n\n" + (sourceEntity.details || '')).trim() :
-        sourceEntity.details;
-      
-      // Update the target entity with merged details if needed
-      if (mergedDetails !== targetEntity.details) {
-        await this.db.runAsync(
-          'UPDATE entities SET details = ?, updated_at = ? WHERE id = ?',
-          [mergedDetails, Date.now(), targetEntityId]
-        );
-      }
-      
-      // 2. Move all interactions from source to target
-      await this.db.runAsync(
-        'UPDATE interactions SET entity_id = ? WHERE entity_id = ?',
-        [targetEntityId, sourceEntityId]
-      );
-      
-      // 3. Move all photos from source to target
-      await this.db.runAsync(
-        'UPDATE entity_photos SET entity_id = ? WHERE entity_id = ?',
-        [targetEntityId, sourceEntityId]
-      );
-      
-      // 4. Move all tag associations from source to target
-      // First, get all tags from source entity
-      const sourceTags = await this.getEntityTags(sourceEntityId);
-      
-      // Add each tag to target entity if not already present
-      for (const tag of sourceTags) {
-        const targetTags = await this.getEntityTags(targetEntityId);
-        if (!targetTags.some(t => t.id === tag.id)) {
-          await this.db.runAsync(
-            'INSERT OR IGNORE INTO entity_tags (entity_id, tag_id) VALUES (?, ?)',
-            [targetEntityId, tag.id]
-          );
-        }
-      }
-      
-      // 5. Merge contact data for Person entities
-      if (sourceEntity.type === EntityType.PERSON) {
-        // Get contact data from both entities
-        const sourcePerson = await this.getPersonWithContactData(sourceEntityId);
-        const targetPerson = await this.getPersonWithContactData(targetEntityId);
-        
-        if (sourcePerson && sourcePerson.contactData) {
-          // Create arrays to hold merged contact information
-          const mergedPhoneNumbers = [...(targetPerson?.contactData?.phoneNumbers || [])];
-          const mergedEmailAddresses = [...(targetPerson?.contactData?.emailAddresses || [])];
-          const mergedPhysicalAddresses = [...(targetPerson?.contactData?.physicalAddresses || [])];
-          
-          // Add source phone numbers that don't already exist in target
-          if (sourcePerson.contactData.phoneNumbers) {
-            for (const phone of sourcePerson.contactData.phoneNumbers) {
-              if (!mergedPhoneNumbers.some(p => p.value === phone.value)) {
-                mergedPhoneNumbers.push({...phone, isPrimary: false});
-              }
-            }
-          }
-          
-          // Add source email addresses that don't already exist in target
-          if (sourcePerson.contactData.emailAddresses) {
-            for (const email of sourcePerson.contactData.emailAddresses) {
-              if (!mergedEmailAddresses.some(e => e.value === email.value)) {
-                mergedEmailAddresses.push({...email, isPrimary: false});
-              }
-            }
-          }
-          
-          // Add source physical addresses that don't already exist in target
-          if (sourcePerson.contactData.physicalAddresses) {
-            for (const address of sourcePerson.contactData.physicalAddresses) {
-              // Check if the address already exists by comparing street and city
-              if (!mergedPhysicalAddresses.some(a => 
-                a.street === address.street && 
-                a.city === address.city && 
-                a.postalCode === address.postalCode
-              )) {
-                mergedPhysicalAddresses.push({...address, isPrimary: false});
-              }
-            }
-          }
-          
-          // Update target entity with merged contact data
-          await this.updatePersonContactData(targetEntityId, {
-            phoneNumbers: mergedPhoneNumbers,
-            emailAddresses: mergedEmailAddresses,
-            physicalAddresses: mergedPhysicalAddresses
-          });
-        }
-      }
-      
-      // 6. Delete the source entity after all data has been transferred
-      await this.db.runAsync(
-        'DELETE FROM entities WHERE id = ?',
-        [sourceEntityId]
-      );
-      
-      // 7. Delete any orphaned tag-entity associations
-      await this.db.runAsync(
-        'DELETE FROM entity_tags WHERE entity_id = ?',
-        [sourceEntityId]
-      );
-      
-      // Commit the transaction
-      await this.db.execAsync('COMMIT');
-      
-      return true;
-    } catch (error) {
-      // Rollback the transaction on error
-      await this.db.execAsync('ROLLBACK');
-      console.error('Error merging entities:', error);
-      return false;
     }
   }
 }
