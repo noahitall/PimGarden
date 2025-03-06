@@ -33,3 +33,12 @@ rules:
     description: "Ensure data is encrypted at rest"
     pattern: ".*\\.(js|ts|jsx|tsx|swift|kotlin|java)$"
     message: "Data must be encrypted at rest using secure encryption algorithms"
+
+# Project Structure Information
+project:
+  name: "ContactManager"
+  description: "A contact management application with offline-first architecture"
+  git:
+    repository: "ContactManager"
+    location: "One subdirectory down from the main project folder called 'garden'"
+    path: "/Users/noah/ai/garden/ContactManager" 
