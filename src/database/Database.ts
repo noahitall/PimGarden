@@ -3727,12 +3727,6 @@ export class Database {
       // Convert the data to a buffer
       const dataBytes = new TextEncoder().encode(data);
       
-      // Create a HMAC for data integrity
-      const hmac = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        hashKey + Array.from(dataBytes).join(',')
-      );
-      
       // Encrypt the data using a simple XOR with the key (repeated as needed)
       // Note: In a production app, you would use a more robust encryption method
       // This is a simplified version for demonstration
@@ -3742,6 +3736,13 @@ export class Database {
       for (let i = 0; i < dataBytes.length; i++) {
         encryptedBytes[i] = dataBytes[i] ^ keyBytes[i % keyBytes.length];
       }
+      
+      // Create a HMAC for data integrity 
+      // NOTE: Use the original data (not encrypted) to match decryption
+      const hmac = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        hashKey + Array.from(dataBytes).join(',')
+      );
       
       // Combine salt, IV, and encrypted data into a single package
       const result = {
@@ -3761,46 +3762,116 @@ export class Database {
   // Decrypt backup data with passphrase
   private async decryptBackup(encryptedData: string, passphrase: string): Promise<string> {
     try {
+      console.log('Starting backup decryption');
+      
       // Parse the encrypted data package
-      const encryptedPackage = JSON.parse(encryptedData);
+      let encryptedPackage;
+      try {
+        encryptedPackage = JSON.parse(encryptedData);
+        console.log('Successfully parsed encrypted package');
+      } catch (parseError) {
+        console.error('Failed to parse encrypted data:', parseError);
+        throw new Error('Invalid backup format. The file does not appear to be a valid encrypted backup.');
+      }
+      
+      // Validate package structure
+      if (!encryptedPackage.salt || !encryptedPackage.iv || !encryptedPackage.data) {
+        console.error('Invalid package structure:', Object.keys(encryptedPackage));
+        throw new Error('Invalid backup format. Missing required encryption components.');
+      }
       
       // Extract salt, IV, and encrypted data
-      const salt = new Uint8Array(encryptedPackage.salt.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)));
-      const iv = new Uint8Array(encryptedPackage.iv.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)));
-      const data = new Uint8Array(encryptedPackage.data.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)));
-      const hmac = encryptedPackage.hmac;
-      
-      // Generate the key from the passphrase and salt
-      const hashKey = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        passphrase + Array.from(salt).map((b: number) => b.toString(16)).join('')
-      );
-      
-      // Verify HMAC if provided to ensure data integrity
-      if (hmac) {
-        const computedHmac = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          hashKey + Array.from(data).join(',')
-        );
+      try {
+        // Try to parse the hex strings
+        const saltMatches = encryptedPackage.salt.match(/.{1,2}/g);
+        const ivMatches = encryptedPackage.iv.match(/.{1,2}/g);
+        const dataMatches = encryptedPackage.data.match(/.{1,2}/g);
         
-        if (computedHmac !== hmac) {
-          throw new Error('Data integrity check failed. The backup may be corrupted or tampered with.');
+        if (!saltMatches || !ivMatches || !dataMatches) {
+          throw new Error('Invalid hex data in encrypted backup');
         }
+        
+        const salt = new Uint8Array(saltMatches.map((byte: string) => parseInt(byte, 16)));
+        const iv = new Uint8Array(ivMatches.map((byte: string) => parseInt(byte, 16)));
+        const data = new Uint8Array(dataMatches.map((byte: string) => parseInt(byte, 16)));
+        const hmac = encryptedPackage.hmac;
+        
+        console.log(`Extracted encryption components: Salt length=${salt.length}, IV length=${iv.length}, Data length=${data.length}`);
+        
+        // Generate the key from the passphrase and salt
+        const hashKey = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          passphrase + Array.from(salt).map((b: number) => b.toString(16)).join('')
+        );
+        console.log('Generated hash key from passphrase');
+        
+        // First, decrypt the data (using the same XOR approach)
+        const keyBytes = new TextEncoder().encode(hashKey);
+        const decryptedBytes = new Uint8Array(data.length);
+        
+        for (let i = 0; i < data.length; i++) {
+          decryptedBytes[i] = data[i] ^ keyBytes[i % keyBytes.length];
+        }
+        
+        // Try to bypass HMAC verification if requested via a debug flag
+        const bypassHmacVerification = false; // Set to true only for recovery
+        
+        // Verify HMAC if provided to ensure data integrity
+        if (hmac && !bypassHmacVerification) {
+          console.log('HMAC validation enabled, checking data integrity');
+          
+          // The HMAC was computed on the original data, not the encrypted data
+          // So we need to compute it on the decrypted data
+          const computedHmac = await Crypto.digestStringAsync(
+            Crypto.CryptoDigestAlgorithm.SHA256,
+            hashKey + Array.from(decryptedBytes).join(',')
+          );
+          
+          if (computedHmac !== hmac) {
+            console.error('HMAC validation failed. Computed:', computedHmac, 'Expected:', hmac);
+            
+            // Try with the original method (using encrypted data) as a fallback
+            // This is for compatibility with older backups
+            const legacyComputedHmac = await Crypto.digestStringAsync(
+              Crypto.CryptoDigestAlgorithm.SHA256,
+              hashKey + Array.from(data).join(',')
+            );
+            
+            if (legacyComputedHmac !== hmac) {
+              console.error('Legacy HMAC validation also failed');
+              throw new Error('Data integrity check failed. The backup may be corrupted or the passphrase is incorrect.');
+            }
+            
+            console.log('Legacy HMAC validation passed');
+          } else {
+            console.log('HMAC validation passed');
+          }
+        } else if (bypassHmacVerification) {
+          console.log('⚠️ HMAC verification bypassed - using backup without integrity check');
+        } else {
+          console.log('No HMAC found, skipping data integrity check');
+        }
+        
+        // Convert the decrypted data back to a string
+        const decryptedText = new TextDecoder().decode(decryptedBytes);
+        
+        // Validate that the decrypted content is valid JSON
+        try {
+          JSON.parse(decryptedText);
+          console.log('Successfully decrypted and parsed backup data');
+        } catch (jsonError) {
+          console.error('Decrypted data is not valid JSON', jsonError);
+          throw new Error('Decryption produced invalid data. Likely incorrect passphrase or corrupted file.');
+        }
+        
+        return decryptedText;
+      } catch (dataError: any) {
+        console.error('Error processing encrypted data:', dataError);
+        throw new Error(`Error processing encrypted data: ${dataError.message}`);
       }
-      
-      // Decrypt the data (using the same XOR approach)
-      const keyBytes = new TextEncoder().encode(hashKey);
-      const decryptedBytes = new Uint8Array(data.length);
-      
-      for (let i = 0; i < data.length; i++) {
-        decryptedBytes[i] = data[i] ^ keyBytes[i % keyBytes.length];
-      }
-      
-      // Convert the decrypted data back to a string
-      return new TextDecoder().decode(decryptedBytes);
     } catch (error: any) {
       console.error('Error decrypting backup:', error);
-      throw new Error('Failed to decrypt backup. Incorrect passphrase?');
+      throw new Error(`Failed to decrypt backup: ${error.message || 'Incorrect passphrase or corrupted file'}`);
     }
   }
 
@@ -4116,6 +4187,249 @@ export class Database {
     } catch (error: any) {
       console.error('Error importing unencrypted data:', error);
       throw new Error('Failed to import unencrypted data: ' + (error.message || 'Unknown error'));
+    }
+  }
+
+  // Emergency recovery method that attempts to decrypt a backup with HMAC verification disabled
+  async recoverBackupEmergency(encryptedData: string, passphrase: string): Promise<boolean> {
+    try {
+      console.log('Starting emergency backup recovery');
+      
+      // Parse the encrypted data package
+      let encryptedPackage;
+      try {
+        encryptedPackage = JSON.parse(encryptedData);
+        console.log('Successfully parsed encrypted package');
+      } catch (parseError) {
+        console.error('Failed to parse encrypted data:', parseError);
+        throw new Error('Invalid backup format. The file does not appear to be a valid encrypted backup.');
+      }
+      
+      // Validate package structure
+      if (!encryptedPackage.salt || !encryptedPackage.iv || !encryptedPackage.data) {
+        console.error('Invalid package structure:', Object.keys(encryptedPackage));
+        throw new Error('Invalid backup format. Missing required encryption components.');
+      }
+      
+      // Extract salt, IV, and encrypted data
+      try {
+        // Try to parse the hex strings
+        const saltMatches = encryptedPackage.salt.match(/.{1,2}/g);
+        const ivMatches = encryptedPackage.iv.match(/.{1,2}/g);
+        const dataMatches = encryptedPackage.data.match(/.{1,2}/g);
+        
+        if (!saltMatches || !ivMatches || !dataMatches) {
+          throw new Error('Invalid hex data in encrypted backup');
+        }
+        
+        const salt = new Uint8Array(saltMatches.map((byte: string) => parseInt(byte, 16)));
+        const iv = new Uint8Array(ivMatches.map((byte: string) => parseInt(byte, 16)));
+        const data = new Uint8Array(dataMatches.map((byte: string) => parseInt(byte, 16)));
+        
+        console.log(`Extracted encryption components: Salt length=${salt.length}, IV length=${iv.length}, Data length=${data.length}`);
+        
+        // Generate the key from the passphrase and salt
+        const hashKey = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          passphrase + Array.from(salt).map((b: number) => b.toString(16)).join('')
+        );
+        console.log('Generated hash key from passphrase');
+        
+        // Decrypt the data without HMAC verification
+        const keyBytes = new TextEncoder().encode(hashKey);
+        const decryptedBytes = new Uint8Array(data.length);
+        
+        for (let i = 0; i < data.length; i++) {
+          decryptedBytes[i] = data[i] ^ keyBytes[i % keyBytes.length];
+        }
+        
+        console.log('⚠️ EMERGENCY MODE: Bypassing HMAC verification');
+        
+        // Convert the decrypted data back to a string
+        const decryptedText = new TextDecoder().decode(decryptedBytes);
+        
+        // Validate that the decrypted content is valid JSON
+        let backupData;
+        try {
+          backupData = JSON.parse(decryptedText);
+          console.log('Successfully decrypted and parsed backup data');
+        } catch (jsonError) {
+          console.error('Decrypted data is not valid JSON', jsonError);
+          throw new Error('Decryption produced invalid data. Likely incorrect passphrase or corrupted file.');
+        }
+        
+        // Validate backup format
+        if (!backupData.version || !backupData.entities) {
+          throw new Error('Invalid backup format. Missing required data.');
+        }
+        
+        // Clear existing data before import
+        await this.clearAllDataForImport();
+        
+        // Start a transaction for the import
+        await this.db.execAsync('BEGIN TRANSACTION');
+        
+        try {
+          // Import entities
+          console.log(`Importing ${backupData.entities.length} entities`);
+          for (const entity of backupData.entities) {
+            await this.db.runAsync(
+              `INSERT OR REPLACE INTO entities 
+               (id, name, type, details, image, interaction_score, created_at, updated_at, encrypted_data) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                entity.id,
+                entity.name,
+                entity.type,
+                entity.details,
+                entity.image,
+                entity.interaction_score || 0,
+                entity.created_at,
+                entity.updated_at,
+                entity.encrypted_data
+              ]
+            );
+          }
+          
+          // Import tags
+          console.log(`Importing ${backupData.tags.length} tags`);
+          for (const tag of backupData.tags) {
+            await this.db.runAsync(
+              'INSERT OR REPLACE INTO tags (id, name, count) VALUES (?, ?, ?)',
+              [tag.id, tag.name, tag.count || 0]
+            );
+          }
+          
+          // Import entity tags
+          console.log(`Importing ${backupData.entityTags.length} entity-tag relationships`);
+          for (const entityTag of backupData.entityTags) {
+            await this.db.runAsync(
+              'INSERT OR IGNORE INTO entity_tags (entity_id, tag_id) VALUES (?, ?)',
+              [entityTag.entity_id, entityTag.tag_id]
+            );
+          }
+          
+          // Import interaction types
+          console.log(`Importing ${backupData.interactionTypes.length} interaction types`);
+          for (const type of backupData.interactionTypes) {
+            await this.db.runAsync(
+              `INSERT OR REPLACE INTO interaction_types 
+               (id, name, tag_id, icon, entity_type, score, color) 
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [
+                type.id,
+                type.name,
+                type.tag_id,
+                type.icon,
+                type.entity_type,
+                type.score || 1,
+                type.color || '#666666'
+              ]
+            );
+          }
+          
+          // Import interaction type tags
+          console.log(`Importing ${backupData.interactionTypeTags.length} interaction type tag relationships`);
+          for (const itt of backupData.interactionTypeTags) {
+            await this.db.runAsync(
+              'INSERT OR IGNORE INTO interaction_type_tags (interaction_type_id, tag_id) VALUES (?, ?)',
+              [itt.interaction_type_id, itt.tag_id]
+            );
+          }
+          
+          // Import interactions
+          console.log(`Importing ${backupData.interactions.length} interactions`);
+          for (const interaction of backupData.interactions) {
+            await this.db.runAsync(
+              'INSERT OR REPLACE INTO interactions (id, entity_id, timestamp, type) VALUES (?, ?, ?, ?)',
+              [
+                interaction.id,
+                interaction.entity_id,
+                interaction.timestamp,
+                interaction.type
+              ]
+            );
+          }
+          
+          // Import photos with actual image data
+          console.log(`Importing ${backupData.photos.length} photos`);
+          for (const photo of backupData.photos as EntityPhotoWithData[]) {
+            // If we have base64 image data, save it to a file
+            let newUri = photo.uri;
+            if (photo.base64Data) {
+              try {
+                // Create photos directory if it doesn't exist
+                const photosDir = `${FileSystem.documentDirectory}photos/`;
+                const dirInfo = await FileSystem.getInfoAsync(photosDir);
+                if (!dirInfo.exists) {
+                  await FileSystem.makeDirectoryAsync(photosDir, { intermediates: true });
+                }
+                
+                // Generate new file path
+                const fileName = `photo_${photo.id}_${Date.now()}.jpg`;
+                const newFilePath = `${photosDir}${fileName}`;
+                
+                // Write the base64 data to the file
+                await FileSystem.writeAsStringAsync(newFilePath, photo.base64Data, {
+                  encoding: FileSystem.EncodingType.Base64
+                });
+                
+                // Update the URI to point to the new file
+                newUri = newFilePath;
+              } catch (fileError) {
+                console.warn(`Error saving photo file for ${photo.id}:`, fileError);
+                // Keep the original URI if we can't save the file
+              }
+            }
+            
+            // Insert the photo metadata into the database
+            await this.db.runAsync(
+              'INSERT OR REPLACE INTO entity_photos (id, entity_id, uri, caption, timestamp) VALUES (?, ?, ?, ?, ?)',
+              [
+                photo.id,
+                photo.entity_id,
+                newUri,
+                photo.caption,
+                photo.timestamp
+              ]
+            );
+          }
+          
+          // Import group members
+          console.log(`Importing ${backupData.groupMembers.length} group member relationships`);
+          for (const groupMember of backupData.groupMembers) {
+            await this.db.runAsync(
+              'INSERT OR IGNORE INTO group_members (group_id, member_id) VALUES (?, ?)',
+              [groupMember.group_id, groupMember.member_id]
+            );
+          }
+          
+          // Import favorites
+          console.log(`Importing ${backupData.favorites.length} favorites`);
+          for (const favorite of backupData.favorites) {
+            await this.db.runAsync(
+              'INSERT OR IGNORE INTO favorites (entity_id) VALUES (?)',
+              [favorite.entity_id]
+            );
+          }
+          
+          // Commit the transaction
+          await this.db.execAsync('COMMIT');
+          console.log('Emergency recovery completed successfully');
+          return true;
+        } catch (error: any) {
+          // Rollback the transaction in case of error
+          await this.db.execAsync('ROLLBACK');
+          console.error('Error during emergency import, rolling back:', error);
+          throw error;
+        }
+      } catch (dataError: any) {
+        console.error('Error processing encrypted data:', dataError);
+        throw new Error(`Error processing encrypted data: ${dataError.message}`);
+      }
+    } catch (error: any) {
+      console.error('Error recovering backup:', error);
+      throw new Error(`Failed to recover backup: ${error.message || 'Unknown error'}`);
     }
   }
 }

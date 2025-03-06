@@ -28,6 +28,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { generatePassphrase, isValidPassphrase as validatePassphraseFormat } from '../utils/WordDictionary';
 import { debounce } from 'lodash';
 import { format } from 'date-fns';
+import * as Crypto from 'expo-crypto';
 
 type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -364,7 +365,7 @@ const SettingsScreen: React.FC = () => {
   const pickBackupFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'application/json',
+        type: ['application/json', '*/*'],
         copyToCacheDirectory: true
       });
       
@@ -376,6 +377,17 @@ const SettingsScreen: React.FC = () => {
       const file = result.assets[0];
       
       if (file) {
+        // Validate file extension - allow .json and .cmb files
+        const fileExtension = file.uri.split('.').pop()?.toLowerCase();
+        
+        if (fileExtension !== 'json' && fileExtension !== 'cmb') {
+          Alert.alert(
+            'Invalid File Type', 
+            'Please select a Contact Manager backup file (.cmb or .json)'
+          );
+          return;
+        }
+        
         setSelectedBackupFile(file.uri);
       } else {
         Alert.alert('File Selection Error', 'No file was selected.');
@@ -397,7 +409,7 @@ const SettingsScreen: React.FC = () => {
       if (!isValidPassphrase(restorePassphrase)) {
         Alert.alert(
           'Invalid Passphrase', 
-          'Please enter exactly 6 lowercase words separated by spaces.'
+          'Please enter a valid passphrase (at least 8 characters).'
         );
         return;
       }
@@ -405,34 +417,151 @@ const SettingsScreen: React.FC = () => {
       setIsProcessing(true);
       
       // Read file content
-      const fileContent = await FileSystem.readAsStringAsync(selectedBackupFile);
+      let fileContent;
+      try {
+        fileContent = await FileSystem.readAsStringAsync(selectedBackupFile);
+        console.log(`Read backup file: ${selectedBackupFile.split('/').pop()}, size: ${fileContent.length} bytes`);
+      } catch (readError: any) {
+        console.error('Error reading backup file:', readError);
+        Alert.alert('File Error', `Could not read the backup file: ${readError.message}`);
+        setIsProcessing(false);
+        return;
+      }
       
-      // Import the encrypted backup
-      await database.importEncryptedData(fileContent, restorePassphrase);
-      
-      // Reset state
-      setRestoreDialogVisible(false);
-      setSelectedBackupFile(null);
-      setRestorePassphrase('');
-      
+      try {
+        // Validate basic file format for CMB files
+        const fileExtension = selectedBackupFile.split('.').pop()?.toLowerCase();
+        if (fileExtension === 'cmb') {
+          try {
+            const packageCheck = JSON.parse(fileContent);
+            if (!packageCheck.salt || !packageCheck.iv || !packageCheck.data) {
+              Alert.alert(
+                'Invalid Backup Format', 
+                'The selected file does not appear to be a valid encrypted backup. Please ensure you selected a .cmb file created by this app.'
+              );
+              setIsProcessing(false);
+              return;
+            }
+          } catch (parseError) {
+            Alert.alert(
+              'Invalid Backup Format', 
+              'The selected file could not be parsed as a valid backup. Please ensure you selected a .cmb file created by this app.'
+            );
+            setIsProcessing(false);
+            return;
+          }
+        }
+        
+        // Import the encrypted backup
+        await database.importEncryptedData(fileContent, restorePassphrase);
+        
+        // Reset state
+        setRestoreDialogVisible(false);
+        setSelectedBackupFile(null);
+        setRestorePassphrase('');
+        
+        Alert.alert(
+          'Restore Successful', 
+          'Your data has been restored successfully. The app will now restart.',
+          [
+            { 
+              text: 'OK', 
+              onPress: () => {
+                // Restart app or reload data
+                navigation.navigate('Home');
+              } 
+            }
+          ]
+        );
+      } catch (importError: any) {
+        console.error('Import error:', importError);
+        
+        // Provide more specific error messages
+        let errorMessage = importError.message || 'An unknown error occurred';
+        
+        if (errorMessage.includes('Invalid backup format')) {
+          errorMessage = 'The backup file format is invalid. Please ensure you selected the correct file.';
+        } else if (errorMessage.includes('integrity check failed') || 
+                  errorMessage.includes('Incorrect passphrase') ||
+                  errorMessage.includes('invalid data')) {
+          // Offer emergency recovery option
+          Alert.alert(
+            'Decryption Failed',
+            'The backup cannot be decrypted. The most likely cause is that the passphrase is incorrect, or the backup was created with a different version of the app.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'Try Emergency Recovery', 
+                style: 'destructive',
+                onPress: () => handleEmergencyRecovery(fileContent, restorePassphrase)
+              }
+            ]
+          );
+          setIsProcessing(false);
+          return;
+        }
+        
+        Alert.alert('Restore Failed', errorMessage);
+      }
+    } catch (error: any) {
+      console.error('Restore process error:', error);
+      Alert.alert('Restore Failed', error.message || 'An unexpected error occurred during the restore process.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  // Handle emergency recovery
+  const handleEmergencyRecovery = async (fileContent: string, passphrase: string) => {
+    try {
       Alert.alert(
-        'Restore Successful', 
-        'Your data has been restored successfully. The app will now restart.',
+        'Emergency Recovery',
+        'This will attempt to recover your data by bypassing integrity checks. This may result in corrupted data if the passphrase is incorrect. Continue?',
         [
+          { text: 'Cancel', style: 'cancel' },
           { 
-            text: 'OK', 
-            onPress: () => {
-              // Restart app or reload data
-              navigation.navigate('Home');
-            } 
+            text: 'Continue', 
+            style: 'destructive',
+            onPress: async () => {
+              setIsProcessing(true);
+              try {
+                // Try emergency recovery
+                await database.recoverBackupEmergency(fileContent, passphrase);
+                
+                // Reset state
+                setRestoreDialogVisible(false);
+                setSelectedBackupFile(null);
+                setRestorePassphrase('');
+                
+                Alert.alert(
+                  'Recovery Successful', 
+                  'Your data has been recovered. Please check that everything was restored correctly. The app will now restart.',
+                  [
+                    { 
+                      text: 'OK', 
+                      onPress: () => {
+                        // Restart app or reload data
+                        navigation.navigate('Home');
+                      } 
+                    }
+                  ]
+                );
+              } catch (recoveryError: any) {
+                console.error('Emergency recovery error:', recoveryError);
+                Alert.alert(
+                  'Recovery Failed',
+                  recoveryError.message || 'Emergency recovery failed. The backup may be severely corrupted or the passphrase is incorrect.'
+                );
+              } finally {
+                setIsProcessing(false);
+              }
+            }
           }
         ]
       );
     } catch (error: any) {
-      console.error('Restore error:', error);
-      Alert.alert('Restore Failed', error.message || 'An unknown error occurred. Check that your passphrase is correct.');
-    } finally {
-      setIsProcessing(false);
+      console.error('Error setting up emergency recovery:', error);
+      Alert.alert('Error', 'Failed to set up emergency recovery');
     }
   };
   
@@ -516,6 +645,17 @@ const SettingsScreen: React.FC = () => {
         return;
       }
       
+      // Validate file extension - only allow JSON files for unencrypted backups
+      const fileExtension = file.uri.split('.').pop()?.toLowerCase();
+      
+      if (fileExtension !== 'json') {
+        Alert.alert(
+          'Invalid File Type', 
+          'Please select a JSON backup file (.json) for unencrypted import'
+        );
+        return;
+      }
+      
       // Confirm import
       Alert.alert(
         'Unencrypted Import Confirmation', 
@@ -560,6 +700,112 @@ const SettingsScreen: React.FC = () => {
     } catch (error: any) {
       console.error('File selection error:', error);
       Alert.alert('Error', 'Failed to select or process the backup file.');
+    }
+  };
+  
+  // Create test encrypted backup file (for debugging purposes only)
+  const createTestBackup = async () => {
+    try {
+      setIsProcessing(true);
+      
+      // Create a very simple backup content
+      const simpleBackupData = {
+        test: true,
+        message: 'This is a test backup file',
+        timestamp: Date.now()
+      };
+      
+      // Generate a simple passphrase for testing
+      const testPassphrase = 'testpassphrase123';
+      
+      // Generate salt and IV
+      const salt = Array.from(new Uint8Array(16).map(() => Math.floor(Math.random() * 256)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      const iv = Array.from(new Uint8Array(16).map(() => Math.floor(Math.random() * 256)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      // Simple "encryption" via XOR with the passphrase
+      const dataBytes = new TextEncoder().encode(JSON.stringify(simpleBackupData));
+      const keyBytes = new TextEncoder().encode(testPassphrase);
+      const encryptedBytes = new Uint8Array(dataBytes.length);
+      
+      for (let i = 0; i < dataBytes.length; i++) {
+        encryptedBytes[i] = dataBytes[i] ^ keyBytes[i % keyBytes.length];
+      }
+      
+      // Convert to hex string
+      const encryptedHex = Array.from(encryptedBytes)
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      // Create the encrypted package
+      const encryptedPackage = {
+        salt,
+        iv,
+        data: encryptedHex,
+        // Add a proper HMAC as we do in the actual export
+        hmac: await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          testPassphrase + dataBytes.join(',')
+        )
+      };
+      
+      // Create file
+      const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
+      const filename = `test_backup_${timestamp}.cmb`;
+      const tempDir = FileSystem.cacheDirectory + 'backups/';
+      const dirInfo = await FileSystem.getInfoAsync(tempDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
+      }
+      
+      const filePath = tempDir + filename;
+      await FileSystem.writeAsStringAsync(filePath, JSON.stringify(encryptedPackage));
+      
+      // Save the test passphrase and file path for easy testing
+      setTestBackupInfo({
+        passphrase: testPassphrase,
+        filePath
+      });
+      
+      // Share the file for testing
+      const shareSuccess = await shareBackupFile(filePath, filename);
+      
+      Alert.alert(
+        'Test Backup Created',
+        `A simple test backup has been created with passphrase: "${testPassphrase}"\n\nUse this file to test the restore functionality.`,
+        [
+          {
+            text: 'Test Import Now',
+            onPress: () => {
+              // Set up for immediate testing
+              setSelectedBackupFile(filePath);
+              setRestorePassphrase(testPassphrase);
+              setRestoreDialogVisible(true);
+            }
+          },
+          { text: 'OK' }
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error creating test backup:', error);
+      Alert.alert('Test Failed', error.message || 'Failed to create test backup');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  // Add state for test backup info
+  const [testBackupInfo, setTestBackupInfo] = useState<{passphrase: string, filePath: string} | null>(null);
+
+  // Test import function
+  const testImportNow = () => {
+    if (testBackupInfo) {
+      setSelectedBackupFile(testBackupInfo.filePath);
+      setRestorePassphrase(testBackupInfo.passphrase);
+      setRestoreDialogVisible(true);
+    } else {
+      Alert.alert('No Test Backup', 'Please create a test backup first');
     }
   };
   
@@ -901,6 +1147,34 @@ const SettingsScreen: React.FC = () => {
             >
               Import Unencrypted Backup
             </Button>
+
+            <Divider style={{marginVertical: 16}} />
+
+            {__DEV__ && (
+              <>
+                <Button 
+                  mode="outlined" 
+                  onPress={createTestBackup}
+                  style={[styles.button, { marginTop: 8 }]}
+                  icon="bug"
+                  disabled={isProcessing}
+                >
+                  Create Test Backup
+                </Button>
+                
+                {testBackupInfo && (
+                  <Button 
+                    mode="outlined" 
+                    onPress={testImportNow}
+                    style={[styles.button, { marginTop: 8 }]}
+                    icon="database-import"
+                    disabled={isProcessing}
+                  >
+                    Test Import (Uses Test Backup)
+                  </Button>
+                )}
+              </>
+            )}
           </Card.Content>
         </Card>
         
@@ -1112,6 +1386,9 @@ const SettingsScreen: React.FC = () => {
                 <Text style={styles.dialogText}>
                   First, select your backup file to restore.
                 </Text>
+                <Text style={[styles.dialogText, { marginTop: 4 }]}>
+                  For encrypted backups, select a <Text style={{fontWeight: 'bold'}}>*.cmb</Text> file.
+                </Text>
                 <Text style={[styles.dialogText, { fontWeight: 'bold', color: '#d32f2f', marginTop: 8 }]}>
                   Warning: This will overwrite all existing data in the app.
                 </Text>
@@ -1126,45 +1403,46 @@ const SettingsScreen: React.FC = () => {
                   Select Backup File
                 </Button>
                 
-                {selectedBackupFile && (
-                  <>
-                    <Text style={styles.selectedFile}>
-                      Selected: {selectedBackupFile.split('/').pop()}
+                {selectedBackupFile ? (
+                  <View style={{marginTop: 8}}>
+                    <Text style={[styles.dialogText, {color: 'green'}]}>✓ File selected</Text>
+                    <Text numberOfLines={1} ellipsizeMode="middle" style={styles.filePathText}>
+                      {selectedBackupFile}
                     </Text>
-                    
-                    <Text style={[styles.dialogText, { marginTop: 16, fontWeight: 'bold' }]}>
-                      Enter the 6-word passphrase you used when creating this backup:
-                    </Text>
-                    
-                    <View style={styles.inputWithButton}>
-                      <TextInput
-                        label="Enter Backup Passphrase"
-                        value={restorePassphrase}
-                        onChangeText={handleRestorePassphraseChange}
-                        style={[styles.input, { flex: 1 }]}
-                        autoCapitalize="none"
-                        disabled={isProcessing}
-                        secureTextEntry={!showRestorePassphrase}
-                        placeholder="Enter your 6-word passphrase"
-                      />
-                      <IconButton
-                        icon={showRestorePassphrase ? "eye-off" : "eye"}
-                        iconColor="#2196F3"
-                        size={24}
-                        onPress={() => setShowRestorePassphrase(!showRestorePassphrase)}
-                        disabled={isProcessing}
-                        style={styles.eyeButton}
-                        accessibilityLabel="Toggle passphrase visibility"
-                      />
-                    </View>
-                    
-                    <HelperText type={isRestorePassphraseValid ? "info" : "error"}>
-                      {isRestorePassphraseValid 
-                        ? "Valid passphrase format" 
-                        : "Please enter exactly 6 lowercase words separated by spaces"}
-                    </HelperText>
-                  </>
-                )}
+                  </View>
+                ) : null}
+                
+                <Text style={[styles.dialogText, { marginTop: 16, fontWeight: 'bold' }]}>
+                  Enter the 6-word passphrase you used when creating this backup:
+                </Text>
+                
+                <View style={styles.inputWithButton}>
+                  <TextInput
+                    label="Enter Backup Passphrase"
+                    value={restorePassphrase}
+                    onChangeText={handleRestorePassphraseChange}
+                    style={[styles.input, { flex: 1 }]}
+                    autoCapitalize="none"
+                    disabled={isProcessing}
+                    secureTextEntry={!showRestorePassphrase}
+                    placeholder="Enter your 6-word passphrase"
+                  />
+                  <IconButton
+                    icon={showRestorePassphrase ? "eye-off" : "eye"}
+                    iconColor="#2196F3"
+                    size={24}
+                    onPress={() => setShowRestorePassphrase(!showRestorePassphrase)}
+                    disabled={isProcessing}
+                    style={styles.eyeButton}
+                    accessibilityLabel="Toggle passphrase visibility"
+                  />
+                </View>
+                
+                <HelperText type={isRestorePassphraseValid ? "info" : "error"}>
+                  {isRestorePassphraseValid 
+                    ? "Valid passphrase format" 
+                    : "Please enter exactly 6 lowercase words separated by spaces"}
+                </HelperText>
               </View>
             </ScrollView>
           </Dialog.ScrollArea>
@@ -1312,6 +1590,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     color: '#2196F3',
+  },
+  filePathText: {
+    marginTop: 8,
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 });
 
