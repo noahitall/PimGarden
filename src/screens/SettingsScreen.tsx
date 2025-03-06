@@ -960,6 +960,18 @@ const SettingsScreen: React.FC = () => {
                 )}
               />
               
+              <List.Item
+                title="Unencrypted Backup"
+                description="Allow unencrypted backups (security risk)"
+                left={props => <List.Icon {...props} icon="shield-alert" />}
+                right={props => (
+                  <Switch
+                    value={featureFlags.ENABLE_UNENCRYPTED_BACKUP}
+                    onValueChange={() => toggleFeatureFlag('ENABLE_UNENCRYPTED_BACKUP')}
+                  />
+                )}
+              />
+              
               <Divider />
               
               <List.Subheader>Core Features</List.Subheader>
@@ -1116,67 +1128,69 @@ const SettingsScreen: React.FC = () => {
           </Card>
         )}
         
-        {/* Troubleshooting Card - Always visible */}
-        <Card style={styles.card}>
-          <Card.Title 
-            title="Troubleshooting" 
-            subtitle="Unencrypted backup options" 
-          />
-          <Card.Content>
-            <Text style={styles.description}>
-              Use these options only for troubleshooting backup and restore issues.
-              <Text style={{fontWeight: 'bold', color: '#d32f2f'}}> Warning: Data is not encrypted!</Text>
-            </Text>
-            
-            <Button 
-              mode="outlined" 
-              onPress={handleExportUnencryptedData}
-              style={[styles.button, { marginTop: 8 }]}
-              icon="file-export"
-              disabled={isProcessing}
-            >
-              Export Unencrypted Backup
-            </Button>
-            
-            <Button 
-              mode="outlined" 
-              onPress={handleImportUnencryptedData}
-              style={[styles.button, { marginTop: 8 }]}
-              icon="file-import"
-              disabled={isProcessing}
-            >
-              Import Unencrypted Backup
-            </Button>
+        {/* Troubleshooting Card - Only visible if ENABLE_UNENCRYPTED_BACKUP is enabled */}
+        {isFeatureEnabledSync('ENABLE_UNENCRYPTED_BACKUP') && (
+          <Card style={styles.card}>
+            <Card.Title 
+              title="Troubleshooting" 
+              subtitle="Unencrypted backup options" 
+            />
+            <Card.Content>
+              <Text style={styles.description}>
+                Use these options only for troubleshooting backup and restore issues.
+                <Text style={{fontWeight: 'bold', color: '#d32f2f'}}> Warning: Data is not encrypted!</Text>
+              </Text>
+              
+              <Button 
+                mode="outlined" 
+                onPress={handleExportUnencryptedData}
+                style={[styles.button, { marginTop: 8 }]}
+                icon="file-export"
+                disabled={isProcessing}
+              >
+                Export Unencrypted Backup
+              </Button>
+              
+              <Button 
+                mode="outlined" 
+                onPress={handleImportUnencryptedData}
+                style={[styles.button, { marginTop: 8 }]}
+                icon="file-import"
+                disabled={isProcessing}
+              >
+                Import Unencrypted Backup
+              </Button>
 
-            <Divider style={{marginVertical: 16}} />
+              <Divider style={{marginVertical: 16}} />
 
-            {__DEV__ && (
-              <>
-                <Button 
-                  mode="outlined" 
-                  onPress={createTestBackup}
-                  style={[styles.button, { marginTop: 8 }]}
-                  icon="bug"
-                  disabled={isProcessing}
-                >
-                  Create Test Backup
-                </Button>
-                
-                {testBackupInfo && (
+              {__DEV__ && (
+                <>
                   <Button 
                     mode="outlined" 
-                    onPress={testImportNow}
+                    onPress={createTestBackup}
                     style={[styles.button, { marginTop: 8 }]}
-                    icon="database-import"
+                    icon="bug"
                     disabled={isProcessing}
                   >
-                    Test Import (Uses Test Backup)
+                    Create Test Backup
                   </Button>
-                )}
-              </>
-            )}
-          </Card.Content>
-        </Card>
+                  
+                  {testBackupInfo && (
+                    <Button 
+                      mode="outlined" 
+                      onPress={testImportNow}
+                      style={[styles.button, { marginTop: 8 }]}
+                      icon="database-import"
+                      disabled={isProcessing}
+                    >
+                      Test Import (Uses Test Backup)
+                    </Button>
+                  )}
+                </>
+              )}
+            </Card.Content>
+          </Card>
+        )}
         
         <Card style={styles.card}>
           <Card.Title title="About" />

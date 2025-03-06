@@ -19,6 +19,7 @@ export const FeatureFlags = {
   SHOW_DEBUG_BUTTON: false, // Keep disabled for production builds
   ENABLE_HISTORICAL_INTERACTIONS: false, // Controls the button to generate random historical interactions on entity detail screen
   ENABLE_DATA_RESET: false, // Debug feature for resetting all data
+  ENABLE_UNENCRYPTED_BACKUP: false, // Controls access to unencrypted backup functionality (security-sensitive)
   
   // Feature toggles - enable stable features for production
   ENABLE_MERGE_FEATURE: true,
