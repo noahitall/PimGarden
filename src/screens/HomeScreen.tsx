@@ -8,6 +8,7 @@ import { database, EntityType } from '../database/Database';
 import EntityCard from '../components/EntityCard';
 import { isFeatureEnabledSync } from '../config/FeatureFlags';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { debounce } from 'lodash';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -277,7 +278,7 @@ const HomeScreen: React.FC = () => {
     setSearchVisible(show);
     Animated.timing(searchBarHeight, {
       toValue: show ? 60 : 0,
-      duration: 200,
+      duration: 250, // Slightly longer for smoother animation
       useNativeDriver: false,
     }).start();
     
@@ -294,10 +295,10 @@ const HomeScreen: React.FC = () => {
   // Handle scroll events to show/hide search bar
   const handleScroll = (event: any) => {
     const scrollY = event.nativeEvent.contentOffset.y;
-    // Use a smaller threshold for detecting pull-down on Android
-    if (scrollY < -20 && !searchVisible) {
+    // More sensitive thresholds for Android pull-down
+    if (scrollY < -15 && !searchVisible) {
       toggleSearchBar(true);
-    } else if (scrollY > 50 && searchVisible) {
+    } else if (scrollY > 40 && searchVisible) {
       toggleSearchBar(false);
     }
   };
@@ -366,18 +367,33 @@ const HomeScreen: React.FC = () => {
   
   // Set navigation options with settings button
   React.useLayoutEffect(() => {
+    // Create debounced handlers to prevent double-tap issues
+    const debouncedToggleSearch = debounce(() => {
+      toggleSearchBar(!searchVisible);
+    }, 300, { leading: true, trailing: false });
+    
+    const debouncedNavigateToSettings = debounce(() => {
+      navigation.navigate('Settings');
+    }, 300, { leading: true, trailing: false });
+
     navigation.setOptions({
       headerRight: () => (
-        <View style={{ flexDirection: 'row' }}>
+        <View style={styles.headerButtonsContainer}>
           <Appbar.Action 
             icon="magnify" 
             color="white" 
-            onPress={() => toggleSearchBar(!searchVisible)} 
+            onPress={debouncedToggleSearch}
+            style={styles.headerButton}
+            // Add hitSlop to increase touch area
+            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
           />
           <Appbar.Action 
             icon="cog" 
             color="white" 
-            onPress={() => navigation.navigate('Settings')} 
+            onPress={debouncedNavigateToSettings}
+            style={styles.headerButton}
+            // Add hitSlop to increase touch area
+            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
           />
         </View>
       ),
@@ -413,6 +429,8 @@ const HomeScreen: React.FC = () => {
               <Appbar.Action
                 icon="sort"
                 onPress={() => setSortMenuVisible(true)}
+                style={styles.sortButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               />
             }
           >
@@ -494,7 +512,7 @@ const HomeScreen: React.FC = () => {
           />
         }
         onScroll={handleScroll}
-        scrollEventThrottle={16}
+        scrollEventThrottle={8} // More responsive scroll detection (was 16)
         overScrollMode="always" // Ensure overscroll works on Android
       />
       
@@ -591,6 +609,7 @@ const styles = StyleSheet.create({
   sortButton: {
     margin: 0,
     marginRight: 8,
+    padding: 8,
   },
   searchBar: {
     flex: 1,
@@ -602,6 +621,13 @@ const styles = StyleSheet.create({
     bottom: 80,
     right: 16,
     opacity: 0.7,
+  },
+  headerButtonsContainer: {
+    flexDirection: 'row',
+  },
+  headerButton: {
+    margin: 0,
+    marginRight: 8,
   },
 });
 
