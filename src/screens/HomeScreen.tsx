@@ -1,14 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StyleSheet, View, FlatList, Dimensions, RefreshControl, Animated, Alert } from 'react-native';
-import { FAB, Appbar, Chip, Searchbar, Button, Snackbar, Banner } from 'react-native-paper';
+import { FAB, Appbar, Chip, Searchbar, Button, Snackbar, Banner, Menu, IconButton, Divider } from 'react-native-paper';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Entity } from '../types';
 import { database, EntityType } from '../database/Database';
 import EntityCard from '../components/EntityCard';
 import { isFeatureEnabledSync } from '../config/FeatureFlags';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
+
+// Sort options type
+type SortOption = 'updated' | 'name' | 'recent_interaction';
 
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
@@ -24,10 +28,45 @@ const HomeScreen: React.FC = () => {
   const [sourceEntity, setSourceEntity] = useState<Entity | null>(null);
   const [mergeMessage, setMergeMessage] = useState('');
   const [showMergeSnackbar, setShowMergeSnackbar] = useState(false);
+  const [sortMenuVisible, setSortMenuVisible] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>('updated');
+  const [keepFavoritesFirst, setKeepFavoritesFirst] = useState(true);
   
   // Calculate number of columns based on screen width
   const screenWidth = Dimensions.get('window').width;
   const numColumns = useMemo(() => Math.max(2, Math.floor(screenWidth / 200)), [screenWidth]);
+  
+  // Load user preferences
+  useEffect(() => {
+    const loadPreferences = async () => {
+      try {
+        const savedSortBy = await AsyncStorage.getItem('sortBy');
+        if (savedSortBy) setSortBy(savedSortBy as SortOption);
+        
+        const savedKeepFavoritesFirst = await AsyncStorage.getItem('keepFavoritesFirst');
+        if (savedKeepFavoritesFirst !== null) {
+          setKeepFavoritesFirst(savedKeepFavoritesFirst === 'true');
+        }
+      } catch (error) {
+        console.error('Error loading preferences:', error);
+      }
+    };
+    loadPreferences();
+  }, []);
+
+  // Save preferences when they change
+  const savePreferences = async (newSortBy?: SortOption, newKeepFavoritesFirst?: boolean) => {
+    try {
+      if (newSortBy) {
+        await AsyncStorage.setItem('sortBy', newSortBy);
+      }
+      if (newKeepFavoritesFirst !== undefined) {
+        await AsyncStorage.setItem('keepFavoritesFirst', String(newKeepFavoritesFirst));
+      }
+    } catch (error) {
+      console.error('Error saving preferences:', error);
+    }
+  };
   
   // Load entities from database
   const loadEntities = useCallback(async () => {
@@ -54,7 +93,10 @@ const HomeScreen: React.FC = () => {
       } else if (searchQuery.trim()) {
         data = await database.searchEntities(searchQuery, filter);
       } else {
-        data = await database.getAllEntities(filter);
+        data = await database.getAllEntities(filter, {
+          sortBy: sortBy === 'updated' ? undefined : sortBy,
+          keepFavoritesFirst: keepFavoritesFirst
+        });
       }
       
       // Ensure the data matches the Entity type from types/index.ts
@@ -70,7 +112,7 @@ const HomeScreen: React.FC = () => {
     } finally {
       setRefreshing(false);
     }
-  }, [filter, searchQuery, favoritesOnly]);
+  }, [filter, searchQuery, favoritesOnly, sortBy, keepFavoritesFirst]);
   
   // Refresh data when screen comes into focus
   useFocusEffect(
@@ -228,35 +270,43 @@ const HomeScreen: React.FC = () => {
   // Render filter chips
   const renderFilterChips = () => (
     <View style={styles.filterContainer}>
-      <Chip 
-        selected={favoritesOnly}
-        onPress={handleFavoritesToggle}
-        style={styles.chip}
-        icon="star"
-      >
-        Favorites
-      </Chip>
-      <Chip 
-        selected={filter === EntityType.PERSON} 
-        onPress={() => handleFilterChange(EntityType.PERSON)}
-        style={styles.chip}
-      >
-        People
-      </Chip>
-      <Chip 
-        selected={filter === EntityType.GROUP} 
-        onPress={() => handleFilterChange(EntityType.GROUP)}
-        style={styles.chip}
-      >
-        Groups
-      </Chip>
-      <Chip 
-        selected={filter === EntityType.TOPIC} 
-        onPress={() => handleFilterChange(EntityType.TOPIC)}
-        style={styles.chip}
-      >
-        Topics
-      </Chip>
+      <View style={styles.filterRow}>
+        <Chip
+          selected={filter === undefined}
+          onPress={() => setFilter(undefined)}
+          style={styles.filterChip}
+        >
+          All
+        </Chip>
+        <Chip
+          selected={filter === EntityType.PERSON}
+          onPress={() => setFilter(EntityType.PERSON)}
+          style={styles.filterChip}
+        >
+          People
+        </Chip>
+        <Chip
+          selected={filter === EntityType.GROUP}
+          onPress={() => setFilter(EntityType.GROUP)}
+          style={styles.filterChip}
+        >
+          Groups
+        </Chip>
+        <Chip
+          selected={filter === EntityType.TOPIC}
+          onPress={() => setFilter(EntityType.TOPIC)}
+          style={styles.filterChip}
+        >
+          Topics
+        </Chip>
+        <IconButton
+          icon={favoritesOnly ? 'star' : 'star-outline'}
+          selected={favoritesOnly}
+          onPress={() => setFavoritesOnly(!favoritesOnly)}
+          style={styles.favoriteChip}
+          iconColor={favoritesOnly ? '#FFD700' : undefined}
+        />
+      </View>
     </View>
   );
   
@@ -306,13 +356,70 @@ const HomeScreen: React.FC = () => {
       {renderFilterChips()}
       
       <Animated.View style={[styles.searchBarContainer, { height: searchBarHeight }]}>
-        <Searchbar
-          placeholder="Search by name, phone, email, or address"
-          onChangeText={handleSearch}
-          value={searchQuery}
-          style={styles.searchBar}
-          autoCapitalize="none"
-        />
+        <View style={styles.searchRow}>
+          <Menu
+            visible={sortMenuVisible}
+            onDismiss={() => setSortMenuVisible(false)}
+            anchor={
+              <IconButton
+                icon="sort"
+                size={24}
+                onPress={() => setSortMenuVisible(true)}
+                style={styles.sortButton}
+              />
+            }
+          >
+            <Menu.Item
+              title="Sort by Last Updated"
+              onPress={() => {
+                setSortBy('updated');
+                savePreferences('updated');
+                setSortMenuVisible(false);
+                loadEntities();
+              }}
+              leadingIcon={sortBy === 'updated' ? 'check' : undefined}
+            />
+            <Menu.Item
+              title="Sort by Name"
+              onPress={() => {
+                setSortBy('name');
+                savePreferences('name');
+                setSortMenuVisible(false);
+                loadEntities();
+              }}
+              leadingIcon={sortBy === 'name' ? 'check' : undefined}
+            />
+            <Menu.Item
+              title="Sort by Recent Interaction"
+              onPress={() => {
+                setSortBy('recent_interaction');
+                savePreferences('recent_interaction');
+                setSortMenuVisible(false);
+                loadEntities();
+              }}
+              leadingIcon={sortBy === 'recent_interaction' ? 'check' : undefined}
+            />
+            <Divider />
+            <Menu.Item
+              title="Keep Favorites First"
+              onPress={() => {
+                const newValue = !keepFavoritesFirst;
+                setKeepFavoritesFirst(newValue);
+                savePreferences(undefined, newValue);
+                setSortMenuVisible(false);
+                loadEntities();
+              }}
+              leadingIcon={keepFavoritesFirst ? 'check' : undefined}
+            />
+          </Menu>
+          <Searchbar
+            placeholder="Search by name, phone, email, or address"
+            onChangeText={handleSearch}
+            value={searchQuery}
+            style={styles.searchBar}
+            autoCapitalize="none"
+          />
+        </View>
       </Animated.View>
       
       <FlatList
@@ -375,8 +482,17 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     zIndex: 2,
   },
-  chip: {
-    margin: 4,
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  filterChip: {
+    marginHorizontal: 4,
+  },
+  favoriteChip: {
+    margin: 0,
+    marginLeft: 4,
   },
   listContent: {
     padding: 4,
@@ -386,7 +502,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    maxWidth: '50%', // Ensure cards don't get too wide on larger screens
+    maxWidth: '50%',
   },
   fab: {
     position: 'absolute',
@@ -403,11 +519,20 @@ const styles = StyleSheet.create({
     elevation: 4,
     zIndex: 1,
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  sortButton: {
+    margin: 0,
+    marginRight: 8,
+  },
   searchBar: {
+    flex: 1,
     elevation: 0,
     backgroundColor: '#fff',
-    marginHorizontal: 8,
-    marginVertical: 8,
   },
   debugButton: {
     position: 'absolute',

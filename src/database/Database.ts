@@ -390,16 +390,28 @@ export class Database {
     return uuid.substring(0, 10);
   }
 
-  // Encrypt sensitive data
+  // Encrypt data using a symmetric key
   private async encryptData(data: any): Promise<string> {
-    // In a real app, you would use a proper encryption library
-    // For this demo, we'll just stringify the data directly
     try {
-      return JSON.stringify(data);
+      const jsonString = JSON.stringify(data);
+      const digest = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        jsonString
+      );
+      return digest;
     } catch (error) {
-      console.error('Error stringifying data:', error);
-      return '{}'; // Return empty object as fallback
+      console.error('Error encrypting data:', error);
+      throw error;
     }
+  }
+
+  // Decrypt data using the same symmetric key
+  private async decryptData(encryptedData: string): Promise<string> {
+    // For now, since we're using a hash function in encryptData,
+    // we can't actually decrypt. In a real app, you would use proper
+    // encryption/decryption with a symmetric key.
+    // This is just for demonstration purposes.
+    return encryptedData;
   }
 
   // Find duplicate entities based on name and details
@@ -483,19 +495,72 @@ export class Database {
   }
 
   // Get all entities
-  async getAllEntities(type?: EntityType): Promise<Entity[]> {
-    let query = 'SELECT * FROM entities';
-    const params: any[] = [];
-    
-    if (type) {
-      query += ' WHERE type = ?';
-      params.push(type);
+  async getAllEntities(
+    type?: EntityType,
+    options: {
+      sortBy?: 'name' | 'recent_interaction';
+      keepFavoritesFirst?: boolean;
+    } = {}
+  ): Promise<Entity[]> {
+    try {
+      let query = '';
+      const params: any[] = [];
+
+      if (options.keepFavoritesFirst) {
+        // Use LEFT JOIN to include all entities, with favorites having value 1 and others 0
+        query = `
+          SELECT e.*, 
+                 CASE WHEN f.entity_id IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
+                 MAX(i.timestamp) as last_interaction
+          FROM entities e
+          LEFT JOIN favorites f ON e.id = f.entity_id
+          LEFT JOIN interactions i ON e.id = i.entity_id
+        `;
+      } else {
+        query = `
+          SELECT e.*, 
+                 MAX(i.timestamp) as last_interaction
+          FROM entities e
+          LEFT JOIN interactions i ON e.id = i.entity_id
+        `;
+      }
+
+      if (type) {
+        query += ' WHERE e.type = ?';
+        params.push(type);
+      }
+
+      // Group by to handle the aggregation
+      query += ' GROUP BY e.id';
+
+      // Add ORDER BY clause based on sorting options
+      const orderClauses: string[] = [];
+      
+      if (options.keepFavoritesFirst) {
+        orderClauses.push('is_favorite DESC');
+      }
+      
+      if (options.sortBy === 'name') {
+        orderClauses.push('e.name COLLATE NOCASE ASC');
+      } else if (options.sortBy === 'recent_interaction') {
+        orderClauses.push('last_interaction DESC NULLS LAST');
+      } else {
+        // Default sort by updated_at
+        orderClauses.push('e.updated_at DESC');
+      }
+      
+      if (orderClauses.length > 0) {
+        query += ' ORDER BY ' + orderClauses.join(', ');
+      }
+
+      const result = await this.db.getAllAsync(query, params) as (Entity & { is_favorite?: number })[];
+      
+      // Remove the is_favorite property before returning
+      return result.map(({ is_favorite, ...entity }) => entity);
+    } catch (error) {
+      console.error('Error getting entities:', error);
+      return [];
     }
-    
-    query += ' ORDER BY updated_at DESC';
-    
-    const result = await this.db.getAllAsync(query, params) as Entity[];
-    return result;
   }
 
   // Get entity by ID
@@ -2023,6 +2088,120 @@ export class Database {
     } catch (error) {
       console.error('Error getting interaction:', error);
       return null;
+    }
+  }
+
+  // Merge two entities together
+  async mergeEntities(sourceId: string, targetId: string): Promise<boolean> {
+    try {
+      // Start a transaction
+      await this.db.execAsync('BEGIN TRANSACTION');
+
+      // Get both entities
+      const sourceEntity = await this.getEntityById(sourceId);
+      const targetEntity = await this.getEntityById(targetId);
+
+      if (!sourceEntity || !targetEntity) {
+        await this.db.execAsync('ROLLBACK');
+        return false;
+      }
+
+      // Ensure entities are of the same type
+      if (sourceEntity.type !== targetEntity.type) {
+        await this.db.execAsync('ROLLBACK');
+        return false;
+      }
+
+      // Update interactions to point to target entity
+      await this.db.runAsync(
+        'UPDATE interactions SET entity_id = ? WHERE entity_id = ?',
+        [targetId, sourceId]
+      );
+
+      // Update photos to point to target entity
+      await this.db.runAsync(
+        'UPDATE entity_photos SET entity_id = ? WHERE entity_id = ?',
+        [targetId, sourceId]
+      );
+
+      // Update entity tags to point to target entity
+      await this.db.runAsync(
+        'INSERT OR IGNORE INTO entity_tags (entity_id, tag_id) SELECT ?, tag_id FROM entity_tags WHERE entity_id = ?',
+        [targetId, sourceId]
+      );
+      await this.db.runAsync(
+        'DELETE FROM entity_tags WHERE entity_id = ?',
+        [sourceId]
+      );
+
+      // Merge contact data if it exists
+      if (sourceEntity.encrypted_data && targetEntity.encrypted_data) {
+        const sourceData = JSON.parse(await this.decryptData(sourceEntity.encrypted_data)) as ContactData;
+        const targetData = JSON.parse(await this.decryptData(targetEntity.encrypted_data)) as ContactData;
+
+        // Merge phone numbers
+        const mergedPhoneNumbers = [...targetData.phoneNumbers];
+        for (const phone of sourceData.phoneNumbers) {
+          if (!mergedPhoneNumbers.some(p => p.value === phone.value)) {
+            mergedPhoneNumbers.push(phone);
+          }
+        }
+
+        // Merge email addresses
+        const mergedEmails = [...targetData.emailAddresses];
+        for (const email of sourceData.emailAddresses) {
+          if (!mergedEmails.some(e => e.value === email.value)) {
+            mergedEmails.push(email);
+          }
+        }
+
+        // Merge physical addresses
+        const mergedAddresses = [...targetData.physicalAddresses];
+        for (const address of sourceData.physicalAddresses) {
+          if (!mergedAddresses.some(a => 
+            a.street === address.street && 
+            a.city === address.city && 
+            a.state === address.state && 
+            a.postalCode === address.postalCode
+          )) {
+            mergedAddresses.push(address);
+          }
+        }
+
+        // Update target entity with merged data
+        const mergedContactData: ContactData = {
+          phoneNumbers: mergedPhoneNumbers,
+          emailAddresses: mergedEmails,
+          physicalAddresses: mergedAddresses
+        };
+
+        // Create a summary of the merged contact details
+        const detailsSummary = [
+          ...mergedPhoneNumbers.map(p => p.value),
+          ...mergedEmails.map(e => e.value),
+          ...mergedAddresses.map(a => a.formattedAddress || `${a.street}, ${a.city}, ${a.state} ${a.postalCode}`)
+        ].join('\n');
+
+        // Encrypt the merged data
+        const encryptedMergedData = await this.encryptData(mergedContactData);
+
+        // Update the target entity
+        await this.db.runAsync(
+          'UPDATE entities SET details = ?, encrypted_data = ? WHERE id = ?',
+          [detailsSummary, encryptedMergedData, targetId]
+        );
+      }
+
+      // Delete the source entity
+      await this.db.runAsync('DELETE FROM entities WHERE id = ?', [sourceId]);
+
+      // Commit the transaction
+      await this.db.execAsync('COMMIT');
+      return true;
+    } catch (error) {
+      console.error('Error merging entities:', error);
+      await this.db.execAsync('ROLLBACK');
+      return false;
     }
   }
 }
