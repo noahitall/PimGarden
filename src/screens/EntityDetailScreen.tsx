@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList, Dimensions, TextInput, SafeAreaView, Pressable } from 'react-native';
+import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList, Dimensions, TextInput, SafeAreaView, Pressable, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons, Menu, Dialog, Portal, Modal } from 'react-native-paper';
 // @ts-ignore
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -83,6 +83,8 @@ const EntityDetailScreen: React.FC = () => {
   const [suggestedTags, setSuggestedTags] = useState<Tag[]>([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  const [topTags, setTopTags] = useState<Tag[]>([]);
+  const [loadingTopTags, setLoadingTopTags] = useState(false);
   
   const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
   const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
@@ -112,6 +114,13 @@ const EntityDetailScreen: React.FC = () => {
       loadEntityData();
     }
   }, [route.params?.id]);
+  
+  // Load top tags when tag dialog is opened
+  useEffect(() => {
+    if (tagDialogVisible) {
+      loadTopTags();
+    }
+  }, [tagDialogVisible]);
   
   // Reload entity data when screen comes into focus
   useFocusEffect(
@@ -259,6 +268,23 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
   
+  // Load top tags by usage count
+  const loadTopTags = async () => {
+    try {
+      setLoadingTopTags(true);
+      // Get all tags and sort them by count
+      const allTags = await database.getAllTags();
+      const sortedTags = allTags.sort((a, b) => b.count - a.count);
+      // Take the top 3 tags with count > 0
+      const topThreeTags = sortedTags.filter(tag => tag.count > 0).slice(0, 3);
+      setTopTags(topThreeTags);
+    } catch (error) {
+      console.error('Error loading top tags:', error);
+    } finally {
+      setLoadingTopTags(false);
+    }
+  };
+  
   // Load interaction types for the entity
   const loadInteractionTypes = async (entityId: string) => {
     try {
@@ -277,6 +303,8 @@ const EntityDetailScreen: React.FC = () => {
     if (!text.trim()) {
       setSuggestedTags([]);
       setIsFetchingSuggestions(false);
+      // When input is cleared, we don't show search results 
+      // but we'll show top tags in the suggestions area
       return;
     }
     
@@ -1102,63 +1130,118 @@ const EntityDetailScreen: React.FC = () => {
           <Dialog
             visible={tagDialogVisible}
             onDismiss={() => {
+              Keyboard.dismiss();
               setTagDialogVisible(false);
               setTagInput('');
               setSuggestedTags([]);
             }}
             style={styles.tagDialog}
           >
-            <Dialog.Title>Add Tags</Dialog.Title>
-            <Dialog.Content>
-              <View style={styles.tagInputContainer}>
-                <TextInput
-                  style={styles.tagInput}
-                  placeholder="Enter tag name"
-                  value={tagInput}
-                  onChangeText={handleTagInputChange}
-                  onSubmitEditing={handleSubmitTag}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <IconButton
-                  icon="plus"
-                  size={20}
-                  onPress={handleSubmitTag}
-                  disabled={!tagInput.trim()}
-                />
-              </View>
-              
-              {isFetchingSuggestions ? (
-                <ActivityIndicator size="small" color="#6200ee" style={styles.suggestionsLoading} />
-              ) : suggestedTags.length > 0 ? (
-                <View style={styles.suggestionsContainer}>
-                  <Text style={styles.suggestionsTitle}>Suggestions:</Text>
-                  {suggestedTags.map(tag => (
-                    <TouchableOpacity
-                      key={tag.id}
-                      style={styles.suggestionItem}
-                      onPress={() => handleSelectTag(tag)}
-                    >
-                      <Text>{tag.name}</Text>
-                      <Text style={styles.suggestionCount}>({tag.count})</Text>
-                    </TouchableOpacity>
-                  ))}
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View>
+                <View style={styles.tagDialogHeader}>
+                  <Dialog.Title style={styles.tagDialogTitle}>Add Tags</Dialog.Title>
+                  <IconButton
+                    icon="close"
+                    size={24}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setTagDialogVisible(false);
+                      setTagInput('');
+                      setSuggestedTags([]);
+                    }}
+                    style={styles.closeButton}
+                  />
                 </View>
-              ) : tagInput.trim() ? (
-                <Text style={styles.newTagText}>
-                  Press + to add "{tagInput.trim()}" as a new tag
-                </Text>
-              ) : null}
-            </Dialog.Content>
-            <Dialog.Actions>
-              <Button onPress={() => {
-                setTagDialogVisible(false);
-                setTagInput('');
-                setSuggestedTags([]);
-              }}>
-                Done
-              </Button>
-            </Dialog.Actions>
+                <Dialog.Content style={styles.tagDialogContent}>
+                  <View style={styles.tagInputContainer}>
+                    <TextInput
+                      style={styles.tagInput}
+                      placeholder="Enter tag name"
+                      value={tagInput}
+                      onChangeText={handleTagInputChange}
+                      onSubmitEditing={() => {
+                        Keyboard.dismiss();
+                        handleSubmitTag();
+                      }}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <IconButton
+                      icon="plus"
+                      size={20}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        handleSubmitTag();
+                      }}
+                      disabled={!tagInput.trim()}
+                      style={styles.addTagButton}
+                    />
+                  </View>
+                  
+                  {isFetchingSuggestions ? (
+                    <ActivityIndicator size="small" color="#6200ee" style={styles.suggestionsLoading} />
+                  ) : suggestedTags.length > 0 ? (
+                    <View style={styles.suggestionsContainer}>
+                      <Text style={styles.suggestionsTitle}>Suggestions:</Text>
+                      <ScrollView style={styles.suggestionsScrollView}>
+                        {suggestedTags.map(tag => (
+                          <TouchableOpacity
+                            key={tag.id}
+                            style={styles.suggestionItem}
+                            onPress={() => {
+                              Keyboard.dismiss();
+                              handleSelectTag(tag);
+                            }}
+                          >
+                            <Text style={styles.suggestionText}>{tag.name}</Text>
+                            <Text style={styles.suggestionCount}>({tag.count})</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  ) : tagInput.trim() ? (
+                    <Text style={styles.newTagText}>
+                      Press + to add "{tagInput.trim()}" as a new tag
+                    </Text>
+                  ) : topTags.length > 0 ? (
+                    <View style={styles.suggestionsContainer}>
+                      <Text style={styles.suggestionsTitle}>Popular Tags:</Text>
+                      <ScrollView style={styles.suggestionsScrollView}>
+                        {topTags.map(tag => (
+                          <TouchableOpacity
+                            key={tag.id}
+                            style={styles.suggestionItem}
+                            onPress={() => {
+                              Keyboard.dismiss();
+                              handleSelectTag(tag);
+                            }}
+                          >
+                            <Text style={styles.suggestionText}>{tag.name}</Text>
+                            <Text style={styles.suggestionCount}>({tag.count})</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+                </Dialog.Content>
+                <Dialog.Actions style={styles.tagDialogActions}>
+                  <Button 
+                    mode="text" 
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setTagDialogVisible(false);
+                      setTagInput('');
+                      setSuggestedTags([]);
+                    }}
+                    style={styles.doneButton}
+                    labelStyle={styles.doneButtonLabel}
+                  >
+                    Done
+                  </Button>
+                </Dialog.Actions>
+              </View>
+            </TouchableWithoutFeedback>
           </Dialog>
         </Portal>
         
@@ -1565,44 +1648,125 @@ const styles = StyleSheet.create({
   },
   tagDialog: {
     maxHeight: '80%',
+    borderRadius: 14,
+    backgroundColor: 'white',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    overflow: 'hidden',
+  },
+  tagDialogHeader: {
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  tagDialogTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    right: 8,
+    top: 12,
+  },
+  topTagsContainer: {
+    marginBottom: 16,
+  },
+  topTagsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+  },
+  topTagsChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  topTagChip: {
+    margin: 4,
+  },
+  tagDialogContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 0,
   },
   tagInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    marginBottom: 8,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    backgroundColor: '#F9F9F9',
   },
   tagInput: {
     flex: 1,
-    height: 40,
+    height: 48,
+    fontSize: 16,
+  },
+  addTagButton: {
+    margin: 0,
   },
   suggestionsContainer: {
-    marginTop: 8,
+    marginTop: 12,
+    maxHeight: 300,
+  },
+  suggestionsScrollView: {
+    maxHeight: 250,
   },
   suggestionsTitle: {
-    fontWeight: 'bold',
-    marginBottom: 4,
+    fontWeight: '600',
+    marginBottom: 8,
+    fontSize: 15,
+    color: '#333',
   },
   suggestionItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#F0F0F0',
+  },
+  suggestionText: {
+    fontSize: 16,
   },
   suggestionCount: {
-    color: '#666',
+    color: '#757575',
+    fontSize: 15,
   },
   suggestionsLoading: {
-    marginTop: 8,
+    marginTop: 20,
+    marginBottom: 20,
   },
   newTagText: {
-    marginTop: 8,
+    marginTop: 16,
     fontStyle: 'italic',
+    color: '#666',
+    textAlign: 'center',
+    paddingBottom: 16,
+  },
+  tagDialogActions: {
+    justifyContent: 'center',
+    paddingTop: 8,
+    paddingBottom: 16,
+    borderTopWidth: 0,
+  },
+  doneButton: {
+    minWidth: 100,
+    borderRadius: 20,
+  },
+  doneButtonLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
   },
   interactionTypeList: {
     maxHeight: 300,
