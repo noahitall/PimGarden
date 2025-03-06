@@ -31,10 +31,36 @@ const HomeScreen: React.FC = () => {
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('updated');
   const [keepFavoritesFirst, setKeepFavoritesFirst] = useState(true);
+  const [isCompactMode, setIsCompactMode] = useState(false);
   
-  // Calculate number of columns based on screen width
+  // Calculate number of columns based on screen width and view mode
   const screenWidth = Dimensions.get('window').width;
-  const numColumns = useMemo(() => Math.max(2, Math.floor(screenWidth / 200)), [screenWidth]);
+  const numColumns = useMemo(() => {
+    if (isCompactMode) {
+      // For compact mode, show more columns (3-4 depending on screen width)
+      return Math.max(3, Math.floor(screenWidth / 140));
+    }
+    // For regular mode, show 2-3 columns depending on screen width
+    return Math.max(2, Math.floor(screenWidth / 200));
+  }, [screenWidth, isCompactMode]);
+
+  // Calculate column width percentage based on number of columns
+  const columnWidth = useMemo(() => {
+    switch (numColumns) {
+      case 2: return '50%';
+      case 3: return '33.33%';
+      case 4: return '25%';
+      default: return `${Math.floor(100 / numColumns)}%`;
+    }
+  }, [numColumns]);
+  
+  // Dynamic styles based on screen width and view mode
+  const dynamicStyles = useMemo(() => ({
+    compactCardContainer: {
+      maxWidth: 100 / numColumns + '%',
+      padding: 2,
+    }
+  }), [numColumns]);
   
   // Load user preferences
   useEffect(() => {
@@ -47,6 +73,11 @@ const HomeScreen: React.FC = () => {
         if (savedKeepFavoritesFirst !== null) {
           setKeepFavoritesFirst(savedKeepFavoritesFirst === 'true');
         }
+
+        const savedViewMode = await AsyncStorage.getItem('isCompactMode');
+        if (savedViewMode !== null) {
+          setIsCompactMode(savedViewMode === 'true');
+        }
       } catch (error) {
         console.error('Error loading preferences:', error);
       }
@@ -55,13 +86,16 @@ const HomeScreen: React.FC = () => {
   }, []);
 
   // Save preferences when they change
-  const savePreferences = async (newSortBy?: SortOption, newKeepFavoritesFirst?: boolean) => {
+  const savePreferences = async (newSortBy?: SortOption, newKeepFavoritesFirst?: boolean, newCompactMode?: boolean) => {
     try {
       if (newSortBy) {
         await AsyncStorage.setItem('sortBy', newSortBy);
       }
       if (newKeepFavoritesFirst !== undefined) {
         await AsyncStorage.setItem('keepFavoritesFirst', String(newKeepFavoritesFirst));
+      }
+      if (newCompactMode !== undefined) {
+        await AsyncStorage.setItem('isCompactMode', String(newCompactMode));
       }
     } catch (error) {
       console.error('Error saving preferences:', error);
@@ -312,12 +346,19 @@ const HomeScreen: React.FC = () => {
   
   // Render entity card
   const renderItem = ({ item }: { item: Entity }) => (
-    <View style={styles.cardContainer}>
+    <View style={[
+      styles.cardContainer,
+      isCompactMode && {
+        width: `${100 / numColumns}%`,
+        padding: 2,
+      }
+    ]}>
       <EntityCard 
         entity={item} 
         onPress={handleCardPress} 
         onLongPress={handleCardLongPress}
         selected={mergeMode && sourceEntityId === item.id}
+        isCompact={isCompactMode}
       />
     </View>
   );
@@ -361,11 +402,9 @@ const HomeScreen: React.FC = () => {
             visible={sortMenuVisible}
             onDismiss={() => setSortMenuVisible(false)}
             anchor={
-              <IconButton
+              <Appbar.Action
                 icon="sort"
-                size={24}
                 onPress={() => setSortMenuVisible(true)}
-                style={styles.sortButton}
               />
             }
           >
@@ -410,6 +449,16 @@ const HomeScreen: React.FC = () => {
                 loadEntities();
               }}
               leadingIcon={keepFavoritesFirst ? 'check' : undefined}
+            />
+            <Menu.Item
+              title="Compact View"
+              onPress={() => {
+                const newValue = !isCompactMode;
+                setIsCompactMode(newValue);
+                savePreferences(undefined, undefined, newValue);
+                setSortMenuVisible(false);
+              }}
+              leadingIcon={isCompactMode ? 'check' : undefined}
             />
           </Menu>
           <Searchbar
@@ -497,12 +546,13 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 4,
     paddingTop: 8,
+    paddingBottom: 80, // Space for FAB
   },
   cardContainer: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    maxWidth: '50%',
+    width: '50%', // Default for regular mode (2 columns)
+    padding: 4,
   },
   fab: {
     position: 'absolute',

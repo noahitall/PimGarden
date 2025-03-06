@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Image, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
-import { Text, Surface, Badge, IconButton, Dialog, Portal, Button, List } from 'react-native-paper';
+import { Text, Surface, Badge, IconButton, Dialog, Portal, Button, List, Avatar } from 'react-native-paper';
 import { Entity } from '../types';
 import { database, InteractionType } from '../database/Database';
 
-// Custom SparkLine component
+// Custom SparkLine component for regular cards
 const SparkLine: React.FC<{ 
   data: number[]; 
   timespan: 'month' | 'year';
@@ -40,9 +40,10 @@ interface EntityCardProps {
   onPress: (id: string) => void;
   onLongPress?: (id: string) => void;
   selected?: boolean;
+  isCompact?: boolean;
 }
 
-const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, selected = false }) => {
+const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, selected = false, isCompact = false }) => {
   const [interactionData, setInteractionData] = useState<number[]>([]);
   const [interactionTimespan, setInteractionTimespan] = useState<'month' | 'year'>('month');
   const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
@@ -159,57 +160,116 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, s
 
   // Return the full entity name
   const getEntityName = () => {
-    // Return the full name without abbreviation
     return entity.name;
   };
 
-  return (
-    <View style={styles.cardWrapper}>
-      <Surface style={[styles.card, { backgroundColor: getTypeColor() }, selected && styles.selectedCard]}>
-        <TouchableOpacity
-          style={styles.touchable}
-          onPress={() => onPress(entity.id)}
-          onLongPress={() => onLongPress && onLongPress(entity.id)}
-          delayLongPress={600}
-          activeOpacity={0.7}
-        >
-          <View style={styles.nameContainer}>
-            <Text style={styles.nameText} numberOfLines={2}>
-              {entity.name}
-            </Text>
-          </View>
-          
-          {/* Card content */}
-          <View style={styles.imageContainer}>
-            <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation(); // Prevent triggering the card's onPress
-                handleInteraction();
-              }}
-            >
-              {entity.image ? (
-                <Image source={{ uri: entity.image }} style={styles.image} />
-              ) : (
-                <View style={styles.imagePlaceholder}>
-                  <Text style={styles.placeholderText}>
-                    {getInitials()}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-          
-          {/* Spark line chart for interaction data */}
-          <View style={styles.sparkLineWrapper}>
-            <View style={styles.timespanIndicator}>
-              <Text style={styles.timespanText}>
-                {interactionTimespan === 'month' ? 'Last 14 days' : 'Last 12 months'}
+  // Render the appropriate card based on isCompact prop
+  const renderCard = () => {
+    if (isCompact) {
+      // COMPACT CARD DESIGN
+      return (
+        <View style={styles.compactWrapper}>
+          <Surface style={[
+            styles.compactCard, 
+            { backgroundColor: getTypeColor() },
+            selected && styles.selectedCard
+          ]}>
+            <View style={styles.compactTouchable}>
+              {/* Left side: Avatar with interaction trigger */}
+              <TouchableOpacity
+                style={styles.compactAvatarContainer}
+                onPress={() => {
+                  // Explicitly set the interaction menu to visible
+                  setInteractionMenuVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
+                {entity.image ? (
+                  <Avatar.Image 
+                    size={36} 
+                    source={{ uri: entity.image }} 
+                  />
+                ) : (
+                  <Avatar.Text 
+                    size={36} 
+                    label={getInitials()} 
+                    color="white"
+                    style={{ backgroundColor: '#9E9E9E' }}
+                  />
+                )}
+              </TouchableOpacity>
+              
+              {/* Center: Name - now takes the rest of the space */}
+              <TouchableOpacity 
+                style={styles.compactContent}
+                onPress={() => onPress(entity.id)}
+                onLongPress={() => onLongPress && onLongPress(entity.id)}
+                delayLongPress={600}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.compactNameText} numberOfLines={1}>
+                  {entity.name}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Surface>
+        </View>
+      );
+    }
+    
+    // REGULAR CARD DESIGN
+    return (
+      <View style={styles.cardWrapper}>
+        <Surface style={[styles.card, { backgroundColor: getTypeColor() }, selected && styles.selectedCard]}>
+          <TouchableOpacity
+            style={styles.touchable}
+            onPress={() => onPress(entity.id)}
+            onLongPress={() => onLongPress && onLongPress(entity.id)}
+            delayLongPress={600}
+            activeOpacity={0.7}
+          >
+            <View style={styles.nameContainer}>
+              <Text style={styles.nameText} numberOfLines={2}>
+                {entity.name}
               </Text>
             </View>
-            <SparkLine data={interactionData} timespan={interactionTimespan} />
-          </View>
-        </TouchableOpacity>
-      </Surface>
+            
+            <View style={styles.imageContainer}>
+              <TouchableOpacity
+                onPress={() => {
+                  setInteractionMenuVisible(true);
+                }}
+              >
+                {entity.image ? (
+                  <Image source={{ uri: entity.image }} style={styles.image} />
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <Text style={styles.placeholderText}>
+                      {getInitials()}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.sparkLineWrapper}>
+              <View style={styles.timespanIndicator}>
+                <Text style={styles.timespanText}>
+                  {interactionTimespan === 'month' ? 'Last 14 days' : 'Last 12 months'}
+                </Text>
+              </View>
+              <SparkLine data={interactionData} timespan={interactionTimespan} />
+            </View>
+          </TouchableOpacity>
+        </Surface>
+      </View>
+    );
+  };
+
+  // Main render with both the card and the portal dialog
+  return (
+    <>
+      {renderCard()}
       
       {/* Interaction Type Selection Dialog */}
       <Portal>
@@ -236,14 +296,16 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity, onPress, onLongPress, s
           </Dialog.Actions>
         </Dialog>
       </Portal>
-    </View>
+    </>
   );
 };
 
 const { width } = Dimensions.get('window');
 const cardWidth = Math.min(width / 2 - 16, 180); // Responsive width with max of 180
+const compactCardWidth = Math.min(width / 3 - 8, 150); // Slightly wider for compact cards
 
 const styles = StyleSheet.create({
+  // Regular card styles
   cardWrapper: {
     margin: 8,
     borderRadius: 16,
@@ -251,95 +313,63 @@ const styles = StyleSheet.create({
   card: {
     width: cardWidth,
     borderRadius: 16,
-    elevation: 3,
+    elevation: 2,
   },
   touchable: {
-    padding: 12,
+    padding: 16,
     minHeight: 200,
     display: 'flex',
     flexDirection: 'column',
-    position: 'relative', // For absolute positioning of spark chart
-    justifyContent: 'space-between', // Distribute space evenly
+    position: 'relative',
+    justifyContent: 'space-between',
   },
   nameContainer: {
-    alignItems: 'center',
     marginBottom: 12,
-    width: '100%',
-    marginTop: 12,
+  },
+  nameText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
   },
   imageContainer: {
     alignItems: 'center',
-    marginBottom: 24, // Increased margin since we removed details
+    marginBottom: 16,
   },
   image: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 2,
-    borderColor: 'white',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   imagePlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#6200ee',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#9E9E9E',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'white',
   },
   placeholderText: {
     color: 'white',
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: 'bold',
   },
-  nameText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    color: '#333',
-    paddingHorizontal: 4,
-    flexShrink: 1,
-    width: '100%',
-  },
-  details: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-  },
-  spacer: {
-    height: 30, // Space for spark chart
+  selectedCard: {
+    borderWidth: 2,
+    borderColor: '#6200ee',
   },
   sparkLineWrapper: {
-    marginTop: 'auto', // Push to bottom
-    height: 40, // Increased height for timespan indicator and chart
-    position: 'relative',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    marginTop: 8,
   },
   sparkLineContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    justifyContent: 'center', // Center the bars
+    justifyContent: 'center',
     height: 20,
   },
   sparkLineBar: {
     width: 3,
     marginHorizontal: 1,
     borderRadius: 1,
-  },
-  dialog: {
-    paddingBottom: 10,
-  },
-  
-  interactionTypeList: {
-    maxHeight: 300,
-  },
-  selectedCard: {
-    borderWidth: 2,
-    borderColor: '#6200ee',
-    borderRadius: 12,
   },
   timespanIndicator: {
     alignItems: 'center',
@@ -348,6 +378,44 @@ const styles = StyleSheet.create({
   timespanText: {
     fontSize: 10,
     color: '#757575',
+  },
+  
+  // Compact card styles
+  compactWrapper: {
+    margin: 4,
+  },
+  compactCard: {
+    height: 48,
+    width: compactCardWidth,
+    borderRadius: 8,
+    elevation: 1,
+  },
+  compactTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 6,
+    height: '100%',
+  },
+  compactAvatarContainer: {
+    marginRight: 8,
+  },
+  compactContent: {
+    flex: 1,
+    height: '100%',
+    justifyContent: 'center',
+  },
+  compactNameText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#333',
+  },
+  
+  // Dialog styles
+  dialog: {
+    maxHeight: '80%',
+  },
+  interactionTypeList: {
+    maxHeight: 300,
   },
 });
 
