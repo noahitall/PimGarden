@@ -837,31 +837,40 @@ export class Database {
           if (!entity.encrypted_data) continue;
           
           try {
-            let contactData;
+            // Try to parse the contact data
+            const encryptedData = entity.encrypted_data;
+            let parsedData;
+            
             try {
-              contactData = JSON.parse(entity.encrypted_data).contactData;
+              parsedData = JSON.parse(encryptedData);
             } catch (e) {
-              continue; // Cannot parse, skip
+              // Skip this entity if we can't parse the data
+              console.error('Error parsing contact data:', e);
+              continue;
             }
             
-            if (!contactData) continue;
+            // We need to directly access phoneNumbers, emailAddresses, etc. since that's how updatePersonContactData stores them
+            const phoneNumbers = parsedData.phoneNumbers || [];
+            const emailAddresses = parsedData.emailAddresses || [];
+            const physicalAddresses = parsedData.physicalAddresses || [];
             
             // Check phone numbers
-            const hasMatchingPhone = contactData.phoneNumbers?.some((phone: any) => 
+            const hasMatchingPhone = phoneNumbers.some((phone: any) => 
               phone.value?.toLowerCase().includes(searchTermLower));
               
             // Check email addresses
-            const hasMatchingEmail = contactData.emailAddresses?.some((email: any) => 
+            const hasMatchingEmail = emailAddresses.some((email: any) => 
               email.value?.toLowerCase().includes(searchTermLower));
               
             // Check physical addresses
-            const hasMatchingAddress = contactData.physicalAddresses?.some((address: any) => {
+            const hasMatchingAddress = physicalAddresses.some((address: any) => {
               return (
                 (address.street && address.street.toLowerCase().includes(searchTermLower)) ||
                 (address.city && address.city.toLowerCase().includes(searchTermLower)) ||
                 (address.state && address.state.toLowerCase().includes(searchTermLower)) ||
                 (address.postalCode && address.postalCode.toLowerCase().includes(searchTermLower)) ||
-                (address.formattedAddress && address.formattedAddress.toLowerCase().includes(searchTermLower))
+                (address.formattedAddress && address.formattedAddress.toLowerCase().includes(searchTermLower)) ||
+                (address.country && address.country.toLowerCase().includes(searchTermLower))
               );
             });
               
@@ -1849,6 +1858,104 @@ export class Database {
         interactionTypesColumns: [],
         interactionsColumns: []
       };
+    }
+  }
+
+  // Update contact data for a person entity
+  async updatePersonContactData(
+    entityId: string,
+    contactData: ContactData
+  ): Promise<boolean> {
+    try {
+      // First get the entity to ensure it exists and is a person
+      const entity = await this.getEntityById(entityId);
+      if (!entity || entity.type !== EntityType.PERSON) {
+        console.error(`Cannot update contact data: entity ${entityId} is not a person or doesn't exist`);
+        return false;
+      }
+      
+      // Update the entity with the new contact data
+      const now = Date.now();
+      
+      // Create a summary for the details field to maintain searchability
+      let detailsSummary = '';
+      
+      // Add phone numbers to summary
+      if (contactData.phoneNumbers && contactData.phoneNumbers.length > 0) {
+        contactData.phoneNumbers.forEach(phone => {
+          detailsSummary += `${phone.label}: ${phone.value}\n`;
+        });
+      }
+      
+      // Add email addresses to summary
+      if (contactData.emailAddresses && contactData.emailAddresses.length > 0) {
+        contactData.emailAddresses.forEach(email => {
+          detailsSummary += `${email.label}: ${email.value}\n`;
+        });
+      }
+      
+      // Add physical addresses to summary
+      if (contactData.physicalAddresses && contactData.physicalAddresses.length > 0) {
+        contactData.physicalAddresses.forEach(address => {
+          detailsSummary += `${address.label}: ${address.street || ''} ${address.city || ''} ${address.state || ''} ${address.postalCode || ''} ${address.country || ''}\n`;
+        });
+      }
+      
+      // Store the contact data in the encrypted_data field
+      const encryptedData = await this.encryptData(contactData);
+      
+      // Update both fields - details and encrypted_data
+      const query = `
+        UPDATE entities 
+        SET updated_at = ?, details = ?, encrypted_data = ?
+        WHERE id = ?
+      `;
+      
+      const result = await this.db.runAsync(query, [
+        now, 
+        detailsSummary.trim() || entity.details, 
+        encryptedData, 
+        entityId
+      ]);
+      
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Error updating person contact data:', error);
+      return false;
+    }
+  }
+  
+  // Get a person entity with its contact data
+  async getPersonWithContactData(entityId: string): Promise<PersonEntity | null> {
+    try {
+      // Get the entity
+      const entity = await this.getEntityById(entityId);
+      if (!entity || entity.type !== EntityType.PERSON) {
+        return null;
+      }
+      
+      // Create a person entity
+      const person: PersonEntity = {
+        ...entity,
+        type: EntityType.PERSON
+      };
+      
+      // Parse the encrypted_data field if it exists
+      if (entity.encrypted_data) {
+        try {
+          // In a real app, you would decrypt the data properly
+          // For this demo, we're just parsing the JSON
+          const contactData = JSON.parse(entity.encrypted_data);
+          person.contactData = contactData;
+        } catch (e) {
+          console.error('Error parsing contact data:', e);
+        }
+      }
+      
+      return person;
+    } catch (error) {
+      console.error('Error getting person with contact data:', error);
+      return null;
     }
   }
 }
