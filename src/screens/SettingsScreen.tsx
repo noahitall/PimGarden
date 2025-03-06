@@ -210,6 +210,29 @@ const SettingsScreen: React.FC = () => {
           </Card.Content>
         </Card>
         
+        {/* Interaction Types Management Card */}
+        <Card style={styles.card}>
+          <Card.Title 
+            title="Interaction Types" 
+            subtitle="Manage custom interaction types" 
+          />
+          <Card.Content>
+            <Text style={styles.sectionDescription}>
+              Create and manage interaction types that can be used when recording interactions.
+              Customize icons, colors, and which entity types they apply to.
+            </Text>
+            
+            <Button 
+              mode="contained"
+              icon="lightning-bolt"
+              onPress={() => navigation.navigate('InteractionTypes')}
+              style={styles.button}
+            >
+              Manage Interaction Types
+            </Button>
+          </Card.Content>
+        </Card>
+        
         {__DEV__ && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Developer Options</Text>

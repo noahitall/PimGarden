@@ -11,6 +11,7 @@ import ContactImportScreen from '../screens/ContactImportScreen';
 import DebugScreen from '../screens/DebugScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import GroupMemberScreen from '../screens/GroupMemberScreen';
+import InteractionTypesScreen from '../screens/InteractionTypesScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -67,6 +68,11 @@ export default function AppNavigator() {
           options={({ route }) => ({ 
             title: `${route.params.groupName} Members` 
           })} 
+        />
+        <Stack.Screen 
+          name="InteractionTypes" 
+          component={InteractionTypesScreen} 
+          options={{ title: 'Interaction Types' }} 
         />
       </Stack.Navigator>
     </NavigationContainer>

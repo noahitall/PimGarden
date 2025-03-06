@@ -78,4 +78,5 @@ export type RootStackParamList = {
   Debug: undefined;
   Settings: undefined;
   GroupMembers: { groupId: string; groupName: string };
+  InteractionTypes: undefined;
 }; 
