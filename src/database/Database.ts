@@ -1145,10 +1145,20 @@ export class Database {
       // If tag doesn't exist, create it
       if (!tag) {
         tagId = await this.generateId();
-        await this.db.runAsync(
-          'INSERT INTO tags (id, name, count) VALUES (?, ?, 1)',
-          [tagId, tagName]
-        );
+        try {
+          // Try with count column (normal schema)
+          await this.db.runAsync(
+            'INSERT INTO tags (id, name, count) VALUES (?, ?, 1)',
+            [tagId, tagName]
+          );
+        } catch (error) {
+          // If that fails, try without count column (older schema)
+          console.log('Falling back to simpler tags schema without count');
+          await this.db.runAsync(
+            'INSERT INTO tags (id, name) VALUES (?, ?)',
+            [tagId, tagName]
+          );
+        }
       } else {
         tagId = tag.id;
         
@@ -1164,11 +1174,16 @@ export class Database {
           return tagId;
         }
         
-        // Increment tag count
-        await this.db.runAsync(
-          'UPDATE tags SET count = count + 1 WHERE id = ?',
-          [tagId]
-        );
+        // Increment tag count if the column exists
+        try {
+          await this.db.runAsync(
+            'UPDATE tags SET count = count + 1 WHERE id = ?',
+            [tagId]
+          );
+        } catch (error) {
+          // Ignore errors if count column doesn't exist
+          console.log('Skipping count increment (column might not exist)');
+        }
       }
       
       // Create entity-tag relationship
@@ -1229,7 +1244,7 @@ export class Database {
   async getEntityTags(entityId: string): Promise<Tag[]> {
     try {
       const tags = await this.db.getAllAsync<Tag>(
-        `SELECT t.* FROM tags t
+        `SELECT t.id, t.name, COALESCE(t.count, 0) as count FROM tags t
          JOIN entity_tags et ON t.id = et.tag_id
          WHERE et.entity_id = ?
          ORDER BY t.name COLLATE NOCASE`,
@@ -1238,27 +1253,56 @@ export class Database {
       
       return tags;
     } catch (error) {
-      console.error('Error getting entity tags:', error);
-      return [];
+      // If the COALESCE approach fails, try without referencing count column
+      try {
+        const tags = await this.db.getAllAsync<Tag>(
+          `SELECT t.id, t.name, 0 as count FROM tags t
+           JOIN entity_tags et ON t.id = et.tag_id
+           WHERE et.entity_id = ?
+           ORDER BY t.name COLLATE NOCASE`,
+          [entityId]
+        );
+        
+        return tags;
+      } catch (fallbackError) {
+        console.error('Error getting entity tags (even with fallback):', fallbackError);
+        return [];
+      }
     }
   }
   
   // Get all tags (for autocomplete)
   async getAllTags(searchTerm?: string): Promise<Tag[]> {
     try {
-      let query = 'SELECT * FROM tags ORDER BY name COLLATE NOCASE';
-      const params: any[] = [];
+      let query, params: any[] = [];
       
       if (searchTerm) {
-        query = 'SELECT * FROM tags WHERE name LIKE ? ORDER BY name COLLATE NOCASE';
+        query = 'SELECT id, name, COALESCE(count, 0) as count FROM tags WHERE name LIKE ? ORDER BY name COLLATE NOCASE';
         params.push(`%${searchTerm}%`);
+      } else {
+        query = 'SELECT id, name, COALESCE(count, 0) as count FROM tags ORDER BY name COLLATE NOCASE';
       }
       
       const tags = await this.db.getAllAsync<Tag>(query, params);
       return tags;
     } catch (error) {
-      console.error('Error getting all tags:', error);
-      return [];
+      // If the COALESCE approach fails, try without referencing count column
+      try {
+        let query, params: any[] = [];
+        
+        if (searchTerm) {
+          query = 'SELECT id, name, 0 as count FROM tags WHERE name LIKE ? ORDER BY name COLLATE NOCASE';
+          params.push(`%${searchTerm}%`);
+        } else {
+          query = 'SELECT id, name, 0 as count FROM tags ORDER BY name COLLATE NOCASE';
+        }
+        
+        const tags = await this.db.getAllAsync<Tag>(query, params);
+        return tags;
+      } catch (fallbackError) {
+        console.error('Error getting all tags (even with fallback):', fallbackError);
+        return [];
+      }
     }
   }
 

@@ -269,42 +269,52 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
   
-  // Search for tags (debounced)
-  const searchTags = useCallback(
-    debounce(async (searchTerm: string) => {
-      if (!searchTerm.trim()) {
-        setSuggestedTags([]);
-        setIsFetchingSuggestions(false);
-        return;
-      }
-      
-      try {
-        setIsFetchingSuggestions(true);
-        const allTags = await database.getAllTags(searchTerm);
-        // Filter out tags that the entity already has
-        const filteredTags = allTags.filter(
-          tag => !tags.some(existingTag => existingTag.id === tag.id)
-        );
-        setSuggestedTags(filteredTags);
-      } catch (error) {
-        console.error('Error searching tags:', error);
-      } finally {
-        setIsFetchingSuggestions(false);
-      }
-    }, 300),
-    [tags]
-  );
-  
   // Handle tag input change
   const handleTagInputChange = (text: string) => {
     setTagInput(text);
-    if (text.trim()) {
-      setIsFetchingSuggestions(true);
-      searchTags(text);
-    } else {
+    
+    // Clear suggestions if text is empty
+    if (!text.trim()) {
       setSuggestedTags([]);
+      setIsFetchingSuggestions(false);
+      return;
     }
+    
+    // Start fetching suggestions
+    setIsFetchingSuggestions(true);
+    
+    // Perform the search with debounce
+    debouncedSearchTags(text);
   };
+  
+  // Debounced search function
+  const debouncedSearchTags = debounce(async (searchTerm: string) => {
+    if (!searchTerm.trim()) {
+      setSuggestedTags([]);
+      setIsFetchingSuggestions(false);
+      return;
+    }
+    
+    try {
+      const allTags = await database.getAllTags(searchTerm);
+      // Filter out tags that the entity already has
+      const filteredTags = allTags.filter(
+        tag => !tags.some(existingTag => existingTag.id === tag.id)
+      );
+      setSuggestedTags(filteredTags);
+    } catch (error) {
+      console.error('Error searching tags:', error);
+    } finally {
+      setIsFetchingSuggestions(false);
+    }
+  }, 300);
+  
+  // Cleanup debounced function on unmount
+  useEffect(() => {
+    return () => {
+      debouncedSearchTags.cancel();
+    };
+  }, []);
   
   // Add tag to entity
   const handleAddTag = async (tagName: string) => {
@@ -320,9 +330,12 @@ const EntityDetailScreen: React.FC = () => {
       // Clear input
       setTagInput('');
       setSuggestedTags([]);
+      
+      // Close dialog if adding was successful
+      setTagDialogVisible(false);
     } catch (error) {
       console.error('Error adding tag:', error);
-      Alert.alert('Error', 'Failed to add tag');
+      Alert.alert('Error', 'Failed to add tag. Please try again.');
     }
   };
   
@@ -363,9 +376,20 @@ const EntityDetailScreen: React.FC = () => {
   
   // Submit tag from input
   const handleSubmitTag = () => {
-    if (tagInput.trim()) {
-      handleAddTag(tagInput.trim());
+    if (!tagInput.trim() || !entity) return;
+    
+    // Prevent duplicates
+    const tagExists = tags.some(
+      tag => tag.name.toLowerCase() === tagInput.trim().toLowerCase()
+    );
+    
+    if (tagExists) {
+      Alert.alert('Tag exists', 'This entity already has this tag');
+      return;
     }
+    
+    // Add the tag
+    handleAddTag(tagInput.trim());
   };
 
   // Handle interaction button press
