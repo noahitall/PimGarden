@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Alert, Platform } from 'react-native';
 import { Text, Button, Card, Divider, List, ActivityIndicator, TextInput, Chip } from 'react-native-paper';
 import { database, EntityType, InteractionType } from '../database/Database';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import SafeDateTimePicker from '../components/SafeDateTimePicker';
 import { isFeatureEnabledSync } from '../config/FeatureFlags';
 
 const DebugScreen: React.FC = () => {
@@ -277,11 +277,12 @@ const DebugScreen: React.FC = () => {
               </Button>
               
               {showDatePicker && (
-                <DateTimePicker
+                <SafeDateTimePicker
                   value={date}
                   mode="datetime"
                   display="default"
                   onChange={handleDateChange}
+                  onClose={() => setShowDatePicker(false)}
                 />
               )}
             </View>
@@ -428,7 +429,7 @@ const styles = StyleSheet.create({
   },
   addButton: {
     marginTop: 16,
-  }
+  },
 });
 
 export default DebugScreen; 

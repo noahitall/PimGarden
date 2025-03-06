@@ -10,8 +10,9 @@ import { RootStackParamList, Entity, PhoneNumber, EmailAddress, PhysicalAddress 
 import { database, EntityType, InteractionType } from '../database/Database';
 import { debounce } from 'lodash';
 import ContactFieldsSection from '../components/ContactFieldsSection';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import SafeDateTimePicker from '../components/SafeDateTimePicker';
 import GroupMembersSection from '../components/GroupMembersSection';
+import EditInteractionModal from '../components/EditInteractionModal';
 
 // Define the InteractionLog interface
 interface InteractionLog {
@@ -1284,125 +1285,6 @@ const EntityDetailScreen: React.FC = () => {
         onSave={handleSaveInteraction}
       />
     </SafeAreaView>
-  );
-};
-
-// Define the EditInteractionModal component
-const EditInteractionModal = ({
-  visible,
-  onDismiss,
-  interaction,
-  interactionTypes,
-  onSave,
-}: EditInteractionModalProps) => {
-  // Only initialize state when we have an interaction
-  const [selectedDate, setSelectedDate] = useState<Date | null>(
-    interaction ? new Date(interaction.timestamp) : null
-  );
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [selectedType, setSelectedType] = useState<string>(interaction?.type || '');
-  const [typeMenuVisible, setTypeMenuVisible] = useState(false);
-
-  // Update state when interaction changes
-  useEffect(() => {
-    if (interaction) {
-      setSelectedDate(new Date(interaction.timestamp));
-      setSelectedType(interaction.type);
-    }
-  }, [interaction]);
-
-  // Can't render anything meaningful without an interaction
-  if (!interaction) {
-    return null;
-  }
-
-  const handleSave = async () => {
-    if (selectedDate && selectedType && interaction) {
-      await onSave(interaction.id, {
-        timestamp: selectedDate.getTime(),
-        type: selectedType,
-      });
-    }
-  };
-
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  return (
-    <Portal>
-      <Modal visible={visible} onDismiss={onDismiss} contentContainerStyle={styles.modalContainer}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Edit Interaction</Text>
-          
-          <Pressable 
-            style={styles.dateSelector} 
-            onPress={() => setShowDatePicker(true)}
-          >
-            <Text style={styles.fieldLabel}>Date & Time:</Text>
-            <View style={styles.dateDisplay}>
-              <Text>{selectedDate ? formatDate(selectedDate) : 'Select date'}</Text>
-              <MaterialCommunityIcons name="calendar" size={20} color="#6200ee" />
-            </View>
-          </Pressable>
-          
-          {showDatePicker && (
-            <DateTimePicker
-              value={selectedDate || new Date()}
-              mode="datetime"
-              display="default"
-              onChange={(event, selectedDate) => {
-                setShowDatePicker(false);
-                if (selectedDate) setSelectedDate(selectedDate);
-              }}
-            />
-          )}
-          
-          <View style={styles.typeSelector}>
-            <Text style={styles.fieldLabel}>Interaction Type:</Text>
-            <Menu
-              visible={typeMenuVisible}
-              onDismiss={() => setTypeMenuVisible(false)}
-              anchor={
-                <Pressable 
-                  style={styles.typeDisplay} 
-                  onPress={() => setTypeMenuVisible(true)}
-                >
-                  <Text>{selectedType || 'Select type'}</Text>
-                  <MaterialCommunityIcons name="chevron-down" size={20} color="#6200ee" />
-                </Pressable>
-              }
-            >
-              {interactionTypes.map((type) => (
-                <Menu.Item
-                  key={type.id}
-                  onPress={() => {
-                    setSelectedType(type.name);
-                    setTypeMenuVisible(false);
-                  }}
-                  title={type.name}
-                  leadingIcon={props => <List.Icon {...props} icon={type.icon} />}
-                />
-              ))}
-            </Menu>
-          </View>
-          
-          <View style={styles.modalButtons}>
-            <Button mode="outlined" onPress={onDismiss} style={styles.modalButton}>
-              Cancel
-            </Button>
-            <Button 
-              mode="contained" 
-              onPress={handleSave} 
-              style={styles.modalButton}
-              disabled={!selectedDate || !selectedType}
-            >
-              Save
-            </Button>
-          </View>
-        </View>
-      </Modal>
-    </Portal>
   );
 };
 
