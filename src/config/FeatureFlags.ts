@@ -16,14 +16,14 @@ export const FEATURE_FLAGS_STORAGE_KEY = 'contact_manager_feature_flags';
 // Default feature flag configuration
 export const FeatureFlags = {
   // Development features
-  SHOW_DEBUG_BUTTON: false, // Set to true to show the database debug button
+  SHOW_DEBUG_BUTTON: false, // Keep disabled for production builds
   
-  // Feature toggles
+  // Feature toggles - enable stable features for production
   ENABLE_MERGE_FEATURE: true,
   ENABLE_CONTACT_IMPORT: true,
   
-  // Experimental features
-  ENABLE_YEARLY_SPARKLINES: true,
+  // Experimental features - consider if these are ready for production
+  ENABLE_YEARLY_SPARKLINES: true, // This feature is stable enough for production
 };
 
 // Cache for runtime feature flag values
@@ -65,12 +65,15 @@ export const isFeatureEnabledSync = (featureName: keyof typeof FeatureFlags): bo
     return FeatureFlags[featureName] === true;
   }
   
+  // Make a local reference to avoid null checks
+  const flags = runtimeFeatureFlags;
+  
   // Always enable all features in development mode if not explicitly disabled
-  if (__DEV__ && runtimeFeatureFlags![featureName] !== false) {
+  if (__DEV__ && flags[featureName] !== false) {
     return true;
   }
   
-  return runtimeFeatureFlags![featureName] === true;
+  return flags[featureName] === true;
 };
 
 // Function to update the runtime feature flags
