@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { StyleSheet, View, ScrollView, Alert, Share, Platform, Clipboard } from 'react-native';
 import { 
   Appbar, 
   List, 
@@ -10,7 +10,11 @@ import {
   Card,
   Dialog,
   Portal,
-  RadioButton
+  RadioButton,
+  TextInput,
+  ActivityIndicator,
+  HelperText,
+  IconButton
 } from 'react-native-paper';
 import Slider from '@react-native-community/slider';
 import { useNavigation } from '@react-navigation/native';
@@ -19,6 +23,11 @@ import { RootStackParamList } from '../types';
 import { FeatureFlags, updateFeatureFlag, FEATURE_FLAGS_STORAGE_KEY, isFeatureEnabledSync } from '../config/FeatureFlags';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { database, AppSettings } from '../database/Database';
+import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
+import { generatePassphrase, isValidPassphrase as validatePassphraseFormat } from '../utils/WordDictionary';
+import { debounce } from 'lodash';
+import { format } from 'date-fns';
 
 type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -31,12 +40,57 @@ const SettingsScreen: React.FC = () => {
   const [resetDataDialogVisible, setResetDataDialogVisible] = useState(false);
   const [resetDataConfirmDialogVisible, setResetDataConfirmDialogVisible] = useState(false);
   
+  // Regenerate defaults dialog state
+  const [regeneratingDefaults, setRegeneratingDefaults] = useState(false);
+  const [regenerateSuccessDialogVisible, setRegenerateSuccessDialogVisible] = useState(false);
+  
+  // Backup and restore state
+  const [backupDialogVisible, setBackupDialogVisible] = useState(false);
+  const [restoreDialogVisible, setRestoreDialogVisible] = useState(false);
+  const [passphrase, setPassphrase] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [backupFilePath, setBackupFilePath] = useState<string | null>(null);
+  const [selectedBackupFile, setSelectedBackupFile] = useState<string | null>(null);
+  const [restorePassphrase, setRestorePassphrase] = useState('');
+  const [showPassphrase, setShowPassphrase] = useState(false);
+  const [showRestorePassphrase, setShowRestorePassphrase] = useState(false);
+  const [generatedPassphrase, setGeneratedPassphrase] = useState('');
+  const [isPassphraseValid, setIsPassphraseValid] = useState(false);
+  const [isRestorePassphraseValid, setIsRestorePassphraseValid] = useState(false);
+  
   // Interaction score settings
   const [scoreSettings, setScoreSettings] = useState<AppSettings>({
     decayFactor: 0,
     decayType: 'linear'
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  
+  // Create debounced validation functions
+  const debouncedValidatePassphrase = useCallback(
+    debounce((text: string, generated: string) => {
+      setIsPassphraseValid(text === generated);
+    }, 300),
+    []
+  );
+  
+  const debouncedValidateRestorePassphrase = useCallback(
+    debounce((text: string) => {
+      setIsRestorePassphraseValid(validatePassphraseFormat(text));
+    }, 300),
+    []
+  );
+  
+  // Handle passphrase input changes with debounce
+  const handlePassphraseChange = (text: string) => {
+    setPassphrase(text);
+    debouncedValidatePassphrase(text, generatedPassphrase);
+  };
+  
+  // Handle restore passphrase input changes with debounce
+  const handleRestorePassphraseChange = (text: string) => {
+    setRestorePassphrase(text);
+    debouncedValidateRestorePassphrase(text);
+  };
   
   // Load saved feature flags and score settings on mount
   useEffect(() => {
@@ -148,9 +202,375 @@ const SettingsScreen: React.FC = () => {
     }
   };
   
+  // Handle regenerating default tags and interaction types
+  const handleRegenerateDefaults = async () => {
+    try {
+      setRegeneratingDefaults(true);
+      await database.regenerateDefaultTagsAndInteractions();
+      // Show success dialog
+      setRegenerateSuccessDialogVisible(true);
+    } catch (error) {
+      console.error('Error regenerating defaults:', error);
+      Alert.alert('Error', 'Failed to regenerate default tags and interactions.');
+    } finally {
+      setRegeneratingDefaults(false);
+    }
+  };
+  
+  // Show backup dialog and generate initial passphrase
+  const showBackupDialog = () => {
+    const newPassphrase = generatePassphrase();
+    setGeneratedPassphrase(newPassphrase);
+    setPassphrase('');
+    setIsPassphraseValid(false);
+    setShowPassphrase(false);
+    setBackupDialogVisible(true);
+  };
+  
+  // Show restore dialog
+  const showRestoreDialog = () => {
+    setSelectedBackupFile(null);
+    setRestorePassphrase('');
+    setIsRestorePassphraseValid(false);
+    setShowRestorePassphrase(false);
+    setRestoreDialogVisible(true);
+  };
+
+  // Validate 6-word passphrase format
+  const isValidPassphrase = (phrase: string): boolean => {
+    return validatePassphraseFormat(phrase);
+  };
+
+  // Generate a new passphrase for export
+  const handleGeneratePassphrase = () => {
+    const newPassphrase = generatePassphrase();
+    setGeneratedPassphrase(newPassphrase);
+    setPassphrase('');
+    setIsPassphraseValid(false);
+  };
+
+  // Check if user has correctly typed in the passphrase
+  const isPassphraseMatching = (): boolean => {
+    return passphrase === generatedPassphrase;
+  };
+
+  // Share backup file
+  const shareBackupFile = async (filePath: string, filename: string): Promise<boolean> => {
+    try {
+      if (Platform.OS === 'web') {
+        // Web platform handling
+        Alert.alert(
+          'Backup Ready',
+          'Your encrypted backup has been created. On web platform, please manually download the file.'
+        );
+        return true;
+      } else {
+        // Native platform sharing
+        const result = await Share.share({
+          title: 'Contact Manager Backup',
+          message: 'Please keep this backup file secure. You will need your passphrase to restore it.',
+          url: Platform.OS === 'ios' ? filePath : `file://${filePath}`,
+        });
+        
+        // Check if user completed the sharing action
+        if (result.action === Share.sharedAction) {
+          return true;
+        } else if (result.action === Share.dismissedAction) {
+          // User dismissed the share sheet without sharing
+          console.log('Share dismissed by user');
+          return false;
+        }
+        return false;
+      }
+    } catch (error: any) {
+      console.error('Sharing error:', error);
+      Alert.alert(
+        'Sharing Error',
+        error.message || 'Failed to share backup file.'
+      );
+      return false;
+    }
+  };
+  
+  // Export data as encrypted backup
+  const handleExportData = async () => {
+    if (!isValidPassphrase(passphrase)) {
+      Alert.alert('Error', 'Please enter a valid passphrase (at least 8 characters)');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      // Show a message about photo inclusion
+      Alert.alert(
+        'Photo Inclusion',
+        'This backup will include all contact photos and uploaded images. This may increase the backup file size significantly.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => setIsProcessing(false) },
+          { 
+            text: 'Continue', 
+            onPress: async () => {
+              try {
+                const data = await database.exportEncryptedData(passphrase);
+                
+                // Generate a filename with the date
+                const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
+                const filename = `contact_manager_backup_${timestamp}.cmb`;
+                
+                // Save to temporary file
+                const tempDir = FileSystem.cacheDirectory + 'backups/';
+                const dirInfo = await FileSystem.getInfoAsync(tempDir);
+                if (!dirInfo.exists) {
+                  await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
+                }
+                
+                const filePath = tempDir + filename;
+                await FileSystem.writeAsStringAsync(filePath, data);
+                
+                // Get file size info
+                const fileInfo = await FileSystem.getInfoAsync(filePath);
+                const fileSize = fileInfo.exists && 'size' in fileInfo ? (fileInfo.size / (1024 * 1024)).toFixed(2) : 'unknown';
+                
+                // Share the file
+                const shareSuccess = await shareBackupFile(filePath, filename);
+                
+                // Only show success message if sharing completed successfully
+                if (shareSuccess) {
+                  // Show success message with file size
+                  Alert.alert('Backup Created', `Backup file size: ${fileSize} MB\n\nRemember your passphrase! You will need it to restore this backup.`);
+                }
+                
+                setBackupDialogVisible(false);
+                setPassphrase('');
+              } catch (error: any) {
+                console.error('Export error:', error);
+                Alert.alert('Export Error', error.message || 'Failed to create backup');
+              } finally {
+                setIsProcessing(false);
+              }
+            }
+          }
+        ],
+        { cancelable: true, onDismiss: () => setIsProcessing(false) }
+      );
+    } catch (error: any) {
+      console.error('Error initiating export:', error);
+      Alert.alert('Error', error.message || 'Failed to start export process');
+      setIsProcessing(false);
+    }
+  };
+  
+  // Pick a backup file to restore
+  const pickBackupFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true
+      });
+      
+      if (result.canceled) {
+        return;
+      }
+      
+      // Get the first selected asset
+      const file = result.assets[0];
+      
+      if (file) {
+        setSelectedBackupFile(file.uri);
+      } else {
+        Alert.alert('File Selection Error', 'No file was selected.');
+      }
+    } catch (error: any) {
+      console.error('File picking error:', error);
+      Alert.alert('Error', 'Could not select the backup file.');
+    }
+  };
+  
+  // Import and restore data from backup
+  const handleImportData = async () => {
+    try {
+      if (!selectedBackupFile) {
+        Alert.alert('No File Selected', 'Please select a backup file to restore.');
+        return;
+      }
+      
+      if (!isValidPassphrase(restorePassphrase)) {
+        Alert.alert(
+          'Invalid Passphrase', 
+          'Please enter exactly 6 lowercase words separated by spaces.'
+        );
+        return;
+      }
+      
+      setIsProcessing(true);
+      
+      // Read file content
+      const fileContent = await FileSystem.readAsStringAsync(selectedBackupFile);
+      
+      // Import the encrypted backup
+      await database.importEncryptedData(fileContent, restorePassphrase);
+      
+      // Reset state
+      setRestoreDialogVisible(false);
+      setSelectedBackupFile(null);
+      setRestorePassphrase('');
+      
+      Alert.alert(
+        'Restore Successful', 
+        'Your data has been restored successfully. The app will now restart.',
+        [
+          { 
+            text: 'OK', 
+            onPress: () => {
+              // Restart app or reload data
+              navigation.navigate('Home');
+            } 
+          }
+        ]
+      );
+    } catch (error: any) {
+      console.error('Restore error:', error);
+      Alert.alert('Restore Failed', error.message || 'An unknown error occurred. Check that your passphrase is correct.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  // Export unencrypted data for troubleshooting
+  const handleExportUnencryptedData = async () => {
+    try {
+      // Show a message about photo inclusion
+      Alert.alert(
+        'Photo Inclusion Warning',
+        'This unencrypted backup will include all contact photos and uploaded images. This increases backup file size and exposes private photos. Continue?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Continue', 
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                const data = await database.exportUnencryptedData();
+                
+                // Generate a filename with the date
+                const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
+                const filename = `contact_manager_unencrypted_backup_${timestamp}.json`;
+                
+                // Save to temporary file
+                const tempDir = FileSystem.cacheDirectory + 'backups/';
+                const dirInfo = await FileSystem.getInfoAsync(tempDir);
+                if (!dirInfo.exists) {
+                  await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
+                }
+                
+                const filePath = tempDir + filename;
+                await FileSystem.writeAsStringAsync(filePath, data);
+                
+                // Get file size info
+                const fileInfo = await FileSystem.getInfoAsync(filePath);
+                const fileSize = fileInfo.exists && 'size' in fileInfo ? (fileInfo.size / (1024 * 1024)).toFixed(2) : 'unknown';
+                
+                // Share the file
+                const shareSuccess = await shareBackupFile(filePath, filename);
+                
+                // Only show success message if sharing completed successfully
+                if (shareSuccess) {
+                  // Show success message with file size info
+                  Alert.alert(
+                    'Unencrypted Backup Created',
+                    `Backup file size: ${fileSize} MB\n\nCAUTION: This file contains all your data in plain text format, including photos. Store it securely.`
+                  );
+                }
+              } catch (error: any) {
+                console.error('Unencrypted export error:', error);
+                Alert.alert('Export Error', error.message || 'Failed to create unencrypted backup');
+              }
+            }
+          }
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error initiating unencrypted export:', error);
+      Alert.alert('Error', error.message || 'Failed to start unencrypted export process');
+    }
+  };
+  
+  // Import unencrypted data for troubleshooting
+  const handleImportUnencryptedData = async () => {
+    try {
+      // Pick file
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true
+      });
+      
+      if (result.canceled) {
+        return;
+      }
+      
+      // Get the selected file
+      const file = result.assets[0];
+      
+      if (!file) {
+        Alert.alert('File Selection Error', 'No file was selected.');
+        return;
+      }
+      
+      // Confirm import
+      Alert.alert(
+        'Unencrypted Import Confirmation', 
+        'This will replace ALL your data with the contents of the selected backup file. This cannot be undone. Continue?',
+        [
+          { 
+            text: 'Cancel', 
+            style: 'cancel' 
+          },
+          { 
+            text: 'Import', 
+            style: 'destructive',
+            onPress: async () => {
+              setIsProcessing(true);
+              try {
+                // Read file content
+                const fileContent = await FileSystem.readAsStringAsync(file.uri);
+                
+                // Import the data
+                await database.importUnencryptedData(fileContent);
+                
+                Alert.alert(
+                  'Import Successful', 
+                  'Your data has been restored from the unencrypted backup. The app will now restart.',
+                  [
+                    { 
+                      text: 'OK', 
+                      onPress: () => navigation.navigate('Home')
+                    }
+                  ]
+                );
+              } catch (error: any) {
+                console.error('Unencrypted import error:', error);
+                Alert.alert('Import Failed', error.message || 'An unknown error occurred.');
+              } finally {
+                setIsProcessing(false);
+              }
+            } 
+          }
+        ]
+      );
+    } catch (error: any) {
+      console.error('File selection error:', error);
+      Alert.alert('Error', 'Failed to select or process the backup file.');
+    }
+  };
+  
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.content}>
+      <Appbar.Header>
+        <Appbar.BackAction onPress={() => navigation.goBack()} />
+        <Appbar.Content title="Settings" />
+      </Appbar.Header>
+      
+      <ScrollView style={styles.scrollView}>
         {/* Interaction Score Settings Card */}
         <Card style={styles.card}>
           <Card.Title 
@@ -349,17 +769,91 @@ const SettingsScreen: React.FC = () => {
           </Card.Content>
         </Card>
         
+        {/* Backup and Restore Card */}
+        <Card style={styles.card}>
+          <Card.Title 
+            title="Data Backup & Restore" 
+            subtitle="Securely export and import your data" 
+          />
+          <Card.Content>
+            <Text style={styles.description}>
+              Export your data with encryption or import from a previous backup.
+              A 6-word passphrase is required to protect your data.
+            </Text>
+            
+            <Button 
+              mode="contained" 
+              onPress={showBackupDialog}
+              style={[styles.button, { marginTop: 16 }]}
+              icon="cloud-upload"
+            >
+              Export Encrypted Backup
+            </Button>
+            
+            <Button 
+              mode="outlined" 
+              onPress={showRestoreDialog}
+              style={[styles.button, { marginTop: 8 }]}
+              icon="cloud-download"
+            >
+              Restore From Backup
+            </Button>
+          </Card.Content>
+        </Card>
+        
         {/* Data Management Card - Only visible if ENABLE_DATA_RESET is enabled */}
         {isFeatureEnabledSync('ENABLE_DATA_RESET') && (
           <Card style={styles.card}>
             <Card.Title 
               title="Data Management" 
-              subtitle="Danger zone" 
+              subtitle="Advanced options" 
             />
             <Card.Content>
+              <Text style={styles.description}>
+                These actions permanently affect your data. Please use with caution.
+              </Text>
+              
+              <Button 
+                mode="outlined" 
+                onPress={handleRegenerateDefaults}
+                style={styles.actionButton}
+                loading={regeneratingDefaults}
+                disabled={isProcessing || regeneratingDefaults}
+                icon="refresh"
+              >
+                Regenerate Default Tags & Actions
+              </Button>
+              
+              <Divider style={{marginVertical: 16}} />
+              
+              <Text style={styles.description}>
+                Encrypted backup and restore options:
+              </Text>
+              
+              <Button 
+                mode="contained" 
+                onPress={showBackupDialog}
+                style={[styles.button, { marginTop: 8 }]}
+                icon="cloud-upload"
+                disabled={isProcessing}
+              >
+                Export Encrypted Backup
+              </Button>
+              
+              <Button 
+                mode="outlined" 
+                onPress={showRestoreDialog}
+                style={[styles.button, { marginTop: 8 }]}
+                icon="cloud-download"
+                disabled={isProcessing}
+              >
+                Restore From Backup
+              </Button>
+              
+              <Divider style={{marginVertical: 16}} />
+              
               <Text style={styles.dangerText}>
-                These actions permanently affect your data and cannot be undone.
-                Please use with extreme caution.
+                Danger zone - actions below cannot be undone.
               </Text>
               
               <Button 
@@ -368,12 +862,47 @@ const SettingsScreen: React.FC = () => {
                 style={styles.dangerButton}
                 labelStyle={{color: '#d32f2f'}}
                 icon="delete-forever"
+                disabled={isProcessing}
               >
                 Reset All Data
               </Button>
             </Card.Content>
           </Card>
         )}
+        
+        {/* Troubleshooting Card - Always visible */}
+        <Card style={styles.card}>
+          <Card.Title 
+            title="Troubleshooting" 
+            subtitle="Unencrypted backup options" 
+          />
+          <Card.Content>
+            <Text style={styles.description}>
+              Use these options only for troubleshooting backup and restore issues.
+              <Text style={{fontWeight: 'bold', color: '#d32f2f'}}> Warning: Data is not encrypted!</Text>
+            </Text>
+            
+            <Button 
+              mode="outlined" 
+              onPress={handleExportUnencryptedData}
+              style={[styles.button, { marginTop: 8 }]}
+              icon="file-export"
+              disabled={isProcessing}
+            >
+              Export Unencrypted Backup
+            </Button>
+            
+            <Button 
+              mode="outlined" 
+              onPress={handleImportUnencryptedData}
+              style={[styles.button, { marginTop: 8 }]}
+              icon="file-import"
+              disabled={isProcessing}
+            >
+              Import Unencrypted Backup
+            </Button>
+          </Card.Content>
+        </Card>
         
         <Card style={styles.card}>
           <Card.Title title="About" />
@@ -458,6 +987,205 @@ const SettingsScreen: React.FC = () => {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+      
+      {/* Regenerate Success Dialog */}
+      <Portal>
+        <Dialog visible={regenerateSuccessDialogVisible} onDismiss={() => setRegenerateSuccessDialogVisible(false)}>
+          <Dialog.Title>Success</Dialog.Title>
+          <Dialog.Content>
+            <Text>Default tags and interaction types have been regenerated successfully.</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setRegenerateSuccessDialogVisible(false)}>OK</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+      
+      {/* Backup Dialog */}
+      <Portal>
+        <Dialog 
+          visible={backupDialogVisible} 
+          onDismiss={() => {
+            if (!isProcessing) {
+              setBackupDialogVisible(false);
+              setPassphrase('');
+              setGeneratedPassphrase('');
+            }
+          }}
+          style={{ maxHeight: '80%' }}
+        >
+          <Dialog.Title>Create Encrypted Backup</Dialog.Title>
+          <Dialog.ScrollArea>
+            <ScrollView>
+              <View style={{ padding: 16 }}>
+                <Text style={styles.dialogText}>
+                  A secure 6-word passphrase has been generated for you. This will be used to encrypt your data.
+                </Text>
+                <Text style={[styles.dialogText, { fontWeight: 'bold', marginTop: 8, color: '#d32f2f' }]}>
+                  IMPORTANT: Write down this passphrase and keep it safe! You will need it to restore your backup.
+                </Text>
+                
+                <View style={styles.passphraseDisplay}>
+                  <Text style={styles.generatedPassphrase}>{generatedPassphrase}</Text>
+                </View>
+                
+                <Button
+                  mode="outlined"
+                  onPress={handleGeneratePassphrase}
+                  style={[styles.button, { marginVertical: 8 }]}
+                  icon="sync"
+                  disabled={isProcessing}
+                >
+                  Generate New Passphrase
+                </Button>
+                
+                <Text style={[styles.dialogText, { marginTop: 16 }]}>
+                  To confirm you've saved this passphrase, please type it in the field below:
+                </Text>
+                
+                <View style={styles.inputWithButton}>
+                  <TextInput
+                    label="Type the 6-Word Passphrase"
+                    value={passphrase}
+                    onChangeText={handlePassphraseChange}
+                    style={[styles.input, { flex: 1 }]}
+                    autoCapitalize="none"
+                    disabled={isProcessing}
+                    secureTextEntry={!showPassphrase}
+                    placeholder="Type the passphrase shown above"
+                  />
+                  <IconButton
+                    icon={showPassphrase ? "eye-off" : "eye"}
+                    iconColor="#2196F3"
+                    size={24}
+                    onPress={() => setShowPassphrase(!showPassphrase)}
+                    disabled={isProcessing}
+                    style={styles.eyeButton}
+                    accessibilityLabel="Toggle passphrase visibility"
+                  />
+                </View>
+                
+                <HelperText type={isPassphraseValid ? "info" : "error"}>
+                  {isPassphraseValid 
+                    ? "Correct passphrase" 
+                    : "Please type the exact passphrase shown above"}
+                </HelperText>
+              </View>
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions>
+            <Button onPress={() => {
+              if (!isProcessing) {
+                setBackupDialogVisible(false);
+                setPassphrase('');
+                setGeneratedPassphrase('');
+              }
+            }} disabled={isProcessing}>Cancel</Button>
+            <Button 
+              onPress={handleExportData} 
+              loading={isProcessing}
+              disabled={isProcessing || !isPassphraseMatching()}
+            >
+              Export
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+      
+      {/* Restore Dialog */}
+      <Portal>
+        <Dialog 
+          visible={restoreDialogVisible} 
+          onDismiss={() => {
+            if (!isProcessing) {
+              setRestoreDialogVisible(false);
+              setSelectedBackupFile(null);
+              setRestorePassphrase('');
+            }
+          }}
+          style={{ maxHeight: '80%' }}
+        >
+          <Dialog.Title>Restore From Backup</Dialog.Title>
+          <Dialog.ScrollArea>
+            <ScrollView>
+              <View style={{ padding: 16 }}>
+                <Text style={styles.dialogText}>
+                  First, select your backup file to restore.
+                </Text>
+                <Text style={[styles.dialogText, { fontWeight: 'bold', color: '#d32f2f', marginTop: 8 }]}>
+                  Warning: This will overwrite all existing data in the app.
+                </Text>
+                
+                <Button 
+                  mode="contained" 
+                  onPress={pickBackupFile}
+                  style={[styles.button, { marginTop: 16 }]}
+                  icon="file-search"
+                  disabled={isProcessing}
+                >
+                  Select Backup File
+                </Button>
+                
+                {selectedBackupFile && (
+                  <>
+                    <Text style={styles.selectedFile}>
+                      Selected: {selectedBackupFile.split('/').pop()}
+                    </Text>
+                    
+                    <Text style={[styles.dialogText, { marginTop: 16, fontWeight: 'bold' }]}>
+                      Enter the 6-word passphrase you used when creating this backup:
+                    </Text>
+                    
+                    <View style={styles.inputWithButton}>
+                      <TextInput
+                        label="Enter Backup Passphrase"
+                        value={restorePassphrase}
+                        onChangeText={handleRestorePassphraseChange}
+                        style={[styles.input, { flex: 1 }]}
+                        autoCapitalize="none"
+                        disabled={isProcessing}
+                        secureTextEntry={!showRestorePassphrase}
+                        placeholder="Enter your 6-word passphrase"
+                      />
+                      <IconButton
+                        icon={showRestorePassphrase ? "eye-off" : "eye"}
+                        iconColor="#2196F3"
+                        size={24}
+                        onPress={() => setShowRestorePassphrase(!showRestorePassphrase)}
+                        disabled={isProcessing}
+                        style={styles.eyeButton}
+                        accessibilityLabel="Toggle passphrase visibility"
+                      />
+                    </View>
+                    
+                    <HelperText type={isRestorePassphraseValid ? "info" : "error"}>
+                      {isRestorePassphraseValid 
+                        ? "Valid passphrase format" 
+                        : "Please enter exactly 6 lowercase words separated by spaces"}
+                    </HelperText>
+                  </>
+                )}
+              </View>
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions>
+            <Button onPress={() => {
+              if (!isProcessing) {
+                setRestoreDialogVisible(false);
+                setSelectedBackupFile(null);
+                setRestorePassphrase('');
+              }
+            }} disabled={isProcessing}>Cancel</Button>
+            <Button 
+              onPress={handleImportData} 
+              loading={isProcessing}
+              disabled={isProcessing || !selectedBackupFile || !isValidPassphrase(restorePassphrase)}
+            >
+              Restore
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 };
@@ -467,7 +1195,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  content: {
+  scrollView: {
     flex: 1,
     padding: 16,
   },
@@ -498,7 +1226,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   dialogText: {
-    marginTop: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
   },
   dialogBulletPoint: {
     marginLeft: 8,
@@ -541,6 +1271,47 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontWeight: 'bold',
     marginBottom: 8,
+  },
+  actionButton: {
+    marginTop: 10,
+    marginBottom: 4,
+    borderColor: '#2196F3',
+  },
+  input: {
+    backgroundColor: 'transparent',
+    marginTop: 8,
+  },
+  selectedFile: {
+    marginTop: 8,
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  description: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
+    color: '#666666',
+  },
+  inputWithButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  eyeButton: {
+    margin: 0,
+  },
+  passphraseDisplay: {
+    backgroundColor: '#f0f0f0',
+    padding: 16,
+    borderRadius: 8,
+    marginVertical: 12,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  generatedPassphrase: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#2196F3',
   },
 });
 

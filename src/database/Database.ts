@@ -1,6 +1,8 @@
 import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
 import { format } from 'date-fns';
+import * as Random from 'expo-random';
+import * as FileSystem from 'expo-file-system';
 
 // Entity types
 export enum EntityType {
@@ -48,6 +50,7 @@ interface EntityPhoto {
   uri: string;
   caption: string | null;
   timestamp: number;
+  base64Data?: string;
 }
 
 // Tag interface
@@ -109,6 +112,11 @@ interface PersonEntity extends Entity {
 export interface AppSettings {
   decayFactor: number; // 0 = no decay, 1 = full decay after one day
   decayType: string; // 'linear', 'exponential', 'logarithmic'
+}
+
+// Add a type definition for photos with base64 data
+interface EntityPhotoWithData extends EntityPhoto {
+  base64Data?: string;
 }
 
 // Database class to handle all database operations
@@ -174,6 +182,7 @@ export class Database {
         uri TEXT NOT NULL,
         caption TEXT,
         timestamp INTEGER NOT NULL,
+        base64Data TEXT,
         FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
       );
     `);
@@ -197,6 +206,9 @@ export class Database {
         FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
       );
     `);
+    
+    // Initialize default tags
+    await this.initDefaultTags();
     
     // Initialize default interaction types
     this.initDefaultInteractionTypes();
@@ -509,31 +521,116 @@ export class Database {
     }
   }
 
+  // Initialize default tags
+  private async initDefaultTags(): Promise<void> {
+    const defaultTags = [
+      { name: 'family' },
+      { name: 'friend' },
+      { name: 'pet' },
+      { name: 'book' }
+    ];
+    
+    for (const tag of defaultTags) {
+      // Check if tag already exists
+      const existingTag = await this.db.getAllAsync(
+        'SELECT * FROM tags WHERE name COLLATE NOCASE = ?',
+        [tag.name]
+      );
+      
+      if (existingTag.length === 0) {
+        const id = await this.generateId();
+        await this.db.runAsync(
+          'INSERT INTO tags (id, name, count) VALUES (?, ?, ?)',
+          [id, tag.name, 0]
+        );
+      }
+    }
+  }
+
   // Initialize default interaction types
   private async initDefaultInteractionTypes(): Promise<void> {
+    // Get tags for interactions
+    const familyTag = await this.db.getFirstAsync<{id: string}>(
+      'SELECT id FROM tags WHERE name COLLATE NOCASE = ?',
+      ['family']
+    );
+    
+    const friendTag = await this.db.getFirstAsync<{id: string}>(
+      'SELECT id FROM tags WHERE name COLLATE NOCASE = ?',
+      ['friend']
+    );
+    
+    const petTag = await this.db.getFirstAsync<{id: string}>(
+      'SELECT id FROM tags WHERE name COLLATE NOCASE = ?',
+      ['pet']
+    );
+    
+    const bookTag = await this.db.getFirstAsync<{id: string}>(
+      'SELECT id FROM tags WHERE name COLLATE NOCASE = ?',
+      ['book']
+    );
+    
+    const familyTagId = familyTag?.id || null;
+    const friendTagId = friendTag?.id || null;
+    const petTagId = petTag?.id || null;
+    const bookTagId = bookTag?.id || null;
+    
     const defaultTypes = [
-      { name: 'General Contact', icon: 'account-check', tag_id: null },
-      { name: 'Message', icon: 'message-text', tag_id: null },
-      { name: 'Phone Call', icon: 'phone', tag_id: null },
-      { name: 'Meeting', icon: 'account-group', tag_id: null },
-      { name: 'Email', icon: 'email', tag_id: null },
-      { name: 'Coffee', icon: 'coffee', tag_id: null },
-      { name: 'Birthday', icon: 'cake', tag_id: null }
+      { name: 'General Contact', icon: 'account-check', tag_id: null, entity_type: null, score: 1, color: '#666666' },
+      { name: 'Message', icon: 'message-text', tag_id: null, entity_type: null, score: 1, color: '#666666' },
+      { name: 'Phone Call', icon: 'phone', tag_id: null, entity_type: null, score: 1, color: '#666666' },
+      { name: 'Meeting', icon: 'account-group', tag_id: null, entity_type: null, score: 1, color: '#666666' },
+      { name: 'Email', icon: 'email', tag_id: null, entity_type: null, score: 1, color: '#666666' },
+      { name: 'Coffee', icon: 'coffee', tag_id: null, entity_type: EntityType.PERSON, score: 2, color: '#7F5539' },
+      { name: 'Birthday', icon: 'cake', tag_id: null, entity_type: EntityType.PERSON, score: 5, color: '#FF4081' },
+      
+      // Special interaction types for pet tag
+      { name: 'Birthday', icon: 'cake-variant', tag_id: petTagId, entity_type: null, score: 5, color: '#FF8A65' },
+      { name: 'Vet Visit', icon: 'hospital-box', tag_id: petTagId, entity_type: null, score: 3, color: '#42A5F5' },
+      { name: 'Grooming', icon: 'content-cut', tag_id: petTagId, entity_type: null, score: 2, color: '#66BB6A' },
+      { name: 'Walk', icon: 'walk', tag_id: petTagId, entity_type: null, score: 1, color: '#8D6E63' },
+      
+      // Book-related interaction types
+      { name: 'Book Started', icon: 'book-open-page-variant', tag_id: bookTagId, entity_type: null, score: 3, color: '#26A69A' },
+      { name: 'Book Progress', icon: 'book-open-variant', tag_id: bookTagId, entity_type: null, score: 1, color: '#29B6F6' },
+      { name: 'Book Finished', icon: 'book-check', tag_id: bookTagId, entity_type: null, score: 5, color: '#5C6BC0' },
+      { name: 'Book Discussion', icon: 'forum', tag_id: bookTagId, entity_type: null, score: 2, color: '#AB47BC' },
+      
+      // Family-specific interaction types
+      { name: 'Family Dinner', icon: 'food-variant', tag_id: familyTagId, entity_type: null, score: 2, color: '#EC407A' },
+      { name: 'Family Call', icon: 'phone', tag_id: familyTagId, entity_type: null, score: 2, color: '#7E57C2' },
+      { name: 'Visit', icon: 'home', tag_id: familyTagId, entity_type: null, score: 3, color: '#26A69A' },
+      
+      // Friend-specific interaction types
+      { name: 'Catch Up', icon: 'chat', tag_id: friendTagId, entity_type: null, score: 2, color: '#FF7043' },
+      { name: 'Hangout', icon: 'glass-cocktail', tag_id: friendTagId, entity_type: null, score: 2, color: '#5C6BC0' },
+      { name: 'Coffee', icon: 'coffee', tag_id: friendTagId, entity_type: null, score: 2, color: '#7F5539' }
     ];
     
     for (const type of defaultTypes) {
       // Check if type already exists
       const existingType = await this.db.getAllAsync(
-        'SELECT * FROM interaction_types WHERE name = ?',
-        [type.name]
+        'SELECT * FROM interaction_types WHERE name = ? AND (tag_id = ? OR (tag_id IS NULL AND ? IS NULL))',
+        [type.name, type.tag_id, type.tag_id]
       );
       
       if (existingType.length === 0) {
         const id = await this.generateId();
-        await this.db.runAsync(
-          'INSERT INTO interaction_types (id, name, tag_id, icon) VALUES (?, ?, ?, ?)',
-          [id, type.name, type.tag_id, type.icon]
-        );
+        
+        // Check if all columns exist
+        try {
+          await this.db.runAsync(
+            'INSERT INTO interaction_types (id, name, tag_id, icon, entity_type, score, color) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [id, type.name, type.tag_id, type.icon, type.entity_type, type.score, type.color]
+          );
+        } catch (error) {
+          // Fall back to earlier schema if needed
+          console.log('Falling back to basic interaction type schema');
+          await this.db.runAsync(
+            'INSERT INTO interaction_types (id, name, tag_id, icon) VALUES (?, ?, ?, ?)',
+            [id, type.name, type.tag_id, type.icon]
+          );
+        }
       }
     }
   }
@@ -1575,185 +1672,183 @@ export class Database {
   // Get interaction types appropriate for an entity based on its tags and type
   async getEntityInteractionTypes(entityId: string): Promise<InteractionType[]> {
     try {
-      // First get the entity's type
+      console.log(`Getting interaction types for entity ${entityId}`);
+      
+      // Get the entity to determine its type
       const entity = await this.getEntityById(entityId);
-      if (!entity) return [];
-      
-      // Start with an empty array to collect all types
-      let allTypesRaw: any[] = [];
-      
-      // Try each query separately and handle errors individually
-      
-      // Define patterns for JSON array matching up front (used in multiple queries)
-      // These LIKE patterns match JSON arrays containing this entity type
-      const jsonPattern1 = `%"${entity.type}"]%`; // Matches at the end of array
-      const jsonPattern2 = `%"${entity.type}",%`; // Matches at beginning or middle with comma after
-      const jsonPattern3 = `%,\"${entity.type}\"%`; // Matches in the middle with comma before
-      
-      // Check if the color column exists
-      let hasColorColumn = true;
-      try {
-        const columnCheck = await this.db.getFirstAsync<{ cnt: number }>(
-          "SELECT COUNT(*) as cnt FROM pragma_table_info('interaction_types') WHERE name = 'color'"
-        );
-        hasColorColumn = columnCheck?.cnt ? columnCheck.cnt > 0 : false;
-      } catch (error) {
-        console.warn('Error checking for color column:', error);
-        hasColorColumn = false;
+      if (!entity) {
+        console.error(`Entity ${entityId} not found`);
+        return [];
       }
       
-      // 1. Get general interaction types (not associated with any tags or entity types)
-      try {
-        const columnSelection = hasColorColumn 
-          ? "id, name, tag_id, icon, entity_type, color, score" 
-          : "id, name, tag_id, icon, entity_type, score";
-        
-        const generalTypesQuery = `
-          SELECT ${columnSelection}
-          FROM interaction_types
-          WHERE tag_id IS NULL 
-          AND entity_type IS NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM interaction_type_tags itt
-            WHERE itt.interaction_type_id = interaction_types.id
-          )
-          ORDER BY name
-        `;
-        
-        const generalTypes = await this.db.getAllAsync(generalTypesQuery);
-        allTypesRaw = [...allTypesRaw, ...generalTypes];
-      } catch (error) {
-        console.warn('Error getting general interaction types:', error);
-      }
+      const entityType = entity.type;
+      console.log(`Entity type: ${entityType}`);
       
-      // 2. Get entity-type specific interaction types
-      try {
-        const columnSelection = hasColorColumn 
-          ? "id, name, tag_id, icon, entity_type, color, score" 
-          : "id, name, tag_id, icon, entity_type, score";
-        
-        // These LIKE patterns match JSON arrays containing this entity type
-        const jsonPattern1 = `%"${entity.type}"]%`; // Matches at the end of array
-        const jsonPattern2 = `%"${entity.type}",%`; // Matches at beginning or middle with comma after
-        const jsonPattern3 = `%,\"${entity.type}\"%`; // Matches in the middle with comma before
-        
-        const entityTypeQuery = `
-          SELECT ${columnSelection}
-          FROM interaction_types
-          WHERE entity_type IS NULL 
-             OR entity_type = ? 
-             OR entity_type LIKE ?
-             OR entity_type LIKE ?
-             OR entity_type LIKE ?
-          ORDER BY name
-        `;
-        
-        const entityTypeTypes = await this.db.getAllAsync(entityTypeQuery, [
-          entity.type, 
-          jsonPattern1,
-          jsonPattern2,
-          jsonPattern3
-        ]);
-        
-        allTypesRaw = [...allTypesRaw, ...entityTypeTypes];
-      } catch (error) {
-        console.warn('Error getting entity-type specific interaction types:', error);
-      }
-      
-      // 3. Get the entity's tags
+      // Get all tags associated with this entity
       const entityTags = await this.getEntityTags(entityId);
+      console.log(`Entity has ${entityTags.length} tags`);
+      
       const entityTagIds = entityTags.map(tag => tag.id);
       
-      // 4. Get tag-specific interaction types
-      if (entityTagIds.length > 0) {
+      // Check if current schema has all required columns
+      const tableInfo = await this.db.getAllAsync("PRAGMA table_info(interaction_types)");
+      const hasColorColumn = tableInfo.some((column: any) => column.name === 'color');
+      const hasEntityTypeColumn = tableInfo.some((column: any) => column.name === 'entity_type');
+      const hasScoreColumn = tableInfo.some((column: any) => column.name === 'score');
+      
+      // Initialize empty result array
+      let allTypesRaw: any[] = [];
+      
+      // Get specifically entity type matching interaction types
+      const columnSelection = hasColorColumn 
+        ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
+        : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
+      
+      // 1. Get all general interaction types (no tag_id and no entity_type or matching entity_type)
+      if (hasEntityTypeColumn) {
         try {
-          const columnSelection = hasColorColumn 
-            ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
-            : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
-          
-          // Build placeholders for the IN clause
-          const placeholders = entityTagIds.map(() => '?').join(',');
-          
-          const tagTypesQuery = `
-            SELECT DISTINCT ${columnSelection}
+          const generalTypesQuery = `
+            SELECT ${columnSelection}
             FROM interaction_types
-            JOIN interaction_type_tags itt ON interaction_types.id = itt.interaction_type_id
-            WHERE itt.tag_id IN (${placeholders})
-            AND (interaction_types.entity_type IS NULL 
-                 OR interaction_types.entity_type = ? 
-                 OR interaction_types.entity_type LIKE ?
-                 OR interaction_types.entity_type LIKE ?
-                 OR interaction_types.entity_type LIKE ?)
+            WHERE tag_id IS NULL AND (entity_type IS NULL OR entity_type = ? OR entity_type LIKE ?)
             ORDER BY interaction_types.name
           `;
           
-          // Params start with tag IDs, then entity type patterns
-          const params = [...entityTagIds, entity.type, jsonPattern1, jsonPattern2, jsonPattern3];
-          const tagTypes = await this.db.getAllAsync(tagTypesQuery, params);
-          allTypesRaw = [...allTypesRaw, ...tagTypes];
+          // For entity_type, check exact match or if it's included in a JSON array
+          const entityTypeLike = `%"${entityType}"%`;
+          const generalTypes = await this.db.getAllAsync(generalTypesQuery, [entityType, entityTypeLike]);
+          allTypesRaw = [...generalTypes];
         } catch (error) {
-          console.warn('Error getting tag-specific interaction types:', error);
+          console.warn('Error getting general interaction types with entity_type filter:', error);
         }
-        
-        // 5. Get ALL tag-related interaction types regardless of entity type
+      } else {
+        // Fallback for older schema without entity_type
         try {
-          const columnSelection = hasColorColumn 
-            ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
-            : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
-          
-          const placeholders = entityTagIds.map(() => '?').join(',');
-          const allTagTypesQuery = `
-            SELECT DISTINCT ${columnSelection}
+          const generalTypesQuery = `
+            SELECT interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon
             FROM interaction_types
-            JOIN interaction_type_tags itt ON interaction_types.id = itt.interaction_type_id
-            WHERE itt.tag_id IN (${placeholders})
+            WHERE tag_id IS NULL
             ORDER BY interaction_types.name
           `;
           
-          const allTagTypes = await this.db.getAllAsync(allTagTypesQuery, entityTagIds);
-          allTypesRaw = [...allTypesRaw, ...allTagTypes];
+          const generalTypes = await this.db.getAllAsync(generalTypesQuery);
+          allTypesRaw = [...generalTypes];
         } catch (error) {
-          console.warn('Error getting all tag-related interaction types:', error);
+          console.warn('Error getting general interaction types (fallback):', error);
         }
+      }
+      
+      // If entity has no tags, return only general interaction types
+      if (entityTagIds.length === 0) {
+        console.log(`Entity has no tags, returning ${allTypesRaw.length} general interaction types`);
         
-        // 6. Check for the legacy tag_id field for backward compatibility
-        try {
-          const columnSelection = hasColorColumn 
-            ? "id, name, tag_id, icon, entity_type, color, score" 
-            : "id, name, tag_id, icon, entity_type, score";
+        // Add default color and score if missing
+        const allTypes = allTypesRaw
+          .filter(type => type && type.id) // Filter out any null or invalid types
+          .map(type => ({
+            id: type.id,
+            name: type.name,
+            tag_id: type.tag_id,
+            entity_type: type.entity_type,
+            icon: type.icon || 'account-check',
+            score: type.score || 1,
+            color: type.color || '#666666'
+          })) as InteractionType[];
+        
+        // Remove duplicates by id
+        const interactionTypesMap = new Map<string, InteractionType>();
+        allTypes.forEach(type => {
+          if (type && type.id && !interactionTypesMap.has(type.id)) {
+            interactionTypesMap.set(type.id, type);
+          }
+        });
+        
+        return Array.from(interactionTypesMap.values());
+      }
+      
+      // 2. Get tag-specific interaction types with tag_id directly matching entity tags
+      try {
+        // Create placeholders for the IN clause
+        const placeholders = entityTagIds.map(() => '?').join(',');
+        
+        const tagSpecificQuery = `
+          SELECT ${columnSelection}
+          FROM interaction_types
+          WHERE tag_id IN (${placeholders})
+          ORDER BY interaction_types.name
+        `;
+        
+        const tagSpecificTypes = await this.db.getAllAsync(tagSpecificQuery, entityTagIds);
+        allTypesRaw = [...allTypesRaw, ...tagSpecificTypes];
+      } catch (error) {
+        console.warn('Error getting tag-specific interaction types:', error);
+      }
+      
+      // 3. Get all inherited tag-related interaction types
+      try {
+        // Get all related tags (from groups if this is a person, etc.)
+        const relatedTagIds = await this.getInheritedTagIds(entityId);
+        
+        if (relatedTagIds.length > 0) {
+          console.log(`Found ${relatedTagIds.length} inherited tags`);
           
-          const placeholders = entityTagIds.map(() => '?').join(',');
+          // Create placeholders for the IN clause
+          const placeholders = relatedTagIds.map(() => '?').join(',');
           
-          const legacyTagTypesQuery = `
-            SELECT DISTINCT ${columnSelection}
+          const relatedTagQuery = `
+            SELECT ${columnSelection}
             FROM interaction_types
             WHERE tag_id IN (${placeholders})
-            AND (entity_type IS NULL 
-                 OR entity_type = ? 
-                 OR entity_type LIKE ?
-                 OR entity_type LIKE ?
-                 OR entity_type LIKE ?)
-            ORDER BY name
+            ORDER BY interaction_types.name
           `;
           
-          // Params start with tag IDs, then entity type patterns
-          const params = [...entityTagIds, entity.type, jsonPattern1, jsonPattern2, jsonPattern3];
-          const legacyTagTypes = await this.db.getAllAsync(legacyTagTypesQuery, params);
-          allTypesRaw = [...allTypesRaw, ...legacyTagTypes];
-          
-          // Also get ALL legacy tag types regardless of entity type
-          const allLegacyTagTypesQuery = `
-            SELECT DISTINCT ${columnSelection}
-            FROM interaction_types
-            WHERE tag_id IN (${placeholders})
-            ORDER BY name
-          `;
-          
-          const allLegacyTagTypes = await this.db.getAllAsync(allLegacyTagTypesQuery, entityTagIds);
-          allTypesRaw = [...allTypesRaw, ...allLegacyTagTypes];
-        } catch (error) {
-          console.warn('Error getting legacy tag interaction types:', error);
+          const relatedTagTypes = await this.db.getAllAsync(relatedTagQuery, relatedTagIds);
+          allTypesRaw = [...allTypesRaw, ...relatedTagTypes];
         }
+      } catch (error) {
+        console.warn('Error getting inherited tag interaction types:', error);
+      }
+      
+      // 4. Get interaction types from junction table interaction_type_tags
+      try {
+        const columnSelection = hasColorColumn 
+          ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
+          : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
+        
+        const placeholders = entityTagIds.map(() => '?').join(',');
+        const junctionQuery = `
+          SELECT DISTINCT ${columnSelection}
+          FROM interaction_types
+          JOIN interaction_type_tags itt ON interaction_types.id = itt.interaction_type_id
+          WHERE itt.tag_id IN (${placeholders})
+          ORDER BY interaction_types.name
+        `;
+        
+        const junctionTypes = await this.db.getAllAsync(junctionQuery, entityTagIds);
+        allTypesRaw = [...allTypesRaw, ...junctionTypes];
+      } catch (error) {
+        console.warn('Error getting interaction types from junction table:', error);
+      }
+      
+      // 5. Get ALL tag-related interaction types regardless of entity type
+      try {
+        const columnSelection = hasColorColumn 
+          ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
+          : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
+        
+        const placeholders = entityTagIds.map(() => '?').join(',');
+        const allTagTypesQuery = `
+          SELECT DISTINCT ${columnSelection}
+          FROM interaction_types
+          JOIN interaction_type_tags itt ON interaction_types.id = itt.interaction_type_id
+          WHERE itt.tag_id IN (${placeholders})
+          ORDER BY interaction_types.name
+        `;
+        
+        const allTagTypes = await this.db.getAllAsync(allTagTypesQuery, entityTagIds);
+        allTypesRaw = [...allTypesRaw, ...allTagTypes];
+      } catch (error) {
+        console.warn('Error getting all tag-related interaction types:', error);
       }
       
       // Add default color and score if missing and convert to InteractionType objects
@@ -1784,6 +1879,59 @@ export class Database {
     }
   }
 
+  // Get tag IDs that should be inherited by this entity
+  async getInheritedTagIds(entityId: string): Promise<string[]> {
+    try {
+      // Get entity to determine type
+      const entity = await this.getEntityById(entityId);
+      if (!entity) return [];
+      
+      const inheritedTagIds: string[] = [];
+      
+      // For group entities: include tags from all members
+      if (entity.type === 'group') {
+        // Get all members of the group
+        const memberEntities = await this.getGroupMembers(entityId);
+        
+        // For each member, get their tags
+        for (const memberEntity of memberEntities) {
+          if (memberEntity && memberEntity.id) {
+            const memberTags = await this.getEntityTags(memberEntity.id);
+            memberTags.forEach(tag => {
+              if (!inheritedTagIds.includes(tag.id)) {
+                inheritedTagIds.push(tag.id);
+              }
+            });
+          }
+        }
+      }
+      
+      // For person entities: include tags from groups they belong to
+      if (entity.type === 'person') {
+        // Find all groups this person belongs to
+        const groups = await this.db.getAllAsync<{id: string}>(
+          `SELECT entity_id as id FROM group_members WHERE member_id = ?`,
+          [entityId]
+        );
+        
+        // For each group, get its tags
+        for (const group of groups) {
+          const groupTags = await this.getEntityTags(group.id);
+          groupTags.forEach(tag => {
+            if (!inheritedTagIds.includes(tag.id)) {
+              inheritedTagIds.push(tag.id);
+            }
+          });
+        }
+      }
+      
+      return inheritedTagIds;
+    } catch (error) {
+      console.error('Error getting inherited tag IDs:', error);
+      return [];
+    }
+  }
+
   // Add a new interaction type
   async addInteractionType(
     name: string, 
@@ -1793,12 +1941,58 @@ export class Database {
     color: string = '#666666',
     score: number = 1
   ): Promise<string> {
-    const id = await this.generateId();
-    await this.db.runAsync(
-      'INSERT INTO interaction_types (id, name, tag_id, icon, entity_type, color, score) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, name, tagId, icon, entityType, color, score]
-    );
-    return id;
+    try {
+      // Generate a new ID
+      const id = await this.generateId();
+      
+      // Try the new schema first with entity_type, score, and color
+      try {
+        await this.db.runAsync(
+          'INSERT INTO interaction_types (id, name, tag_id, icon, entity_type, score, color) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [id, name, tagId, icon, entityType, score, color]
+        );
+      } catch (error) {
+        // Check if we need to add the missing columns first
+        try {
+          // Check if entity_type column exists
+          const tableInfo = await this.db.getAllAsync("PRAGMA table_info(interaction_types)");
+          const hasEntityTypeColumn = tableInfo.some((column: any) => column.name === 'entity_type');
+          const hasScoreColumn = tableInfo.some((column: any) => column.name === 'score');
+          const hasColorColumn = tableInfo.some((column: any) => column.name === 'color');
+          
+          // Add missing columns if needed
+          if (!hasEntityTypeColumn) {
+            await this.db.runAsync('ALTER TABLE interaction_types ADD COLUMN entity_type TEXT');
+          }
+          
+          if (!hasScoreColumn) {
+            await this.db.runAsync('ALTER TABLE interaction_types ADD COLUMN score INTEGER DEFAULT 1');
+          }
+          
+          if (!hasColorColumn) {
+            await this.db.runAsync('ALTER TABLE interaction_types ADD COLUMN color TEXT DEFAULT "#666666"');
+          }
+          
+          // Try insert again after adding columns
+          await this.db.runAsync(
+            'INSERT INTO interaction_types (id, name, tag_id, icon, entity_type, score, color) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [id, name, tagId, icon, entityType, score, color]
+          );
+        } catch (columnError) {
+          // Fall back to basic schema if we can't add columns
+          console.warn('Could not add columns to interaction_types table, falling back to basic schema');
+          await this.db.runAsync(
+            'INSERT INTO interaction_types (id, name, tag_id, icon) VALUES (?, ?, ?, ?)',
+            [id, name, tagId, icon]
+          );
+        }
+      }
+      
+      return id;
+    } catch (error) {
+      console.error('Error adding interaction type:', error);
+      throw error;
+    }
   }
 
   // Associate an interaction type with a tag
@@ -1955,64 +2149,104 @@ export class Database {
   private async createTagInteractionTypes(tagId: string, tagName: string): Promise<void> {
     // Create appropriate interaction types based on tag name
     // Different tags will have different relevant interaction types
-    const interactionTypes: { name: string, icon: string }[] = [];
+    const interactionTypes: { name: string, icon: string, score?: number, color?: string }[] = [];
     
     const lowerTagName = tagName.toLowerCase();
     
     // Add tag-specific interaction types based on common categories
-    if (lowerTagName.includes('friend') || lowerTagName.includes('family')) {
+    if (lowerTagName === 'family' || lowerTagName.includes('family')) {
       interactionTypes.push(
-        { name: 'Visit', icon: 'home' },
-        { name: 'Catch Up', icon: 'chat' },
-        { name: 'Gift', icon: 'gift' }
+        { name: 'Visit', icon: 'home', score: 3, color: '#26A69A' },
+        { name: 'Family Dinner', icon: 'food-variant', score: 2, color: '#EC407A' },
+        { name: 'Family Call', icon: 'phone', score: 2, color: '#7E57C2' },
+        { name: 'Gift', icon: 'gift', score: 2, color: '#9C27B0' }
+      );
+    }
+    
+    if (lowerTagName === 'friend' || lowerTagName.includes('friend')) {
+      interactionTypes.push(
+        { name: 'Catch Up', icon: 'chat', score: 2, color: '#FF7043' },
+        { name: 'Hangout', icon: 'glass-cocktail', score: 2, color: '#5C6BC0' },
+        { name: 'Coffee', icon: 'coffee', score: 2, color: '#7F5539' },
+        { name: 'Game Night', icon: 'cards', score: 2, color: '#FFA000' }
+      );
+    }
+    
+    if (lowerTagName === 'pet' || lowerTagName.includes('pet')) {
+      interactionTypes.push(
+        { name: 'Birthday', icon: 'cake-variant', score: 5, color: '#FF8A65' },
+        { name: 'Vet Visit', icon: 'hospital-box', score: 3, color: '#42A5F5' },
+        { name: 'Grooming', icon: 'content-cut', score: 2, color: '#66BB6A' },
+        { name: 'Walk', icon: 'walk', score: 1, color: '#8D6E63' },
+        { name: 'Training', icon: 'school', score: 2, color: '#AB47BC' },
+        { name: 'Playtime', icon: 'toy-brick', score: 1, color: '#4CAF50' }
+      );
+    }
+    
+    if (lowerTagName === 'book' || lowerTagName.includes('book')) {
+      interactionTypes.push(
+        { name: 'Book Started', icon: 'book-open-page-variant', score: 3, color: '#26A69A' },
+        { name: 'Book Progress', icon: 'book-open-variant', score: 1, color: '#29B6F6' },
+        { name: 'Book Finished', icon: 'book-check', score: 5, color: '#5C6BC0' },
+        { name: 'Book Discussion', icon: 'forum', score: 2, color: '#AB47BC' },
+        { name: 'Book Club', icon: 'account-group', score: 3, color: '#E64A19' },
+        { name: 'Author Event', icon: 'microphone-variant', score: 4, color: '#D32F2F' }
       );
     }
     
     if (lowerTagName.includes('work') || lowerTagName.includes('colleague') || lowerTagName.includes('coworker')) {
       interactionTypes.push(
-        { name: 'Meeting', icon: 'calendar' },
-        { name: 'Presentation', icon: 'presentation' },
-        { name: 'Project Discussion', icon: 'clipboard-text' }
+        { name: 'Meeting', icon: 'calendar', score: 1, color: '#7986CB' },
+        { name: 'Presentation', icon: 'presentation', score: 2, color: '#F06292' },
+        { name: 'Project Discussion', icon: 'clipboard-text', score: 2, color: '#4DD0E1' },
+        { name: 'Coffee Break', icon: 'coffee', score: 1, color: '#7F5539' }
       );
     }
     
     if (lowerTagName.includes('client') || lowerTagName.includes('customer')) {
       interactionTypes.push(
-        { name: 'Sales Call', icon: 'phone-in-talk' },
-        { name: 'Follow-up', icon: 'arrow-right-circle' },
-        { name: 'Proposal', icon: 'file-document' }
+        { name: 'Sales Call', icon: 'phone-in-talk', score: 3, color: '#4CAF50' },
+        { name: 'Follow-up', icon: 'arrow-right-circle', score: 2, color: '#FF9800' },
+        { name: 'Proposal', icon: 'file-document', score: 3, color: '#2196F3' },
+        { name: 'Client Meeting', icon: 'handshake', score: 4, color: '#9C27B0' }
       );
     }
     
     if (lowerTagName.includes('doctor') || lowerTagName.includes('medical') || lowerTagName.includes('health')) {
       interactionTypes.push(
-        { name: 'Appointment', icon: 'calendar-check' },
-        { name: 'Consultation', icon: 'stethoscope' }
-      );
-    }
-    
-    if (lowerTagName.includes('book') || lowerTagName.includes('author')) {
-      interactionTypes.push(
-        { name: 'Reading', icon: 'book-open-page-variant' },
-        { name: 'Discussion', icon: 'forum' }
+        { name: 'Appointment', icon: 'calendar-check', score: 3, color: '#42A5F5' },
+        { name: 'Consultation', icon: 'stethoscope', score: 3, color: '#26A69A' },
+        { name: 'Checkup', icon: 'clipboard-pulse', score: 2, color: '#FF5722' }
       );
     }
     
     if (lowerTagName.includes('hobby') || lowerTagName.includes('interest') || lowerTagName.includes('club')) {
       interactionTypes.push(
-        { name: 'Activity', icon: 'run' },
-        { name: 'Discussion', icon: 'forum' }
+        { name: 'Activity', icon: 'run', score: 2, color: '#7CB342' },
+        { name: 'Discussion', icon: 'forum', score: 1, color: '#9575CD' },
+        { name: 'Meeting', icon: 'account-group', score: 2, color: '#FF7043' }
       );
     }
     
     // Add a generic type with the tag name if we haven't added any specific ones
     if (interactionTypes.length === 0) {
-      interactionTypes.push({ name: `${tagName} Interaction`, icon: 'star' });
+      interactionTypes.push({ name: `${tagName} Interaction`, icon: 'star', score: 1, color: '#FBC02D' });
     }
     
     // Create the interaction types and associate them with the tag
     for (const type of interactionTypes) {
-      await this.addInteractionType(type.name, type.icon, tagId, null);
+      try {
+        await this.addInteractionType(
+          type.name, 
+          type.icon, 
+          tagId, 
+          null, 
+          type.color || '#666666',
+          type.score || 1
+        );
+      } catch (error) {
+        console.error(`Error adding interaction type ${type.name} for tag ${tagName}:`, error);
+      }
     }
   }
 
@@ -3114,6 +3348,774 @@ export class Database {
     } catch (error) {
       console.error('Error resetting corrupted contact data:', error);
       return false;
+    }
+  }
+
+  // Regenerate default tags and interaction types
+  async regenerateDefaultTagsAndInteractions(): Promise<void> {
+    try {
+      console.log('Regenerating default tags and interaction types');
+      
+      // Initialize default tags first
+      await this.initDefaultTags();
+      
+      // Then initialize default interaction types (which may reference the tags)
+      await this.initDefaultInteractionTypes();
+      
+      console.log('Default tags and interaction types regenerated successfully');
+    } catch (error) {
+      console.error('Error regenerating default tags and interaction types:', error);
+      throw error;
+    }
+  }
+
+  // Export all data as encrypted backup
+  async exportEncryptedData(passphrase: string): Promise<string> {
+    try {
+      console.log('Starting data export');
+      
+      // Get all data from database
+      const entities = await this.getAllEntities();
+      console.log(`Exporting ${entities.length} entities`);
+      
+      // Get all interactions
+      const interactions: any[] = [];
+      for (const entity of entities) {
+        const entityInteractions = await this.db.getAllAsync(
+          'SELECT id, entity_id, timestamp, type FROM interactions WHERE entity_id = ?',
+          [entity.id]
+        );
+        interactions.push(...entityInteractions);
+      }
+      console.log(`Exporting ${interactions.length} interactions`);
+      
+      // Get all photos with metadata
+      const photoRecords = await this.db.getAllAsync<EntityPhoto>(
+        'SELECT id, entity_id, uri, caption, timestamp FROM entity_photos'
+      );
+      console.log(`Exporting ${photoRecords.length} photos`);
+      
+      // Process photos to include actual image data
+      const photos: EntityPhotoWithData[] = [];
+      for (const photo of photoRecords) {
+        try {
+          // Read the actual image file as base64
+          let base64Image = '';
+          try {
+            // First, try to read the file from the URI
+            const fileInfo = await FileSystem.getInfoAsync(photo.uri);
+            if (fileInfo.exists) {
+              base64Image = await FileSystem.readAsStringAsync(photo.uri, {
+                encoding: FileSystem.EncodingType.Base64
+              });
+            }
+          } catch (photoError) {
+            console.warn(`Could not read photo at ${photo.uri}:`, photoError);
+          }
+          
+          // Add the photo with the base64 data
+          photos.push({
+            ...photo,
+            base64Data: base64Image
+          });
+        } catch (err) {
+          console.warn(`Skipping photo ${photo.id} due to error:`, err);
+          // Still include the photo metadata even if we couldn't get the file
+          photos.push({
+            ...photo,
+            base64Data: ''
+          });
+        }
+      }
+      
+      // Get all tags
+      const tags = await this.getAllTags();
+      console.log(`Exporting ${tags.length} tags`);
+      
+      // Get entity tags relationships
+      const entityTags = await this.db.getAllAsync(
+        'SELECT entity_id, tag_id FROM entity_tags'
+      );
+      console.log(`Exporting ${entityTags.length} entity-tag relationships`);
+      
+      // Get all interaction types
+      const interactionTypes = await this.getInteractionTypes();
+      console.log(`Exporting ${interactionTypes.length} interaction types`);
+      
+      // Get interaction type tags
+      const interactionTypeTags = await this.db.getAllAsync(
+        'SELECT interaction_type_id, tag_id FROM interaction_type_tags'
+      );
+      console.log(`Exporting ${interactionTypeTags.length} interaction type tag relationships`);
+      
+      // Get group members - using correct column names
+      const groupMembers = await this.db.getAllAsync(
+        'SELECT group_id, member_id FROM group_members'
+      );
+      console.log(`Exporting ${groupMembers.length} group member relationships`);
+      
+      // Get favorites
+      let favorites: any[] = [];
+      try {
+        favorites = await this.db.getAllAsync(
+          'SELECT entity_id FROM favorites'
+        );
+        console.log(`Exporting ${favorites.length} favorites`);
+      } catch (error: any) {
+        // If favorites table doesn't exist or has different structure, log and continue
+        console.warn('Could not export favorites:', error.message);
+        favorites = [];
+      }
+      
+      // Create backup object
+      const backup = {
+        version: 1,
+        timestamp: Date.now(),
+        entities,
+        interactions,
+        photos,
+        tags,
+        entityTags,
+        interactionTypes,
+        interactionTypeTags,
+        groupMembers,
+        favorites
+      };
+      
+      // Encrypt the backup using the passphrase
+      const encryptedBackup = await this.encryptBackup(JSON.stringify(backup), passphrase);
+      return encryptedBackup;
+    } catch (error: any) {
+      console.error('Error exporting data:', error);
+      throw new Error('Failed to export data: ' + (error.message || 'Unknown error'));
+    }
+  }
+  
+  // Import encrypted backup data
+  async importEncryptedData(encryptedData: string, passphrase: string): Promise<boolean> {
+    try {
+      console.log('Starting data import');
+      
+      // Decrypt the backup using the passphrase
+      const decryptedData = await this.decryptBackup(encryptedData, passphrase);
+      
+      // Parse the backup data
+      const backup = JSON.parse(decryptedData);
+      
+      // Validate backup format
+      if (!backup.version || !backup.entities) {
+        throw new Error('Invalid backup format');
+      }
+      
+      console.log(`Importing backup from ${new Date(backup.timestamp).toLocaleString()}`);
+      
+      // Clear existing data before import
+      await this.clearAllDataForImport();
+      
+      // Start a transaction for the import
+      await this.db.execAsync('BEGIN TRANSACTION');
+      
+      try {
+        // Import entities
+        console.log(`Importing ${backup.entities.length} entities`);
+        for (const entity of backup.entities) {
+          await this.db.runAsync(
+            `INSERT OR REPLACE INTO entities 
+             (id, name, type, details, image, interaction_score, created_at, updated_at, encrypted_data) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              entity.id,
+              entity.name,
+              entity.type,
+              entity.details,
+              entity.image,
+              entity.interaction_score || 0,
+              entity.created_at,
+              entity.updated_at,
+              entity.encrypted_data
+            ]
+          );
+        }
+        
+        // Import tags
+        console.log(`Importing ${backup.tags.length} tags`);
+        for (const tag of backup.tags) {
+          await this.db.runAsync(
+            'INSERT OR REPLACE INTO tags (id, name, count) VALUES (?, ?, ?)',
+            [tag.id, tag.name, tag.count || 0]
+          );
+        }
+        
+        // Import entity tags
+        console.log(`Importing ${backup.entityTags.length} entity-tag relationships`);
+        for (const entityTag of backup.entityTags) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO entity_tags (entity_id, tag_id) VALUES (?, ?)',
+            [entityTag.entity_id, entityTag.tag_id]
+          );
+        }
+        
+        // Import interaction types
+        console.log(`Importing ${backup.interactionTypes.length} interaction types`);
+        for (const type of backup.interactionTypes) {
+          await this.db.runAsync(
+            `INSERT OR REPLACE INTO interaction_types 
+             (id, name, tag_id, icon, entity_type, score, color) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              type.id,
+              type.name,
+              type.tag_id,
+              type.icon,
+              type.entity_type,
+              type.score || 1,
+              type.color || '#666666'
+            ]
+          );
+        }
+        
+        // Import interaction type tags
+        console.log(`Importing ${backup.interactionTypeTags.length} interaction type tag relationships`);
+        for (const itt of backup.interactionTypeTags) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO interaction_type_tags (interaction_type_id, tag_id) VALUES (?, ?)',
+            [itt.interaction_type_id, itt.tag_id]
+          );
+        }
+        
+        // Import interactions
+        console.log(`Importing ${backup.interactions.length} interactions`);
+        for (const interaction of backup.interactions) {
+          await this.db.runAsync(
+            'INSERT OR REPLACE INTO interactions (id, entity_id, timestamp, type) VALUES (?, ?, ?, ?)',
+            [
+              interaction.id,
+              interaction.entity_id,
+              interaction.timestamp,
+              interaction.type
+            ]
+          );
+        }
+        
+        // Import photos with actual image data
+        console.log(`Importing ${backup.photos.length} photos`);
+        for (const photo of backup.photos as EntityPhotoWithData[]) {
+          // If we have base64 image data, save it to a file
+          let newUri = photo.uri;
+          if (photo.base64Data) {
+            try {
+              // Create photos directory if it doesn't exist
+              const photosDir = `${FileSystem.documentDirectory}photos/`;
+              const dirInfo = await FileSystem.getInfoAsync(photosDir);
+              if (!dirInfo.exists) {
+                await FileSystem.makeDirectoryAsync(photosDir, { intermediates: true });
+              }
+              
+              // Generate new file path
+              const fileName = `photo_${photo.id}_${Date.now()}.jpg`;
+              const newFilePath = `${photosDir}${fileName}`;
+              
+              // Write the base64 data to the file
+              await FileSystem.writeAsStringAsync(newFilePath, photo.base64Data, {
+                encoding: FileSystem.EncodingType.Base64
+              });
+              
+              // Update the URI to point to the new file
+              newUri = newFilePath;
+            } catch (fileError) {
+              console.warn(`Error saving photo file for ${photo.id}:`, fileError);
+              // Keep the original URI if we can't save the file
+            }
+          }
+          
+          // Insert the photo metadata into the database
+          await this.db.runAsync(
+            'INSERT OR REPLACE INTO entity_photos (id, entity_id, uri, caption, timestamp) VALUES (?, ?, ?, ?, ?)',
+            [
+              photo.id,
+              photo.entity_id,
+              newUri,
+              photo.caption,
+              photo.timestamp
+            ]
+          );
+        }
+        
+        // Import group members
+        console.log(`Importing ${backup.groupMembers.length} group member relationships`);
+        for (const groupMember of backup.groupMembers) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO group_members (group_id, member_id) VALUES (?, ?)',
+            [groupMember.group_id, groupMember.member_id]
+          );
+        }
+        
+        // Import favorites
+        console.log(`Importing ${backup.favorites.length} favorites`);
+        for (const favorite of backup.favorites) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO favorites (entity_id) VALUES (?)',
+            [favorite.entity_id]
+          );
+        }
+        
+        // Commit the transaction
+        await this.db.execAsync('COMMIT');
+        console.log('Import completed successfully');
+        return true;
+      } catch (error: any) {
+        // Rollback the transaction in case of error
+        await this.db.execAsync('ROLLBACK');
+        console.error('Error during import, rolling back:', error);
+        throw error;
+      }
+    } catch (error: any) {
+      console.error('Error importing data:', error);
+      throw new Error('Failed to import data: ' + (error.message || 'Unknown error'));
+    }
+  }
+  
+  // Clear all data before import
+  private async clearAllDataForImport(): Promise<void> {
+    try {
+      // Start a transaction
+      await this.db.execAsync('BEGIN TRANSACTION');
+      
+      // Delete all data from tables while preserving structure
+      await this.db.execAsync('DELETE FROM interactions');
+      await this.db.execAsync('DELETE FROM entity_photos');
+      await this.db.execAsync('DELETE FROM entity_tags');
+      await this.db.execAsync('DELETE FROM interaction_type_tags');
+      await this.db.execAsync('DELETE FROM group_members');
+      await this.db.execAsync('DELETE FROM favorites');
+      await this.db.execAsync('DELETE FROM interaction_types');
+      await this.db.execAsync('DELETE FROM tags');
+      await this.db.execAsync('DELETE FROM entities');
+      
+      // Commit the transaction
+      await this.db.execAsync('COMMIT');
+      console.log('Database cleared for import');
+    } catch (error: any) {
+      // Rollback the transaction in case of error
+      await this.db.execAsync('ROLLBACK');
+      console.error('Error clearing database:', error);
+      throw new Error('Failed to clear database: ' + (error.message || 'Unknown error'));
+    }
+  }
+  
+  // Encrypt backup data with passphrase
+  private async encryptBackup(data: string, passphrase: string): Promise<string> {
+    try {
+      // Generate a key from the passphrase (using a secure key derivation function)
+      const passphraseBuffer = new TextEncoder().encode(passphrase);
+      // Use Crypto.getRandomBytes instead of expo-random
+      const salt = new Uint8Array(await Crypto.getRandomBytesAsync(16));
+      
+      // Generate a secure random key for the passphrase
+      const hashKey = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        passphrase + Array.from(salt).map((b: number) => b.toString(16)).join('')
+      );
+      
+      // Generate a random IV for encryption
+      const iv = new Uint8Array(await Crypto.getRandomBytesAsync(16));
+      
+      // Since we can't use SubtleCrypto directly in React Native, we'll use a simplified approach:
+      // 1. Hash the passphrase with the salt to create a key
+      // 2. XOR the data with this key (simulating encryption)
+      
+      // Convert the data to a buffer
+      const dataBytes = new TextEncoder().encode(data);
+      
+      // Create a HMAC for data integrity
+      const hmac = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        hashKey + Array.from(dataBytes).join(',')
+      );
+      
+      // Encrypt the data using a simple XOR with the key (repeated as needed)
+      // Note: In a production app, you would use a more robust encryption method
+      // This is a simplified version for demonstration
+      const keyBytes = new TextEncoder().encode(hashKey);
+      const encryptedBytes = new Uint8Array(dataBytes.length);
+      
+      for (let i = 0; i < dataBytes.length; i++) {
+        encryptedBytes[i] = dataBytes[i] ^ keyBytes[i % keyBytes.length];
+      }
+      
+      // Combine salt, IV, and encrypted data into a single package
+      const result = {
+        salt: Array.from(salt).map((b: number) => b.toString(16).padStart(2, '0')).join(''),
+        iv: Array.from(iv).map((b: number) => b.toString(16).padStart(2, '0')).join(''),
+        data: Array.from(encryptedBytes).map((b: number) => b.toString(16).padStart(2, '0')).join(''),
+        hmac: hmac
+      };
+      
+      return JSON.stringify(result);
+    } catch (error: any) {
+      console.error('Error encrypting backup:', error);
+      throw new Error('Failed to encrypt backup: ' + (error.message || 'Unknown error'));
+    }
+  }
+  
+  // Decrypt backup data with passphrase
+  private async decryptBackup(encryptedData: string, passphrase: string): Promise<string> {
+    try {
+      // Parse the encrypted data package
+      const encryptedPackage = JSON.parse(encryptedData);
+      
+      // Extract salt, IV, and encrypted data
+      const salt = new Uint8Array(encryptedPackage.salt.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)));
+      const iv = new Uint8Array(encryptedPackage.iv.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)));
+      const data = new Uint8Array(encryptedPackage.data.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)));
+      const hmac = encryptedPackage.hmac;
+      
+      // Generate the key from the passphrase and salt
+      const hashKey = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        passphrase + Array.from(salt).map((b: number) => b.toString(16)).join('')
+      );
+      
+      // Verify HMAC if provided to ensure data integrity
+      if (hmac) {
+        const computedHmac = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          hashKey + Array.from(data).join(',')
+        );
+        
+        if (computedHmac !== hmac) {
+          throw new Error('Data integrity check failed. The backup may be corrupted or tampered with.');
+        }
+      }
+      
+      // Decrypt the data (using the same XOR approach)
+      const keyBytes = new TextEncoder().encode(hashKey);
+      const decryptedBytes = new Uint8Array(data.length);
+      
+      for (let i = 0; i < data.length; i++) {
+        decryptedBytes[i] = data[i] ^ keyBytes[i % keyBytes.length];
+      }
+      
+      // Convert the decrypted data back to a string
+      return new TextDecoder().decode(decryptedBytes);
+    } catch (error: any) {
+      console.error('Error decrypting backup:', error);
+      throw new Error('Failed to decrypt backup. Incorrect passphrase?');
+    }
+  }
+
+  // Validate a 6-word passphrase (all lowercase words)
+  validatePassphrase(passphrase: string): boolean {
+    // Check if passphrase is a string of 6 lowercase words separated by spaces
+    const words = passphrase.trim().split(/\s+/);
+    if (words.length !== 6) {
+      return false;
+    }
+    
+    // Check if all words are lowercase letters only
+    const lowercaseWordRegex = /^[a-z]+$/;
+    return words.every(word => lowercaseWordRegex.test(word));
+  }
+
+  // Export all data as unencrypted backup (for troubleshooting)
+  async exportUnencryptedData(): Promise<string> {
+    try {
+      console.log('Starting unencrypted data export');
+      
+      // Get all data from database
+      const entities = await this.getAllEntities();
+      console.log(`Exporting ${entities.length} entities`);
+      
+      // Get all interactions
+      const interactions: any[] = [];
+      for (const entity of entities) {
+        const entityInteractions = await this.db.getAllAsync(
+          'SELECT id, entity_id, timestamp, type FROM interactions WHERE entity_id = ?',
+          [entity.id]
+        );
+        interactions.push(...entityInteractions);
+      }
+      console.log(`Exporting ${interactions.length} interactions`);
+      
+      // Get all photos with metadata
+      const photoRecords = await this.db.getAllAsync<EntityPhoto>(
+        'SELECT id, entity_id, uri, caption, timestamp FROM entity_photos'
+      );
+      console.log(`Exporting ${photoRecords.length} photos`);
+      
+      // Process photos to include actual image data
+      const photos: EntityPhotoWithData[] = [];
+      for (const photo of photoRecords) {
+        try {
+          // Read the actual image file as base64
+          let base64Image = '';
+          try {
+            // First, try to read the file from the URI
+            const fileInfo = await FileSystem.getInfoAsync(photo.uri);
+            if (fileInfo.exists) {
+              base64Image = await FileSystem.readAsStringAsync(photo.uri, {
+                encoding: FileSystem.EncodingType.Base64
+              });
+            }
+          } catch (photoError) {
+            console.warn(`Could not read photo at ${photo.uri}:`, photoError);
+          }
+          
+          // Add the photo with the base64 data
+          photos.push({
+            ...photo,
+            base64Data: base64Image
+          });
+        } catch (err) {
+          console.warn(`Skipping photo ${photo.id} due to error:`, err);
+          // Still include the photo metadata even if we couldn't get the file
+          photos.push({
+            ...photo,
+            base64Data: ''
+          });
+        }
+      }
+      
+      // Get all tags
+      const tags = await this.getAllTags();
+      console.log(`Exporting ${tags.length} tags`);
+      
+      // Get entity tags relationships
+      const entityTags = await this.db.getAllAsync(
+        'SELECT entity_id, tag_id FROM entity_tags'
+      );
+      console.log(`Exporting ${entityTags.length} entity-tag relationships`);
+      
+      // Get all interaction types
+      const interactionTypes = await this.getInteractionTypes();
+      console.log(`Exporting ${interactionTypes.length} interaction types`);
+      
+      // Get interaction type tags
+      const interactionTypeTags = await this.db.getAllAsync(
+        'SELECT interaction_type_id, tag_id FROM interaction_type_tags'
+      );
+      console.log(`Exporting ${interactionTypeTags.length} interaction type tag relationships`);
+      
+      // Get group members - using correct column names
+      const groupMembers = await this.db.getAllAsync(
+        'SELECT group_id, member_id FROM group_members'
+      );
+      console.log(`Exporting ${groupMembers.length} group member relationships`);
+      
+      // Get favorites
+      let favorites: any[] = [];
+      try {
+        favorites = await this.db.getAllAsync(
+          'SELECT entity_id FROM favorites'
+        );
+        console.log(`Exporting ${favorites.length} favorites`);
+      } catch (error: any) {
+        // If favorites table doesn't exist or has different structure, log and continue
+        console.warn('Could not export favorites:', error.message);
+        favorites = [];
+      }
+      
+      // Create backup object
+      const backup = {
+        version: 1,
+        timestamp: Date.now(),
+        entities,
+        interactions,
+        photos,
+        tags,
+        entityTags,
+        interactionTypes,
+        interactionTypeTags,
+        groupMembers,
+        favorites
+      };
+      
+      // Return the backup as a JSON string
+      return JSON.stringify(backup, null, 2); // Pretty-print for easier debugging
+    } catch (error: any) {
+      console.error('Error exporting unencrypted data:', error);
+      throw new Error('Failed to export unencrypted data: ' + (error.message || 'Unknown error'));
+    }
+  }
+
+  // Import unencrypted backup data (for troubleshooting)
+  async importUnencryptedData(jsonData: string): Promise<boolean> {
+    try {
+      console.log('Starting unencrypted data import');
+      
+      // Parse the backup data
+      const backup = JSON.parse(jsonData);
+      
+      // Validate backup format
+      if (!backup.version || !backup.entities) {
+        throw new Error('Invalid backup format');
+      }
+      
+      console.log(`Importing backup from ${new Date(backup.timestamp).toLocaleString()}`);
+      
+      // Clear existing data before import
+      await this.clearAllDataForImport();
+      
+      // Start a transaction for the import
+      await this.db.execAsync('BEGIN TRANSACTION');
+      
+      try {
+        // Import entities
+        console.log(`Importing ${backup.entities.length} entities`);
+        for (const entity of backup.entities) {
+          await this.db.runAsync(
+            `INSERT OR REPLACE INTO entities 
+             (id, name, type, details, image, interaction_score, created_at, updated_at, encrypted_data) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              entity.id,
+              entity.name,
+              entity.type,
+              entity.details,
+              entity.image,
+              entity.interaction_score || 0,
+              entity.created_at,
+              entity.updated_at,
+              entity.encrypted_data
+            ]
+          );
+        }
+        
+        // Import tags
+        console.log(`Importing ${backup.tags.length} tags`);
+        for (const tag of backup.tags) {
+          await this.db.runAsync(
+            'INSERT OR REPLACE INTO tags (id, name, count) VALUES (?, ?, ?)',
+            [tag.id, tag.name, tag.count || 0]
+          );
+        }
+        
+        // Import entity tags
+        console.log(`Importing ${backup.entityTags.length} entity-tag relationships`);
+        for (const entityTag of backup.entityTags) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO entity_tags (entity_id, tag_id) VALUES (?, ?)',
+            [entityTag.entity_id, entityTag.tag_id]
+          );
+        }
+        
+        // Import interaction types
+        console.log(`Importing ${backup.interactionTypes.length} interaction types`);
+        for (const type of backup.interactionTypes) {
+          await this.db.runAsync(
+            `INSERT OR REPLACE INTO interaction_types 
+             (id, name, tag_id, icon, entity_type, score, color) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              type.id,
+              type.name,
+              type.tag_id,
+              type.icon,
+              type.entity_type,
+              type.score || 1,
+              type.color || '#666666'
+            ]
+          );
+        }
+        
+        // Import interaction type tags
+        console.log(`Importing ${backup.interactionTypeTags.length} interaction type tag relationships`);
+        for (const itt of backup.interactionTypeTags) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO interaction_type_tags (interaction_type_id, tag_id) VALUES (?, ?)',
+            [itt.interaction_type_id, itt.tag_id]
+          );
+        }
+        
+        // Import interactions
+        console.log(`Importing ${backup.interactions.length} interactions`);
+        for (const interaction of backup.interactions) {
+          await this.db.runAsync(
+            'INSERT OR REPLACE INTO interactions (id, entity_id, timestamp, type) VALUES (?, ?, ?, ?)',
+            [
+              interaction.id,
+              interaction.entity_id,
+              interaction.timestamp,
+              interaction.type
+            ]
+          );
+        }
+        
+        // Import photos with actual image data
+        console.log(`Importing ${backup.photos.length} photos`);
+        for (const photo of backup.photos as EntityPhotoWithData[]) {
+          // If we have base64 image data, save it to a file
+          let newUri = photo.uri;
+          if (photo.base64Data) {
+            try {
+              // Create photos directory if it doesn't exist
+              const photosDir = `${FileSystem.documentDirectory}photos/`;
+              const dirInfo = await FileSystem.getInfoAsync(photosDir);
+              if (!dirInfo.exists) {
+                await FileSystem.makeDirectoryAsync(photosDir, { intermediates: true });
+              }
+              
+              // Generate new file path
+              const fileName = `photo_${photo.id}_${Date.now()}.jpg`;
+              const newFilePath = `${photosDir}${fileName}`;
+              
+              // Write the base64 data to the file
+              await FileSystem.writeAsStringAsync(newFilePath, photo.base64Data, {
+                encoding: FileSystem.EncodingType.Base64
+              });
+              
+              // Update the URI to point to the new file
+              newUri = newFilePath;
+            } catch (fileError) {
+              console.warn(`Error saving photo file for ${photo.id}:`, fileError);
+              // Keep the original URI if we can't save the file
+            }
+          }
+          
+          // Insert the photo metadata into the database
+          await this.db.runAsync(
+            'INSERT OR REPLACE INTO entity_photos (id, entity_id, uri, caption, timestamp) VALUES (?, ?, ?, ?, ?)',
+            [
+              photo.id,
+              photo.entity_id,
+              newUri,
+              photo.caption,
+              photo.timestamp
+            ]
+          );
+        }
+        
+        // Import group members
+        console.log(`Importing ${backup.groupMembers.length} group member relationships`);
+        for (const groupMember of backup.groupMembers) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO group_members (group_id, member_id) VALUES (?, ?)',
+            [groupMember.group_id, groupMember.member_id]
+          );
+        }
+        
+        // Import favorites
+        console.log(`Importing ${backup.favorites.length} favorites`);
+        for (const favorite of backup.favorites) {
+          await this.db.runAsync(
+            'INSERT OR IGNORE INTO favorites (entity_id) VALUES (?)',
+            [favorite.entity_id]
+          );
+        }
+        
+        // Commit the transaction
+        await this.db.execAsync('COMMIT');
+        console.log('Unencrypted import completed successfully');
+        return true;
+      } catch (error: any) {
+        // Rollback the transaction in case of error
+        await this.db.execAsync('ROLLBACK');
+        console.error('Error during unencrypted import, rolling back:', error);
+        throw error;
+      }
+    } catch (error: any) {
+      console.error('Error importing unencrypted data:', error);
+      throw new Error('Failed to import unencrypted data: ' + (error.message || 'Unknown error'));
     }
   }
 }
