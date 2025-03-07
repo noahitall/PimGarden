@@ -60,20 +60,13 @@ interactions:
   - name: Birthday
     icon: cake
     entityTypes: [person]
-    tags: null
+    tags: [pet]
     score: 5
     color: "#FF4081"
     
   # Tag-specific interaction types
   
-  # Pet tag interactions
-  - name: Birthday
-    icon: cake-variant
-    entityTypes: null
-    tags: [pet]
-    score: 5
-    color: "#FF8A65"
-    
+  # Pet tag interactions    
   - name: Vet Visit
     icon: hospital-box
     entityTypes: null
@@ -87,13 +80,6 @@ interactions:
     tags: [pet]
     score: 2
     color: "#66BB6A"
-    
-  - name: Walk
-    icon: walk
-    entityTypes: null
-    tags: [pet]
-    score: 1
-    color: "#8D6E63"
     
   # Book tag interactions
   - name: Book Started

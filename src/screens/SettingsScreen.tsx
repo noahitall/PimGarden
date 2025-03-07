@@ -150,7 +150,8 @@ const SettingsScreen: React.FC = () => {
   const resetAllData = async () => {
     try {
       // Use the clearAllData method to actually delete all data from the database
-      const deletedRecords = await database.clearAllData();
+      // Set reloadDefaultInteractions to true to include default interactions after reset
+      const deletedRecords = await database.clearAllData(true);
       
       // Clear feature flags
       await AsyncStorage.removeItem(FEATURE_FLAGS_STORAGE_KEY);
@@ -206,17 +207,33 @@ const SettingsScreen: React.FC = () => {
   
   // Handle regenerating default tags and interaction types
   const handleRegenerateDefaults = async () => {
-    try {
-      setRegeneratingDefaults(true);
-      await database.regenerateDefaultTagsAndInteractions();
-      // Show success dialog
-      setRegenerateSuccessDialogVisible(true);
-    } catch (error) {
-      console.error('Error regenerating defaults:', error);
-      Alert.alert('Error', 'Failed to regenerate default tags and interactions.');
-    } finally {
-      setRegeneratingDefaults(false);
-    }
+    // Confirm that the user wants to regenerate defaults and potentially override customized interaction types
+    Alert.alert(
+      'Regenerate Defaults',
+      'This will add any missing default tags and RESET ALL interaction types to their default values. Any customized interaction types will be lost.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Regenerate',
+          onPress: async () => {
+            try {
+              setRegeneratingDefaults(true);
+              await database.regenerateDefaultTagsAndInteractions();
+              // Show success dialog
+              setRegenerateSuccessDialogVisible(true);
+            } catch (error) {
+              console.error('Error regenerating defaults:', error);
+              Alert.alert('Error', 'Failed to regenerate default tags and interactions.');
+            } finally {
+              setRegeneratingDefaults(false);
+            }
+          }
+        }
+      ]
+    );
   };
   
   // Show backup dialog and generate initial passphrase
@@ -1125,8 +1142,11 @@ const SettingsScreen: React.FC = () => {
                 disabled={isProcessing || regeneratingDefaults}
                 icon="refresh"
               >
-                Regenerate Default Tags & Actions
+                Reset to Default Actions
               </Button>
+              <Text style={styles.helperText}>
+                This will reset ALL interaction types to their defaults. Any customizations will be lost.
+              </Text>
               
               <Divider style={{marginVertical: 16}} />
               
@@ -1682,6 +1702,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 14,
     fontStyle: 'italic',
+  },
+  helperText: {
+    marginTop: 8,
+    marginBottom: 16,
+    color: '#666',
   },
 });
 

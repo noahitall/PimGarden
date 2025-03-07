@@ -9,6 +9,7 @@ import EntityCard from '../components/EntityCard';
 import { isFeatureEnabledSync } from '../config/FeatureFlags';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { debounce } from 'lodash';
+import { eventEmitter } from '../utils/EventEmitter';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -33,6 +34,7 @@ const HomeScreen: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortOption>('updated');
   const [keepFavoritesFirst, setKeepFavoritesFirst] = useState(true);
   const [isCompactMode, setIsCompactMode] = useState(false);
+  const [refreshTimestamp, setRefreshTimestamp] = useState<number>(Date.now());
   
   // Calculate number of columns based on screen width and view mode
   const screenWidth = Dimensions.get('window').width;
@@ -155,6 +157,21 @@ const HomeScreen: React.FC = () => {
       loadEntities();
     }, [loadEntities])
   );
+  
+  // Listen for the 'tagChange' event to refresh interaction types
+  useEffect(() => {
+    const handleTagChange = () => {
+      console.log('Tag change detected, refreshing interaction types in all cards');
+      setRefreshTimestamp(Date.now());
+    };
+    
+    // Add event listener
+    eventEmitter.addEventListener('tagChange', handleTagChange);
+    
+    return () => {
+      eventEmitter.removeEventListener('tagChange', handleTagChange);
+    };
+  }, []);
   
   // Handle card press - normal mode opens entity, merge mode selects target
   const handleCardPress = (id: string) => {
@@ -361,6 +378,7 @@ const HomeScreen: React.FC = () => {
         onLongPress={handleCardLongPress}
         selected={mergeMode && sourceEntityId === item.id}
         isCompact={isCompactMode}
+        forceRefresh={refreshTimestamp}
       />
     </View>
   );

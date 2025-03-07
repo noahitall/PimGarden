@@ -278,6 +278,7 @@ tags:
         console.log('[InteractionConfigManager] YAML content length:', yamlContent.length);
         // Log the first 100 characters to see if it's valid
         console.log('[InteractionConfigManager] YAML content start:', yamlContent.substring(0, 100));
+        console.log('[InteractionConfigManager] YAML content end:', yamlContent.substring(yamlContent.length - 100));
       } else {
         // Use default config
         console.log('[InteractionConfigManager] Config file not found, using default config');
@@ -306,6 +307,15 @@ tags:
         console.log('[InteractionConfigManager] Config contains:', 
           config.interactions?.length || 0, 'interactions,', 
           config.tags?.length || 0, 'tags');
+        
+        // Log each interaction name to verify the full list was parsed
+        if (config.interactions) {
+          console.log('[InteractionConfigManager] Parsed interactions:');
+          config.interactions.forEach((interaction, index) => {
+            console.log(`   ${index + 1}. ${interaction.name || 'Unnamed'} (${interaction.entityTypes ? 'Entity: ' + interaction.entityTypes : 'All entities'}, ${interaction.tags ? 'Tags: ' + interaction.tags.join(', ') : 'No tags'})`);
+          });
+        }
+        
         return config;
       } catch (parseError) {
         console.error('[InteractionConfigManager] Error parsing YAML:', parseError);
@@ -378,6 +388,14 @@ tags:
         config.interactions?.length || 0, 'interactions and',
         config.tags?.length || 0, 'tags');
       
+      // Log the entire config to verify it's complete
+      if (config.interactions) {
+        console.log('[InteractionConfigManager] Interactions to apply:');
+        config.interactions.forEach((interaction, index) => {
+          console.log(`   ${index + 1}. ${interaction.name || 'Unnamed'} (${interaction.entityTypes ? 'Entity: ' + JSON.stringify(interaction.entityTypes) : 'All entities'}, ${interaction.tags ? 'Tags: ' + JSON.stringify(interaction.tags) : 'No tags'})`);
+        });
+      }
+      
       // Start a transaction
       await database.beginTransaction();
       
@@ -398,6 +416,7 @@ tags:
         console.log('[InteractionConfigManager] Cleared existing interaction types');
         
         // Reset the interaction types
+        let createdCount = 0;
         if (config.interactions && Array.isArray(config.interactions)) {
           for (const interactionConfig of config.interactions) {
             // For each interaction, find tag IDs
@@ -428,34 +447,39 @@ tags:
             // Generate ID
             const id = await database.generatePublicId();
             
-            // Create the interaction type
-            await database.createInteractionTypeFromConfig(
-              id,
-              interactionConfig.name,
-              tagId,
-              interactionConfig.icon,
-              entityType,
-              interactionConfig.score,
-              interactionConfig.color
-            );
-            
-            console.log('[InteractionConfigManager] Created interaction type:', 
-              interactionConfig.name,
-              'for tag:', tagId ? 'Tag ID: ' + tagId : 'No tag',
-              'and entity type:', entityType || 'All'
-            );
-            
-            // Associate with related tags
-            for (const relatedTagId of relatedTagIds) {
-              await database.associateInteractionTypeWithTag(id, relatedTagId);
-              console.log('[InteractionConfigManager] Associated type', interactionConfig.name, 'with related tag ID:', relatedTagId);
+            try {
+              // Create the interaction type
+              await database.createInteractionTypeFromConfig(
+                id,
+                interactionConfig.name,
+                tagId,
+                interactionConfig.icon,
+                entityType,
+                interactionConfig.score,
+                interactionConfig.color
+              );
+              
+              createdCount++;
+              console.log('[InteractionConfigManager] Created interaction type:', 
+                interactionConfig.name,
+                'for tag:', tagId ? 'Tag ID: ' + tagId : 'No tag',
+                'and entity type:', entityType || 'All'
+              );
+              
+              // Associate with related tags
+              for (const relatedTagId of relatedTagIds) {
+                await database.associateInteractionTypeWithTag(id, relatedTagId);
+                console.log('[InteractionConfigManager] Associated type', interactionConfig.name, 'with related tag ID:', relatedTagId);
+              }
+            } catch (createError) {
+              console.error('[InteractionConfigManager] Error creating interaction type:', interactionConfig.name, createError);
             }
           }
         }
         
         // Commit the transaction
         await database.commitTransaction();
-        console.log('[InteractionConfigManager] Successfully reset interaction types');
+        console.log(`[InteractionConfigManager] Successfully reset interaction types. Created ${createdCount} of ${config.interactions?.length || 0} types.`);
         return true;
       } catch (error) {
         // Rollback on error

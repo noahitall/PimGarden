@@ -211,8 +211,17 @@ export class Database {
     // Initialize default tags
     await this.initDefaultTags();
     
-    // Initialize default interaction types
-    this.initDefaultInteractionTypes();
+    // Initialize default interaction types ONLY if there are none in the database
+    const interactionTypesCount = await this.db.getFirstAsync<{count: number}>(
+      'SELECT COUNT(*) as count FROM interaction_types'
+    );
+    
+    if (!interactionTypesCount || interactionTypesCount.count === 0) {
+      console.log('No interaction types found, initializing defaults');
+      await this.initDefaultInteractionTypes();
+    } else {
+      console.log('Interaction types already exist, skipping initialization');
+    }
     
     // Create settings table during initialization
     await this.createSettingsTable();
@@ -621,10 +630,10 @@ export class Database {
     
     const defaultTypes = [
       { name: 'General Contact', icon: 'account-check', tag_id: null, entity_type: null, score: 1, color: '#666666' },
-      { name: 'Message', icon: 'message-text', tag_id: null, entity_type: null, score: 1, color: '#666666' },
-      { name: 'Phone Call', icon: 'phone', tag_id: null, entity_type: null, score: 1, color: '#666666' },
-      { name: 'Meeting', icon: 'account-group', tag_id: null, entity_type: null, score: 1, color: '#666666' },
-      { name: 'Email', icon: 'email', tag_id: null, entity_type: null, score: 1, color: '#666666' },
+      { name: 'Message', icon: 'message-text', tag_id: null, entity_type: EntityType.PERSON, score: 1, color: '#666666' },
+      { name: 'Phone Call', icon: 'phone', tag_id: null, entity_type: EntityType.PERSON, score: 1, color: '#666666' },
+      { name: 'Meeting', icon: 'account-group', tag_id: null, entity_type: EntityType.PERSON, score: 1, color: '#666666' },
+      { name: 'Email', icon: 'email', tag_id: null, entity_type: EntityType.PERSON, score: 1, color: '#666666' },
       { name: 'Coffee', icon: 'coffee', tag_id: null, entity_type: EntityType.PERSON, score: 2, color: '#7F5539' },
       { name: 'Birthday', icon: 'cake', tag_id: null, entity_type: EntityType.PERSON, score: 5, color: '#FF4081' },
       
@@ -1538,11 +1547,8 @@ export class Database {
         [tagId]
       );
       
-      // Delete tag if count reaches 0
-      await this.db.runAsync(
-        'DELETE FROM tags WHERE id = ? AND count <= 0',
-        [tagId]
-      );
+      // No longer deleting tags when count reaches 0
+      // Tags will remain in the database even when not associated with any entities
       
       // Commit transaction
       await this.db.runAsync('COMMIT');
@@ -1761,6 +1767,9 @@ export class Database {
           
           const generalContact = await this.db.getAllAsync(generalContactQuery);
           allTypesRaw = [...generalContact];
+          
+          // For topic entities, we'll still add tag-specific interaction types below,
+          // if the entity has any tags
         } catch (error) {
           console.warn('Error getting General Contact interaction type:', error);
         }
@@ -2536,7 +2545,7 @@ export class Database {
   }
 
   // Clear all data from the database but keep the structure
-  async clearAllData(): Promise<{
+  async clearAllData(reloadDefaultInteractions: boolean = true): Promise<{
     entities: number;
     interactions: number;
     photos: number;
@@ -2606,9 +2615,20 @@ export class Database {
         console.log('Table interaction_type_tags may not exist yet');
       }
       
-      // Clear tags
+      // Clear tags, but preserve default tags
       try {
-        await this.db.runAsync('DELETE FROM tags');
+        // Only delete tags that are not default tags
+        await this.db.runAsync(`
+          DELETE FROM tags 
+          WHERE name NOT IN ('family', 'friend', 'pet', 'book')
+        `);
+        
+        // Reset count to 0 for default tags
+        await this.db.runAsync(`
+          UPDATE tags 
+          SET count = 0 
+          WHERE name IN ('family', 'friend', 'pet', 'book')
+        `);
       } catch (e) {
         console.log('Table tags may not exist yet');
       }
@@ -2626,8 +2646,16 @@ export class Database {
       // Commit the transaction
       await this.db.execAsync('COMMIT');
       
-      // Initialize default interaction types after clearing
-      await this.initDefaultInteractionTypes();
+      // Reinitialize default tags
+      await this.initDefaultTags();
+      
+      // Initialize default interaction types if requested
+      if (reloadDefaultInteractions) {
+        console.log('Reloading default interaction types');
+        await this.initDefaultInteractionTypes();
+      } else {
+        console.log('Skipping default interaction types reload');
+      }
       
       // Calculate total
       const total = entityCount + interactionCount + photoCount + tagCount + 
@@ -3526,7 +3554,35 @@ export class Database {
   
   // Expose method to clear interaction types
   async clearInteractionTypes(): Promise<void> {
-    await this.db.runAsync('DELETE FROM interaction_types');
+    try {
+      console.log('[Database] Clearing all interaction types...');
+      
+      // First, get the count of interaction types to verify
+      const countBefore = await this.db.getFirstAsync<{count: number}>(
+        'SELECT COUNT(*) as count FROM interaction_types'
+      );
+      console.log(`[Database] Interaction types before clearing: ${countBefore?.count || 0}`);
+      
+      // Delete from junction tables first to avoid foreign key constraint issues
+      await this.db.runAsync('DELETE FROM interaction_type_tags');
+      console.log('[Database] Cleared interaction_type_tags junction table');
+      
+      // Delete all interaction types
+      await this.db.runAsync('DELETE FROM interaction_types');
+      
+      // Verify deletion
+      const countAfter = await this.db.getFirstAsync<{count: number}>(
+        'SELECT COUNT(*) as count FROM interaction_types'
+      );
+      console.log(`[Database] Interaction types after clearing: ${countAfter?.count || 0}`);
+      
+      if (countAfter?.count && countAfter.count > 0) {
+        console.warn(`[Database] WARNING: Failed to delete all interaction types. ${countAfter.count} remain.`);
+      }
+    } catch (error) {
+      console.error('[Database] Error while clearing interaction types:', error);
+      throw error;
+    }
   }
   
   // Expose method to create an interaction type
@@ -3539,10 +3595,38 @@ export class Database {
     score: number,
     color: string
   ): Promise<void> {
-    await this.db.runAsync(
-      'INSERT INTO interaction_types (id, name, tag_id, icon, entity_type, score, color) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, name, tagId, icon, entityType, score, color]
-    );
+    try {
+      console.log(`[Database] Creating interaction type: ${name} (ID: ${id}, Tag: ${tagId || 'None'}, Entity: ${entityType || 'All'}, Score: ${score})`);
+      
+      // Check if an interaction type with the same name and tag already exists
+      const existingType = await this.db.getAllAsync<{id: string}>(
+        'SELECT * FROM interaction_types WHERE name = ? AND (tag_id = ? OR (tag_id IS NULL AND ? IS NULL))',
+        [name, tagId, tagId]
+      );
+      
+      if (existingType.length > 0) {
+        console.log(`[Database] Interaction type already exists: ${name} (Tag: ${tagId || 'None'}), updating instead of creating`);
+        
+        // Update the existing type instead of creating a new one
+        await this.db.runAsync(
+          'UPDATE interaction_types SET icon = ?, entity_type = ?, score = ?, color = ? WHERE id = ?',
+          [icon, entityType, score, color, existingType[0].id]
+        );
+        
+        return;
+      }
+      
+      // Insert the new interaction type
+      await this.db.runAsync(
+        'INSERT INTO interaction_types (id, name, tag_id, icon, entity_type, score, color) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [id, name, tagId, icon, entityType, score, color]
+      );
+      
+      console.log(`[Database] Successfully created interaction type: ${name}`);
+    } catch (error) {
+      console.error(`[Database] Error creating interaction type ${name}:`, error);
+      throw error;
+    }
   }
   
   // Expose method to get a tag by name
@@ -3878,11 +3962,29 @@ export class Database {
       await this.db.execAsync('DELETE FROM group_members');
       await this.db.execAsync('DELETE FROM favorites');
       await this.db.execAsync('DELETE FROM interaction_types');
-      await this.db.execAsync('DELETE FROM tags');
+      
+      // Only delete non-default tags
+      await this.db.execAsync(`
+        DELETE FROM tags 
+        WHERE name NOT IN ('family', 'friend', 'pet', 'book')
+      `);
+      
+      // Reset count to 0 for default tags
+      await this.db.execAsync(`
+        UPDATE tags 
+        SET count = 0 
+        WHERE name IN ('family', 'friend', 'pet', 'book')
+      `);
+      
       await this.db.execAsync('DELETE FROM entities');
       
       // Commit the transaction
       await this.db.execAsync('COMMIT');
+      
+      // Reinitialize default tags only
+      await this.initDefaultTags();
+      // Do not reinitialize default interaction types since the imported data should have its own
+      
       console.log('Database cleared for import');
     } catch (error: any) {
       // Rollback the transaction in case of error
@@ -4619,6 +4721,67 @@ export class Database {
     } catch (error: any) {
       console.error('Error recovering backup:', error);
       throw new Error(`Failed to recover backup: ${error.message || 'Unknown error'}`);
+    }
+  }
+
+  // Get all interaction types for an entity, regardless of tag association
+  // This is used for the interaction type picker when creating/editing interactions
+  async getAllInteractionTypesForEntity(entityId: string): Promise<InteractionType[]> {
+    try {
+      console.log(`Getting ALL interaction types for entity ${entityId} (for interaction picker)`);
+      
+      // Get the entity to determine its type
+      const entity = await this.getEntityById(entityId);
+      if (!entity) {
+        console.error(`Entity ${entityId} not found`);
+        return [];
+      }
+      
+      const entityType = entity.type;
+      console.log(`Entity type: ${entityType}`);
+      
+      // Get all tags associated with this entity
+      const entityTags = await this.getEntityTags(entityId);
+      const entityTagNames = entityTags.map(tag => tag.name);
+      console.log(`Entity has tags: ${entityTagNames.join(', ') || 'none'}`);
+      
+      // Get all interaction types
+      const allTypes = await this.getInteractionTypes();
+      console.log(`Retrieved ${allTypes.length} total interaction types`);
+      
+      // Filter interaction types based on entity type and tags
+      const filteredTypes = allTypes.filter(type => {
+        // Special handling for topic entities
+        if (entityType === EntityType.TOPIC) {
+          // For topics, only include General Contact and tag-specific interaction types
+          if (type.name === 'General Contact') return true;
+          
+          // Include interaction types specifically associated with this entity's tags
+          if (type.tag_id && entityTags.some(tag => tag.id === type.tag_id)) return true;
+          
+          // Exclude all other interaction types
+          return false;
+        }
+        
+        // For non-topic entities, apply regular filtering
+        
+        // If the interaction type is not associated with any specific tag or entity type, include it
+        if (!type.tag_id && !type.entity_type) return true;
+        
+        // If the interaction type is associated with this entity type, include it
+        if (type.entity_type && (type.entity_type === entityType || type.entity_type === null)) return true;
+        
+        // If the entity has tags and the interaction type is associated with any of those tags, include it
+        if (type.tag_id && entityTags.some(tag => tag.id === type.tag_id)) return true;
+        
+        return false;
+      });
+      
+      console.log(`Filtered to ${filteredTypes.length} interaction types for entity ${entityId}`);
+      return filteredTypes;
+    } catch (error) {
+      console.error('Error getting all interaction types for entity:', error);
+      return [];
     }
   }
 }

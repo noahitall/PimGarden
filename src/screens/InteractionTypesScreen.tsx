@@ -149,7 +149,19 @@ const InteractionTypesScreen: React.FC = () => {
   const loadTags = async () => {
     try {
       const allTags = await database.getAllTags();
-      setTags(allTags);
+      
+      // Sort the tags so default tags appear at the top
+      const sortedTags = [...allTags].sort((a, b) => {
+        const defaultTags = ['family', 'friend', 'pet', 'book'];
+        const isADefault = defaultTags.includes(a.name.toLowerCase());
+        const isBDefault = defaultTags.includes(b.name.toLowerCase());
+        
+        if (isADefault && !isBDefault) return -1;
+        if (!isADefault && isBDefault) return 1;
+        return a.name.localeCompare(b.name); // alphabetical for same category
+      });
+      
+      setTags(sortedTags);
     } catch (error) {
       console.error('Error loading tags:', error);
     }
@@ -595,15 +607,50 @@ const InteractionTypesScreen: React.FC = () => {
                       disabled={saving}
                     />
                     
-                    {tags.map(tag => (
-                      <Checkbox.Item
-                        key={tag.id}
-                        label={`${tag.name} (${tag.count} entities)`}
-                        status={selectedTagIds.includes(tag.id) ? 'checked' : 'unchecked'}
-                        onPress={() => !saving && toggleTagSelection(tag.id)}
-                        disabled={saving}
-                      />
-                    ))}
+                    <Divider style={styles.sectionDivider} />
+                    <Text style={styles.sectionHeader}>Default Tags</Text>
+                    
+                    {tags.map(tag => {
+                      // Check if this is one of the default tags
+                      const isDefaultTag = ['family', 'friend', 'pet', 'book'].includes(tag.name.toLowerCase());
+                      
+                      // Skip non-default tags - they'll be shown in the next section
+                      if (!isDefaultTag) return null;
+                      
+                      // Customize label to highlight default tags
+                      const label = `${tag.name} ${tag.count > 0 ? `(${tag.count} entities)` : '(Default)'}`;
+                      
+                      return (
+                        <Checkbox.Item
+                          key={tag.id}
+                          label={label}
+                          status={selectedTagIds.includes(tag.id) ? 'checked' : 'unchecked'}
+                          onPress={() => !saving && toggleTagSelection(tag.id)}
+                          disabled={saving}
+                        />
+                      );
+                    })}
+                    
+                    <Divider style={styles.sectionDivider} />
+                    <Text style={styles.sectionHeader}>Custom Tags</Text>
+                    
+                    {tags.map(tag => {
+                      // Check if this is one of the default tags
+                      const isDefaultTag = ['family', 'friend', 'pet', 'book'].includes(tag.name.toLowerCase());
+                      
+                      // Skip default tags - they were shown in the previous section
+                      if (isDefaultTag) return null;
+                      
+                      return (
+                        <Checkbox.Item
+                          key={tag.id}
+                          label={`${tag.name} (${tag.count} entities)`}
+                          status={selectedTagIds.includes(tag.id) ? 'checked' : 'unchecked'}
+                          onPress={() => !saving && toggleTagSelection(tag.id)}
+                          disabled={saving}
+                        />
+                      );
+                    })}
                   </View>
                 </>
               )}
@@ -734,6 +781,18 @@ const styles = StyleSheet.create({
   },
   dialogBottomPadding: {
     height: 20,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 10,
+  },
+  sectionHeader: {
+    fontWeight: 'bold',
+    marginBottom: 5,
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#666',
   },
 });
 

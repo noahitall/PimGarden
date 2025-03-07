@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Image, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
+import { StyleSheet, View, Image, TouchableOpacity, Dimensions, ScrollView, ActivityIndicator } from 'react-native';
 import { Text, Surface, Badge, IconButton, Dialog, Portal, Button, List, Avatar } from 'react-native-paper';
 import { Entity } from '../types';
 import { database, InteractionType } from '../database/Database';
@@ -61,6 +61,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
   const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
   const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
+  const [loadingInteractionTypes, setLoadingInteractionTypes] = useState(false);
   
   // Function to refresh interaction data
   const refreshInteractionData = useCallback(async () => {
@@ -114,22 +115,35 @@ const EntityCard: React.FC<EntityCardProps> = ({
     }
   }, [forceRefresh, refreshInteractionData]);
   
+  // Separate loadInteractionTypes into a named function that can be called elsewhere
+  const loadInteractionTypes = async () => {
+    try {
+      setLoadingInteractionTypes(true);
+      console.log(`Loading interaction types for entity ${entity.id} in EntityCard`);
+      
+      // Use the new getAllInteractionTypesForEntity method to get all possible interaction types
+      // This will show more interaction types in the menu regardless of tags
+      const types = await database.getAllInteractionTypesForEntity(entity.id);
+      setInteractionTypes(types);
+    } catch (error) {
+      console.error('Error loading interaction types:', error);
+    } finally {
+      setLoadingInteractionTypes(false);
+    }
+  };
+  
   // Load interaction types
   useEffect(() => {
-    const loadInteractionTypes = async () => {
-      try {
-        const types = await database.getEntityInteractionTypes(entity.id);
-        setInteractionTypes(types);
-      } catch (error) {
-        console.error('Error loading interaction types:', error);
-      }
-    };
-    
     loadInteractionTypes();
-  }, [entity.id]);
+  }, [entity.id, entity.updated_at, forceRefresh]); // Include entity.updated_at and forceRefresh to update when tags change
 
   // Function to handle interaction when photo is clicked
   const handleInteraction = async () => {
+    // If we're still loading interaction types, show a loading indicator
+    if (loadingInteractionTypes) {
+      return; // We'll show a loading indicator in the menu instead
+    }
+    
     // Show interaction type selection menu
     setInteractionMenuVisible(true);
   };
@@ -324,16 +338,23 @@ const EntityCard: React.FC<EntityCardProps> = ({
         >
           <Dialog.Title>Select Interaction Type</Dialog.Title>
           <Dialog.Content>
-            <ScrollView style={styles.interactionTypeList}>
-              {interactionTypes.map(item => (
-                <List.Item
-                  key={item.id}
-                  title={item.name}
-                  left={props => <List.Icon {...props} icon={item.icon} />}
-                  onPress={() => handleSelectInteractionType(item)}
-                />
-              ))}
-            </ScrollView>
+            {loadingInteractionTypes ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" />
+                <Text style={styles.loadingText}>Loading available actions...</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.interactionTypeList}>
+                {interactionTypes.map(item => (
+                  <List.Item
+                    key={item.id}
+                    title={item.name}
+                    left={props => <List.Icon {...props} icon={item.icon} />}
+                    onPress={() => handleSelectInteractionType(item)}
+                  />
+                ))}
+              </ScrollView>
+            )}
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={dismissInteractionMenu}>Cancel</Button>
@@ -474,6 +495,17 @@ const styles = StyleSheet.create({
   },
   interactionTypeList: {
     maxHeight: 300,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
   },
 });
 

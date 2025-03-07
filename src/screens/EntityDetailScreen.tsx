@@ -14,6 +14,7 @@ import SafeDateTimePicker from '../components/SafeDateTimePicker';
 import GroupMembersSection from '../components/GroupMembersSection';
 import EditInteractionModal from '../components/EditInteractionModal';
 import { isFeatureEnabledSync } from '../config/FeatureFlags';
+import { eventEmitter } from '../utils/EventEmitter';
 
 // Define the InteractionLog interface
 interface InteractionLog {
@@ -91,6 +92,7 @@ const EntityDetailScreen: React.FC = () => {
   const [interactionTypes, setInteractionTypes] = useState<InteractionType[]>([]);
   const [interactionMenuVisible, setInteractionMenuVisible] = useState(false);
   const [selectedInteractionType, setSelectedInteractionType] = useState<InteractionType | null>(null);
+  const [loadingInteractionTypes, setLoadingInteractionTypes] = useState(false);
   
   const [contactData, setContactData] = useState<{
     phoneNumbers: PhoneNumber[];
@@ -231,7 +233,7 @@ const EntityDetailScreen: React.FC = () => {
       const entityId = entity.id;
       
       // Load interaction types appropriate for this entity
-      const availableTypes = await database.getEntityInteractionTypes(entityId);
+      const availableTypes = await database.getAllInteractionTypesForEntity(entityId);
       if (!availableTypes || availableTypes.length === 0) {
         Alert.alert('Error', 'No interaction types available for this entity');
         return;
@@ -355,10 +357,15 @@ const EntityDetailScreen: React.FC = () => {
   // Load interaction types for the entity
   const loadInteractionTypes = async (entityId: string) => {
     try {
-      const types = await database.getEntityInteractionTypes(entityId);
+      setLoadingInteractionTypes(true);
+      // Use the new getAllInteractionTypesForEntity method to get all possible interaction types
+      // This will show more interaction types in the menu regardless of tags
+      const types = await database.getAllInteractionTypesForEntity(entityId);
       setInteractionTypes(types);
     } catch (error) {
       console.error('Error loading interaction types:', error);
+    } finally {
+      setLoadingInteractionTypes(false);
     }
   };
   
@@ -422,6 +429,12 @@ const EntityDetailScreen: React.FC = () => {
       // Reload tags
       await loadEntityTags(entity.id);
       
+      // Reload interaction types to include tag-specific actions
+      await loadInteractionTypes(entity.id);
+      
+      // Emit tag change event to update cards
+      eventEmitter.emitEvent('tagChange');
+      
       // Clear input
       setTagInput('');
       setSuggestedTags([]);
@@ -445,6 +458,12 @@ const EntityDetailScreen: React.FC = () => {
       // Reload tags
       await loadEntityTags(entity.id);
       
+      // Reload interaction types to include tag-specific actions
+      await loadInteractionTypes(entity.id);
+      
+      // Emit tag change event to update cards
+      eventEmitter.emitEvent('tagChange');
+      
       // Clear input
       setTagInput('');
       setSuggestedTags([]);
@@ -463,6 +482,12 @@ const EntityDetailScreen: React.FC = () => {
       
       // Reload tags
       await loadEntityTags(entity.id);
+      
+      // Reload interaction types to update available actions
+      await loadInteractionTypes(entity.id);
+      
+      // Emit tag change event to update cards
+      eventEmitter.emitEvent('tagChange');
     } catch (error) {
       console.error('Error removing tag:', error);
       Alert.alert('Error', 'Failed to remove tag');
@@ -491,7 +516,12 @@ const EntityDetailScreen: React.FC = () => {
   const handleInteraction = async () => {
     if (!entity) return;
     
-    // Show interaction type selection menu
+    // If we're still loading interaction types, show a message
+    if (loadingInteractionTypes) {
+      Alert.alert('Loading', 'Please wait while we load available actions.');
+      return;
+    }
+    
     setInteractionMenuVisible(true);
   };
   
@@ -1335,16 +1365,23 @@ const EntityDetailScreen: React.FC = () => {
           >
             <Dialog.Title>Select Interaction Type</Dialog.Title>
             <Dialog.Content>
-              <ScrollView style={styles.interactionTypeList}>
-                {interactionTypes.map(item => (
-                  <List.Item
-                    key={item.id}
-                    title={item.name}
-                    left={props => <List.Icon {...props} icon={item.icon} />}
-                    onPress={() => handleSelectInteractionType(item)}
-                  />
-                ))}
-              </ScrollView>
+              {loadingInteractionTypes ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" />
+                  <Text style={styles.loadingText}>Loading available actions...</Text>
+                </View>
+              ) : (
+                <ScrollView style={styles.interactionTypeList}>
+                  {interactionTypes.map(item => (
+                    <List.Item
+                      key={item.id}
+                      title={item.name}
+                      left={props => <List.Icon {...props} icon={item.icon} />}
+                      onPress={() => handleSelectInteractionType(item)}
+                    />
+                  ))}
+                </ScrollView>
+              )}
             </Dialog.Content>
             <Dialog.Actions>
               <Button onPress={dismissInteractionMenu}>Cancel</Button>
@@ -1850,6 +1887,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#6200ee',
     marginRight: 4,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#666',
   },
 });
 
