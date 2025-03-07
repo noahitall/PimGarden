@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { format } from 'date-fns';
 import * as Random from 'expo-random';
 import * as FileSystem from 'expo-file-system';
+import { isFeatureEnabledSync } from '../config/FeatureFlags';
 
 // Entity types
 export enum EntityType {
@@ -286,10 +287,53 @@ export class Database {
         await this.db.runAsync(`PRAGMA user_version = 8`);
       }
       
+      if (currentVersion < 9) {
+        console.log('Running migration 9: Add tag counter support');
+        await this.addTagCounterSupport();
+        console.log('Setting database version to 9');
+        await this.db.runAsync(`PRAGMA user_version = 9`);
+      }
+      
       console.log('All migrations completed. Current version:', await this.db.getFirstAsync('PRAGMA user_version'));
       
     } catch (error) {
       console.error('Error running migrations:', error);
+    }
+  }
+  
+  // Migration 6: Add tag counter column
+  private async addTagCounterSupport(): Promise<void> {
+    try {
+      console.log('Adding count column to tags table...');
+      // Check if the column exists first
+      try {
+        await this.db.getFirstAsync('SELECT count FROM tags LIMIT 1');
+        console.log('Count column already exists, skipping migration');
+      } catch (error) {
+        // Column doesn't exist, add it
+        console.log('Adding count column to tags table');
+        await this.db.runAsync('ALTER TABLE tags ADD COLUMN count INTEGER DEFAULT 0');
+        
+        // Update the count for existing tags
+        console.log('Updating tag counts...');
+        const tags = await this.db.getAllAsync<{id: string}>('SELECT id FROM tags');
+        
+        for (const tag of tags) {
+          const count = await this.db.getFirstAsync<{count: number}>(
+            'SELECT COUNT(*) as count FROM entity_tags WHERE tag_id = ?',
+            [tag.id]
+          );
+          
+          await this.db.runAsync(
+            'UPDATE tags SET count = ? WHERE id = ?',
+            [count?.count || 0, tag.id]
+          );
+        }
+        
+        console.log('Tag counts updated');
+      }
+    } catch (error) {
+      console.error('Error adding tag counter support:', error);
     }
   }
   
@@ -1704,41 +1748,59 @@ export class Database {
         ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
         : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
       
-      // 1. Get all general interaction types (no tag_id and no entity_type or matching entity_type)
-      if (hasEntityTypeColumn) {
+      // For GROUP and TOPIC entities, only include the "General Contact" by default
+      // For PERSON entities, include all general interaction types that apply to persons
+      if (entityType === EntityType.GROUP || entityType === EntityType.TOPIC) {
         try {
-          const generalTypesQuery = `
+          const generalContactQuery = `
             SELECT ${columnSelection}
             FROM interaction_types
-            WHERE tag_id IS NULL AND (entity_type IS NULL OR entity_type = ? OR entity_type LIKE ?)
-            ORDER BY interaction_types.name
+            WHERE name = 'General Contact'
+            LIMIT 1
           `;
           
-          // For entity_type, check exact match or if it's included in a JSON array
-          const entityTypeLike = `%"${entityType}"%`;
-          const generalTypes = await this.db.getAllAsync(generalTypesQuery, [entityType, entityTypeLike]);
-          allTypesRaw = [...generalTypes];
+          const generalContact = await this.db.getAllAsync(generalContactQuery);
+          allTypesRaw = [...generalContact];
         } catch (error) {
-          console.warn('Error getting general interaction types with entity_type filter:', error);
+          console.warn('Error getting General Contact interaction type:', error);
         }
       } else {
-        // Fallback for older schema without entity_type
-        try {
-          const generalTypesQuery = `
-            SELECT interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon
-            FROM interaction_types
-            WHERE tag_id IS NULL
-            ORDER BY interaction_types.name
-          `;
-          
-          const generalTypes = await this.db.getAllAsync(generalTypesQuery);
-          allTypesRaw = [...generalTypes];
-        } catch (error) {
-          console.warn('Error getting general interaction types (fallback):', error);
+        // This is a PERSON entity, get all applicable general interaction types
+        if (hasEntityTypeColumn) {
+          try {
+            const generalTypesQuery = `
+              SELECT ${columnSelection}
+              FROM interaction_types
+              WHERE tag_id IS NULL AND (entity_type IS NULL OR entity_type = ? OR entity_type LIKE ?)
+              ORDER BY interaction_types.name
+            `;
+            
+            // For entity_type, check exact match or if it's included in a JSON array
+            const entityTypeLike = `%"${entityType}"%`;
+            const generalTypes = await this.db.getAllAsync(generalTypesQuery, [entityType, entityTypeLike]);
+            allTypesRaw = [...generalTypes];
+          } catch (error) {
+            console.warn('Error getting general interaction types with entity_type filter:', error);
+          }
+        } else {
+          // Fallback for older schema without entity_type
+          try {
+            const generalTypesQuery = `
+              SELECT interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon
+              FROM interaction_types
+              WHERE tag_id IS NULL
+              ORDER BY interaction_types.name
+            `;
+            
+            const generalTypes = await this.db.getAllAsync(generalTypesQuery);
+            allTypesRaw = [...generalTypes];
+          } catch (error) {
+            console.warn('Error getting general interaction types (fallback):', error);
+          }
         }
       }
       
-      // If entity has no tags, return only general interaction types
+      // If entity has no tags, return only the appropriate general interaction types (as set above)
       if (entityTagIds.length === 0) {
         console.log(`Entity has no tags, returning ${allTypesRaw.length} general interaction types`);
         
@@ -1766,6 +1828,8 @@ export class Database {
         return Array.from(interactionTypesMap.values());
       }
       
+      // For entities with tags, add interaction types based on tags
+      
       // 2. Get tag-specific interaction types with tag_id directly matching entity tags
       try {
         // Create placeholders for the IN clause
@@ -1785,6 +1849,8 @@ export class Database {
       }
       
       // 3. Get all inherited tag-related interaction types
+      // For groups: include interaction types from all member tags
+      // For persons: include interaction types from group tags they belong to
       try {
         // Get all related tags (from groups if this is a person, etc.)
         const relatedTagIds = await this.getInheritedTagIds(entityId);
@@ -2266,10 +2332,21 @@ export class Database {
       
       // Generate a new ID and create the tag
       const id = await this.generateId();
-      await this.db.runAsync(
-        'INSERT INTO tags (id, name, count) VALUES (?, ?, ?)',
-        [id, name.trim(), 0]
-      );
+      
+      // Try to insert with count column first
+      try {
+        await this.db.runAsync(
+          'INSERT INTO tags (id, name, count) VALUES (?, ?, ?)',
+          [id, name.trim(), 0]
+        );
+      } catch (error) {
+        // If that fails, try without the count column (for older schema versions)
+        console.log('Falling back to schema without count column');
+        await this.db.runAsync(
+          'INSERT INTO tags (id, name) VALUES (?, ?)',
+          [id, name.trim()]
+        );
+      }
       
       // Create interaction types related to this tag
       await this.createTagInteractionTypes(id, name.trim());
@@ -3354,19 +3431,131 @@ export class Database {
   // Regenerate default tags and interaction types
   async regenerateDefaultTagsAndInteractions(): Promise<void> {
     try {
-      console.log('Regenerating default tags and interaction types');
+      console.log('Regenerating default tags and interaction types...');
       
-      // Initialize default tags first
+      // First ensure tag counter support is available
+      await this.addTagCounterSupport();
+      
+      // Check if we should use the YAML configuration
+      if (this.shouldUseYamlConfig()) {
+        try {
+          // Attempt to load the InteractionConfigManager and apply the configuration
+          const { InteractionConfigManager } = require('../utils/InteractionConfigManager');
+          
+          // Apply the configuration
+          const success = await InteractionConfigManager.applyConfig();
+          if (success) {
+            console.log('Successfully applied YAML configuration');
+            return;
+          }
+        } catch (configError) {
+          console.warn('Error loading or applying YAML config, falling back to built-in defaults:', configError);
+        }
+      }
+      
+      // Use built-in defaults (either as primary method or as fallback)
       await this.initDefaultTags();
-      
-      // Then initialize default interaction types (which may reference the tags)
       await this.initDefaultInteractionTypes();
       
       console.log('Default tags and interaction types regenerated successfully');
     } catch (error) {
       console.error('Error regenerating default tags and interaction types:', error);
-      throw error;
+      
+      // Fall back to built-in defaults on error
+      try {
+        await this.initDefaultTags();
+        await this.initDefaultInteractionTypes();
+      } catch (fallbackError) {
+        console.error('Even fallback regeneration failed:', fallbackError);
+      }
     }
+  }
+  
+  // Check if we should use the YAML configuration
+  private shouldUseYamlConfig(): boolean {
+    try {
+      // Use YAML config if the feature flag is enabled
+      return isFeatureEnabledSync('ENABLE_INTERACTION_CONFIG_RESET');
+    } catch (error) {
+      console.warn('Error checking if YAML config should be used:', error);
+      return false;
+    }
+  }
+
+  // Public method to reset interaction types from external configuration
+  async resetInteractionTypesFromConfig(
+    createTransaction: () => Promise<void>,
+    commitTransaction: () => Promise<void>,
+    rollbackTransaction: () => Promise<void>,
+    clearInteractionTypes: () => Promise<void>,
+    createInteractionType: (id: string, name: string, tagId: string | null, icon: string, entityType: string | null, score: number, color: string) => Promise<void>,
+    associateTypeWithTag: (typeId: string, tagId: string) => Promise<void>
+  ): Promise<boolean> {
+    try {
+      await createTransaction();
+      
+      try {
+        await clearInteractionTypes();
+        
+        // Additional operations will be performed by the caller
+        
+        await commitTransaction();
+        return true;
+      } catch (error) {
+        await rollbackTransaction();
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error resetting interaction types from config:', error);
+      return false;
+    }
+  }
+  
+  // Exposed transaction methods for configuration management
+  async beginTransaction(): Promise<void> {
+    await this.db.execAsync('BEGIN TRANSACTION');
+  }
+  
+  async commitTransaction(): Promise<void> {
+    await this.db.execAsync('COMMIT');
+  }
+  
+  async rollbackTransaction(): Promise<void> {
+    await this.db.execAsync('ROLLBACK');
+  }
+  
+  // Expose method to clear interaction types
+  async clearInteractionTypes(): Promise<void> {
+    await this.db.runAsync('DELETE FROM interaction_types');
+  }
+  
+  // Expose method to create an interaction type
+  async createInteractionTypeFromConfig(
+    id: string,
+    name: string, 
+    tagId: string | null, 
+    icon: string, 
+    entityType: string | null,
+    score: number,
+    color: string
+  ): Promise<void> {
+    await this.db.runAsync(
+      'INSERT INTO interaction_types (id, name, tag_id, icon, entity_type, score, color) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, name, tagId, icon, entityType, score, color]
+    );
+  }
+  
+  // Expose method to get a tag by name
+  async getTagByName(name: string): Promise<{id: string} | null> {
+    return await this.db.getFirstAsync<{id: string}>(
+      'SELECT id FROM tags WHERE name COLLATE NOCASE = ?',
+      [name]
+    );
+  }
+  
+  // Expose public method to generate an ID
+  async generatePublicId(): Promise<string> {
+    return await this.generateId();
   }
 
   // Export all data as encrypted backup

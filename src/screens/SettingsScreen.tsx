@@ -29,6 +29,7 @@ import { generatePassphrase, isValidPassphrase as validatePassphraseFormat } fro
 import { debounce } from 'lodash';
 import { format } from 'date-fns';
 import * as Crypto from 'expo-crypto';
+import { InteractionConfigManager } from '../utils/InteractionConfigManager';
 
 type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -809,6 +810,44 @@ const SettingsScreen: React.FC = () => {
     }
   };
   
+  // Reset interaction types from YAML configuration
+  const handleResetInteractionTypes = async () => {
+    Alert.alert(
+      'Reset Interaction Types',
+      'This will reset all interaction types to the configuration defined in the YAML file. Any custom interaction types will be lost. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            setIsProcessing(true);
+            try {
+              const success = await InteractionConfigManager.resetInteractionTypes();
+              
+              if (success) {
+                Alert.alert(
+                  'Reset Successful',
+                  'All interaction types have been reset according to the YAML configuration.'
+                );
+              } else {
+                Alert.alert(
+                  'Reset Failed',
+                  'Failed to reset interaction types. Check logs for details.'
+                );
+              }
+            } catch (error: any) {
+              console.error('Error resetting interaction types:', error);
+              Alert.alert('Error', 'An error occurred while resetting interaction types: ' + error.message);
+            } finally {
+              setIsProcessing(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+  
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
@@ -963,6 +1002,18 @@ const SettingsScreen: React.FC = () => {
                   <Switch
                     value={featureFlags.ENABLE_UNENCRYPTED_BACKUP}
                     onValueChange={() => toggleFeatureFlag('ENABLE_UNENCRYPTED_BACKUP')}
+                  />
+                )}
+              />
+              
+              <List.Item
+                title="Interaction Config Reset"
+                description="Allow resetting interaction types from YAML config"
+                left={props => <List.Icon {...props} icon="database-refresh" />}
+                right={props => (
+                  <Switch
+                    value={featureFlags.ENABLE_INTERACTION_CONFIG_RESET}
+                    onValueChange={() => toggleFeatureFlag('ENABLE_INTERACTION_CONFIG_RESET')}
                   />
                 )}
               />
@@ -1183,6 +1234,32 @@ const SettingsScreen: React.FC = () => {
                   )}
                 </>
               )}
+            </Card.Content>
+          </Card>
+        )}
+        
+        {isFeatureEnabledSync('ENABLE_INTERACTION_CONFIG_RESET') && (
+          <Card style={styles.card}>
+            <Card.Title 
+              title="Interaction Configuration" 
+              subtitle="Manage interaction types from YAML"
+            />
+            <Card.Content>
+              <Text style={styles.description}>
+                Reset interaction types according to the YAML configuration file. 
+                This is useful for development and testing.
+              </Text>
+              
+              <Button 
+                mode="outlined" 
+                onPress={handleResetInteractionTypes}
+                style={styles.actionButton}
+                loading={isProcessing}
+                disabled={isProcessing}
+                icon="database-refresh"
+              >
+                Reset Interaction Types from YAML
+              </Button>
             </Card.Content>
           </Card>
         )}

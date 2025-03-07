@@ -1,0 +1,190 @@
+# Default Interaction Types Configuration
+# 
+# This file defines all default interaction types, which entity types they apply to,
+# and which tags they are associated with. This allows easier customization and
+# maintenance of the default interaction types.
+#
+# Structure:
+# - name: Name of the interaction type
+#   icon: Material icon name to use
+#   entityTypes: List of entity types this applies to (person, group, topic, or null for all)
+#   tags: List of tags this applies to (null for all)
+#   score: Score value for this interaction
+#   color: Hex color code for this interaction type
+
+interactions:
+  # General interaction types (available to all entity types)
+  - name: General Contact
+    icon: account-check
+    entityTypes: null  # null = applies to all entity types
+    tags: null  # null = not associated with any tag
+    score: 1
+    color: "#666666"
+    
+  # Person-specific interaction types
+  - name: Message
+    icon: message-text
+    entityTypes: [person]
+    tags: null
+    score: 1
+    color: "#666666"
+    
+  - name: Phone Call
+    icon: phone
+    entityTypes: [person]
+    tags: null
+    score: 1
+    color: "#666666"
+    
+  - name: Meeting
+    icon: account-group
+    entityTypes: [person]
+    tags: null
+    score: 1
+    color: "#666666"
+    
+  - name: Email
+    icon: email
+    entityTypes: [person]
+    tags: null
+    score: 1
+    color: "#666666"
+    
+  - name: Coffee
+    icon: coffee
+    entityTypes: [person]
+    tags: null
+    score: 2
+    color: "#7F5539"
+    
+  - name: Birthday
+    icon: cake
+    entityTypes: [person]
+    tags: null
+    score: 5
+    color: "#FF4081"
+    
+  # Tag-specific interaction types
+  
+  # Pet tag interactions
+  - name: Birthday
+    icon: cake-variant
+    entityTypes: null
+    tags: [pet]
+    score: 5
+    color: "#FF8A65"
+    
+  - name: Vet Visit
+    icon: hospital-box
+    entityTypes: null
+    tags: [pet]
+    score: 3
+    color: "#42A5F5"
+    
+  - name: Grooming
+    icon: content-cut
+    entityTypes: null
+    tags: [pet]
+    score: 2
+    color: "#66BB6A"
+    
+  - name: Walk
+    icon: walk
+    entityTypes: null
+    tags: [pet]
+    score: 1
+    color: "#8D6E63"
+    
+  # Book tag interactions
+  - name: Book Started
+    icon: book-open-page-variant
+    entityTypes: null
+    tags: [book]
+    score: 3
+    color: "#26A69A"
+    
+  - name: Book Progress
+    icon: book-open-variant
+    entityTypes: null
+    tags: [book]
+    score: 1
+    color: "#29B6F6"
+    
+  - name: Book Finished
+    icon: book-check
+    entityTypes: null
+    tags: [book]
+    score: 5
+    color: "#5C6BC0"
+    
+  - name: Book Discussion
+    icon: forum
+    entityTypes: null
+    tags: [book]
+    score: 2
+    color: "#AB47BC"
+    
+  # Family tag interactions
+  - name: Family Dinner
+    icon: food-variant
+    entityTypes: null
+    tags: [family]
+    score: 2
+    color: "#EC407A"
+    
+  - name: Family Call
+    icon: phone
+    entityTypes: null
+    tags: [family]
+    score: 2
+    color: "#7E57C2"
+    
+  - name: Visit
+    icon: home
+    entityTypes: null
+    tags: [family]
+    score: 3
+    color: "#26A69A"
+    
+  # Friend tag interactions
+  - name: Catch Up
+    icon: chat
+    entityTypes: null
+    tags: [friend]
+    score: 2
+    color: "#FF7043"
+    
+  - name: Hangout
+    icon: glass-cocktail
+    entityTypes: null
+    tags: [friend]
+    score: 2
+    color: "#5C6BC0"
+    
+  - name: Coffee
+    icon: coffee
+    entityTypes: null
+    tags: [friend]
+    score: 2
+    color: "#7F5539"
+
+# Default Tags Configuration
+# 
+# This defines the default tags that should be created in a new installation.
+# Tags can be assigned to entities and are used to categorize and filter.
+tags:
+  - name: family
+    icon: account-group
+    color: "#EC407A"
+    
+  - name: friend
+    icon: account
+    color: "#5C6BC0"
+    
+  - name: pet
+    icon: paw
+    color: "#8D6E63"
+    
+  - name: book
+    icon: book
+    color: "#26A69A" 

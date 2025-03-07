@@ -5,6 +5,7 @@ import { Provider as PaperProvider, DefaultTheme, ActivityIndicator, Text } from
 import { View, StyleSheet, Alert, Platform, Linking } from 'react-native';
 import AppNavigator from './src/navigation/AppNavigator';
 import { database } from './src/database/Database';
+import { InteractionConfigManager } from './src/utils/InteractionConfigManager';
 
 // Define the theme
 const theme = {
@@ -26,6 +27,12 @@ export default function App() {
       try {
         // Try connecting to the database to verify it works
         await database.getDatabaseInfo();
+        
+        // Initialize the interaction config manager
+        console.log('App: Initializing InteractionConfigManager...');
+        await InteractionConfigManager.init();
+        console.log('App: InteractionConfigManager initialized');
+        
         setIsLoading(false);
       } catch (err) {
         console.error('Failed to initialize app:', err);
