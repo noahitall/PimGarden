@@ -244,6 +244,12 @@ const EditEntityScreen: React.FC = () => {
             disabled={saving}
           />
           
+          {type === EntityType.GROUP && !isEditing && (
+            <Text style={styles.helperText}>
+              You can add people and topics as members after creating this group.
+            </Text>
+          )}
+          
           <View style={styles.buttonContainer}>
             <Button 
               mode="contained" 
@@ -375,9 +381,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   helperText: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 8,
+    marginTop: 8,
+    marginBottom: 16,
+    color: '#666666',
+    fontStyle: 'italic',
+    fontSize: 14,
   },
   checkboxContainer: {
     marginBottom: 16,

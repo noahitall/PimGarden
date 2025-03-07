@@ -1016,7 +1016,7 @@ const EntityDetailScreen: React.FC = () => {
               </View>
               <View style={styles.entityInfoRow}>
                 <View style={styles.scoreIndicator}>
-                  <Text style={styles.scoreValue}>{entity.interaction_score}</Text>
+                  <Text style={styles.scoreValue}>{Math.round(entity.interaction_score)}</Text>
                   <Text style={styles.scoreLabel}>Interaction Score</Text>
                 </View>
               </View>

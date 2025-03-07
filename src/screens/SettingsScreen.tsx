@@ -811,11 +811,6 @@ const SettingsScreen: React.FC = () => {
   
   return (
     <View style={styles.container}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => navigation.goBack()} />
-        <Appbar.Content title="Settings" />
-      </Appbar.Header>
-      
       <ScrollView style={styles.scrollView}>
         {/* Interaction Score Settings Card */}
         <Card style={styles.card}>
@@ -1490,6 +1485,7 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
     padding: 16,
+    paddingTop: 20,
   },
   card: {
     marginBottom: 16,
