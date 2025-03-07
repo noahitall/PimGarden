@@ -1734,6 +1734,86 @@ export class Database {
       const entityType = entity.type;
       console.log(`Entity type: ${entityType}`);
       
+      // For GROUP entities, get interaction types for all members
+      if (entityType === EntityType.GROUP) {
+        try {
+          // Get all group members
+          const groupMembers = await this.getGroupMembers(entityId);
+          console.log(`Found ${groupMembers.length} members for group ${entityId}`);
+          
+          if (groupMembers.length === 0) {
+            // If no members, just continue with default group handling
+            console.log(`Group ${entityId} has no members, using default group interaction types`);
+          } else {
+            // Get interaction types for each member and combine them
+            const allMemberTypes: InteractionType[] = [];
+            
+            for (const member of groupMembers) {
+              // Skip processing if member is also a group to prevent potential circular references
+              if (member.type === EntityType.GROUP) continue;
+              
+              // Get interaction types for this member
+              const memberTypes = await this.getEntityInteractionTypes(member.id);
+              console.log(`Got ${memberTypes.length} interaction types for group member ${member.id} (${member.name})`);
+              
+              // Add to our combined list
+              allMemberTypes.push(...memberTypes);
+            }
+            
+            // Also add the "General Contact" interaction type which is always available for groups
+            try {
+              const tableInfo = await this.db.getAllAsync("PRAGMA table_info(interaction_types)");
+              const hasColorColumn = tableInfo.some((column: any) => column.name === 'color');
+              
+              const columnSelection = hasColorColumn 
+                ? "id, name, tag_id, icon, entity_type, color, score" 
+                : "id, name, tag_id, icon, entity_type, score";
+              
+              const generalContactQuery = `
+                SELECT ${columnSelection}
+                FROM interaction_types
+                WHERE name = 'General Contact'
+                LIMIT 1
+              `;
+              
+              const generalContact = await this.db.getAllAsync(generalContactQuery);
+              if (generalContact && generalContact.length > 0) {
+                // Format the general contact interaction type with proper type casting
+                const generalContactItem = generalContact[0] as any;
+                const generalContactType = {
+                  id: generalContactItem.id,
+                  name: generalContactItem.name,
+                  tag_id: generalContactItem.tag_id,
+                  entity_type: generalContactItem.entity_type,
+                  icon: generalContactItem.icon || 'account-check',
+                  score: generalContactItem.score || 1,
+                  color: generalContactItem.color || '#666666'
+                } as InteractionType;
+                
+                allMemberTypes.push(generalContactType);
+              }
+            } catch (error) {
+              console.warn('Error getting General Contact interaction type for group:', error);
+            }
+            
+            // Remove duplicates by ID
+            const uniqueTypesMap = new Map<string, InteractionType>();
+            allMemberTypes.forEach(type => {
+              if (!uniqueTypesMap.has(type.id)) {
+                uniqueTypesMap.set(type.id, type);
+              }
+            });
+            
+            const unionTypes = Array.from(uniqueTypesMap.values());
+            console.log(`Combined to ${unionTypes.length} unique interaction types for group ${entityId}`);
+            return unionTypes;
+          }
+        } catch (error) {
+          console.error('Error getting group member interaction types:', error);
+          // Fall back to default handling if there's an error
+        }
+      }
+      
       // Get all tags associated with this entity
       const entityTags = await this.getEntityTags(entityId);
       console.log(`Entity has ${entityTags.length} tags`);
@@ -4739,6 +4819,65 @@ export class Database {
       
       const entityType = entity.type;
       console.log(`Entity type: ${entityType}`);
+      
+      // For GROUP entities, get interaction types for all members
+      if (entityType === EntityType.GROUP) {
+        try {
+          // Get all group members
+          const groupMembers = await this.getGroupMembers(entityId);
+          console.log(`Found ${groupMembers.length} members for group ${entityId}`);
+          
+          if (groupMembers.length === 0) {
+            // If no members, just return the default group interactions
+            const entityTags = await this.getEntityTags(entityId);
+            const entityTagNames = entityTags.map(tag => tag.name);
+            console.log(`Group has tags: ${entityTagNames.join(', ') || 'none'}`);
+            
+            // Get all interaction types
+            const allTypes = await this.getInteractionTypes();
+            
+            // Filter to only include General Contact and tag-specific interaction types
+            const filteredTypes = allTypes.filter(type => {
+              if (type.name === 'General Contact') return true;
+              if (type.tag_id && entityTags.some(tag => tag.id === type.tag_id)) return true;
+              return false;
+            });
+            
+            console.log(`Filtered to ${filteredTypes.length} interaction types for empty group ${entityId}`);
+            return filteredTypes;
+          }
+          
+          // Get interaction types for each member and combine them
+          const allMemberTypes: InteractionType[] = [];
+          
+          for (const member of groupMembers) {
+            // Skip processing if member is also a group to prevent potential circular references
+            if (member.type === EntityType.GROUP) continue;
+            
+            // Get interaction types for this member
+            const memberTypes = await this.getAllInteractionTypesForEntity(member.id);
+            console.log(`Got ${memberTypes.length} interaction types for group member ${member.id} (${member.name})`);
+            
+            // Add to our combined list
+            allMemberTypes.push(...memberTypes);
+          }
+          
+          // Remove duplicates by ID
+          const uniqueTypesMap = new Map<string, InteractionType>();
+          allMemberTypes.forEach(type => {
+            if (!uniqueTypesMap.has(type.id)) {
+              uniqueTypesMap.set(type.id, type);
+            }
+          });
+          
+          const unionTypes = Array.from(uniqueTypesMap.values());
+          console.log(`Combined to ${unionTypes.length} unique interaction types for group ${entityId}`);
+          return unionTypes;
+        } catch (error) {
+          console.error('Error getting group member interaction types:', error);
+          // Fall back to default handling if there's an error
+        }
+      }
       
       // Get all tags associated with this entity
       const entityTags = await this.getEntityTags(entityId);
