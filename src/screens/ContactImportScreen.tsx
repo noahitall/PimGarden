@@ -119,7 +119,7 @@ const ContactImportScreen: React.FC = () => {
       } else if (Platform.OS === 'android') {
         // For Android, we can open the specific permission settings
         const pkg = IntentLauncher.ActivityAction.APPLICATION_DETAILS_SETTINGS;
-        const data = 'package:com.contactmanager';
+        const data = 'package:com.pimgarden';
         await IntentLauncher.startActivityAsync(pkg, { data });
       }
       

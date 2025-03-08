@@ -237,8 +237,8 @@ const SettingsScreen: React.FC = () => {
   };
   
   // Show backup dialog and generate initial passphrase
-  const showBackupDialog = () => {
-    const newPassphrase = generatePassphrase();
+  const showBackupDialog = async () => {
+    const newPassphrase = await generatePassphrase();
     setGeneratedPassphrase(newPassphrase);
     setPassphrase('');
     setIsPassphraseValid(false);
@@ -261,8 +261,8 @@ const SettingsScreen: React.FC = () => {
   };
 
   // Generate a new passphrase for export
-  const handleGeneratePassphrase = () => {
-    const newPassphrase = generatePassphrase();
+  const handleGeneratePassphrase = async () => {
+    const newPassphrase = await generatePassphrase();
     setGeneratedPassphrase(newPassphrase);
     setPassphrase('');
     setIsPassphraseValid(false);
@@ -1288,10 +1288,25 @@ const SettingsScreen: React.FC = () => {
           <Card.Title title="About" />
           <Card.Content>
             <Text style={styles.aboutText}>
-              Contact Manager v1.0.0
+              PimGarden v1.0.0
             </Text>
             <Text style={styles.aboutText}>
-              A simple app to manage your contacts and interactions.
+              Developed by Noah Zitsman
+            </Text>
+            <Text style={styles.aboutText}>
+              Privacy-focused contact management for modern life.
+            </Text>
+            <Text style={[styles.aboutText, { marginTop: 8 }]}>
+              PimGarden respects your privacy:
+            </Text>
+            <Text style={[styles.aboutText, { marginLeft: 8 }]}>
+              • No spyware or tracking
+            </Text>
+            <Text style={[styles.aboutText, { marginLeft: 8 }]}>
+              • All data stays on your device
+            </Text>
+            <Text style={[styles.aboutText, { marginLeft: 8 }]}>
+              • Data only leaves your device when you explicitly export it
             </Text>
           </Card.Content>
         </Card>

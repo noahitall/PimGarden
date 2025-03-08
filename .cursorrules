@@ -76,9 +76,9 @@ rules:
 
 # Project Structure Information
 project:
-  name: "ContactManager"
+  name: "PimGarden"
   description: "A contact management application with offline-first architecture"
   git:
-    repository: "ContactManager"
+    repository: "PimGarden"
     location: "One subdirectory down from the main project folder called 'garden'"
-    path: "/Users/noah/ai/garden/ContactManager"
+    path: "/Users/noah/ai/garden/PimGarden"

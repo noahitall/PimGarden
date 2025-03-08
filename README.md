@@ -1,4 +1,4 @@
-# Offline-First Contact Manager
+# PimGarden: Privacy-First Contact Manager
 
 A mobile application for managing contacts that prioritizes privacy and offline functionality. The app stores contacts locally on your device and only connects to the network when explicitly requested for backup purposes.
 
@@ -106,8 +106,8 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/contact-manager.git
-   cd contact-manager
+   git clone https://github.com/yourusername/pimgarden.git
+   cd pimgarden
    ```
 
 2. Install dependencies:
