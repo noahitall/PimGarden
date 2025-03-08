@@ -6,6 +6,18 @@ import { View, StyleSheet, Alert, Platform, Linking } from 'react-native';
 import AppNavigator from './src/navigation/AppNavigator';
 import { database } from './src/database/Database';
 import { InteractionConfigManager } from './src/utils/InteractionConfigManager';
+import { BirthdayNotificationManager } from './src/utils/BirthdayNotificationManager';
+import * as Notifications from 'expo-notifications';
+import { registerBackgroundNotificationTask } from './src/services/NotificationTaskManager';
+
+// Configure how notifications appear when the app is in the foreground
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 // Define the theme
 const theme = {
@@ -32,6 +44,16 @@ export default function App() {
         console.log('App: Initializing InteractionConfigManager...');
         await InteractionConfigManager.init();
         console.log('App: InteractionConfigManager initialized');
+        
+        // Initialize birthday notifications
+        console.log('App: Initializing BirthdayNotificationManager...');
+        await BirthdayNotificationManager.init();
+        console.log('App: BirthdayNotificationManager initialized');
+        
+        // Register background task for notifications
+        console.log('App: Registering background notification task...');
+        await registerBackgroundNotificationTask();
+        console.log('App: Background notification task registered');
         
         setIsLoading(false);
       } catch (err) {

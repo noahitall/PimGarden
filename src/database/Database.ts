@@ -107,6 +107,7 @@ interface PersonEntity extends Entity {
   email?: string;
   address?: string;
   contactData?: ContactData;
+  birthday?: string; // ISO format date string for birthday
 }
 
 // Settings interface
@@ -118,6 +119,19 @@ export interface AppSettings {
 // Add a type definition for photos with base64 data
 interface EntityPhotoWithData extends EntityPhoto {
   base64Data?: string;
+}
+
+// BirthdayReminder interface
+export interface BirthdayReminder {
+  id: string;
+  entity_id: string;
+  birthday_date: string; // ISO format
+  reminder_time: string; // ISO format, represents time of day for reminder
+  days_in_advance: number; // Days before birthday to send reminder
+  is_enabled: boolean;
+  notification_id: string | null; // ID of scheduled notification
+  created_at: number;
+  updated_at: number;
 }
 
 // Database class to handle all database operations
@@ -230,21 +244,19 @@ export class Database {
   // Run database migrations to update schema
   private async runMigrations(): Promise<void> {
     try {
-      // Check current database version
-      const versionResult = await this.db.getFirstAsync<{ version: number }>(
-        'PRAGMA user_version'
-      );
-      
-      const currentVersion = versionResult?.version || 0;
+      // Get current database version
+      const versionResult = await this.db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+      let currentVersion = versionResult?.user_version || 0;
       
       console.log('Current database version:', currentVersion);
       
-      // Run migrations based on current version
+      // Run migrations in sequence
       if (currentVersion < 1) {
         console.log('Running migration 1: Create initial tables');
         await this.createInitialTables();
         console.log('Setting database version to 1');
         await this.db.runAsync(`PRAGMA user_version = 1`);
+        currentVersion = 1;
       }
       
       if (currentVersion < 2) {
@@ -252,61 +264,86 @@ export class Database {
         await this.addInteractionTypeField();
         console.log('Setting database version to 2');
         await this.db.runAsync(`PRAGMA user_version = 2`);
+        currentVersion = 2;
       }
       
       if (currentVersion < 3) {
         console.log('Running migration 3: Add tags support');
         await this.addTagsSupport();
+        await this.initDefaultTags();
         console.log('Setting database version to 3');
         await this.db.runAsync(`PRAGMA user_version = 3`);
+        currentVersion = 3;
       }
       
       if (currentVersion < 4) {
-        console.log('Running migration 4: Add multiple tags and entity type support');
-        await this.addMultipleTagsAndEntityTypeSupport();
+        console.log('Running migration 4: Add interaction types'); 
+        await this.initDefaultInteractionTypes();
         console.log('Setting database version to 4');
         await this.db.runAsync(`PRAGMA user_version = 4`);
+        currentVersion = 4;
       }
       
       if (currentVersion < 5) {
-        console.log('Running migration 5: Add favorites support');
-        await this.addFavoritesSupport();
+        console.log('Running migration 5: Add tag counter support');
+        await this.addTagCounterSupport();
         console.log('Setting database version to 5');
         await this.db.runAsync(`PRAGMA user_version = 5`);
+        currentVersion = 5;
       }
       
       if (currentVersion < 6) {
-        console.log('Running migration 6: Add interaction score support');
-        await this.addInteractionScoreSupport();
+        console.log('Running migration 6: Add interaction color support');
+        await this.addInteractionColorSupport();
         console.log('Setting database version to 6');
         await this.db.runAsync(`PRAGMA user_version = 6`);
+        currentVersion = 6;
       }
       
       if (currentVersion < 7) {
-        console.log('Running migration 7: Update interactions table');
-        await this.updateInteractionsTable();
+        console.log('Running migration 7: Add multiple tags and entity types to interaction types');
+        await this.addMultipleTagsAndEntityTypeSupport();
         console.log('Setting database version to 7');
         await this.db.runAsync(`PRAGMA user_version = 7`);
+        currentVersion = 7;
       }
       
       if (currentVersion < 8) {
-        console.log('Running migration 8: Add interaction color support');
-        await this.addInteractionColorSupport();
+        console.log('Running migration 8: Add favorites support');
+        await this.addFavoritesSupport();
         console.log('Setting database version to 8');
         await this.db.runAsync(`PRAGMA user_version = 8`);
+        currentVersion = 8;
       }
       
       if (currentVersion < 9) {
-        console.log('Running migration 9: Add tag counter support');
-        await this.addTagCounterSupport();
+        console.log('Running migration 9: Add interaction score support');
+        await this.addInteractionScoreSupport();
         console.log('Setting database version to 9');
         await this.db.runAsync(`PRAGMA user_version = 9`);
+        currentVersion = 9;
+      }
+      
+      if (currentVersion < 10) {
+        console.log('Running migration 10: Add birthday support');
+        await this.addBirthdaySupport();
+        console.log('Setting database version to 10');
+        await this.db.runAsync(`PRAGMA user_version = 10`);
+        currentVersion = 10;
+      }
+      
+      // Migration 11: Add birthday field to entities table
+      if (currentVersion < 11) {
+        console.log('Running migration 11: Add birthday field to entities table');
+        await this.addBirthdayField();
+        console.log('Setting database version to 11');
+        await this.db.runAsync(`PRAGMA user_version = 11`);
       }
       
       console.log('All migrations completed. Current version:', await this.db.getFirstAsync('PRAGMA user_version'));
-      
     } catch (error) {
       console.error('Error running migrations:', error);
+      throw error;
     }
   }
   
@@ -4921,6 +4958,364 @@ export class Database {
     } catch (error) {
       console.error('Error getting all interaction types for entity:', error);
       return [];
+    }
+  }
+
+  private async addBirthdaySupport(): Promise<void> {
+    // Check if the table already exists
+    const tableExists = await this.db.getFirstAsync(`
+      SELECT name FROM sqlite_master 
+      WHERE type='table' AND name='birthday_reminders'
+    `);
+    
+    if (!tableExists) {
+      // Create birthday_reminders table
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS birthday_reminders (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          birthday_date TEXT NOT NULL,
+          reminder_time TEXT NOT NULL,
+          days_in_advance INTEGER NOT NULL DEFAULT 1,
+          is_enabled INTEGER NOT NULL DEFAULT 1,
+          notification_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
+      `);
+      
+      console.log("Created birthday_reminders table");
+    }
+  }
+  
+  async setBirthdayForPerson(entityId: string, birthday: string | null): Promise<boolean> {
+    if (!entityId) {
+      return false;
+    }
+    
+    try {
+      const entity = await this.getEntityById(entityId);
+      if (!entity || entity.type !== EntityType.PERSON) {
+        return false;
+      }
+      
+      // Create a dedicated field for the birthday in the entity table
+      await this.db.runAsync(
+        `UPDATE entities SET birthday = ?, updated_at = ? WHERE id = ?`,
+        [birthday, Date.now(), entityId]
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error setting birthday:', error);
+      return false;
+    }
+  }
+  
+  async getBirthdayForPerson(entityId: string): Promise<string | null> {
+    if (!entityId) {
+      return null;
+    }
+    
+    try {
+      // Get the birthday directly from the entity table
+      const result = await this.db.getFirstAsync<{birthday?: string}>(
+        `SELECT birthday FROM entities WHERE id = ? AND type = ?`,
+        [entityId, EntityType.PERSON]
+      );
+      
+      return result?.birthday || null;
+    } catch (error) {
+      console.error('Error getting birthday:', error);
+      return null;
+    }
+  }
+  
+  async addBirthdayReminder(
+    entityId: string,
+    birthdayDate: string,
+    reminderTime: string,
+    daysInAdvance: number = 1,
+    isEnabled: boolean = true
+  ): Promise<string> {
+    if (!entityId || !birthdayDate || !reminderTime) {
+      throw new Error('Missing required parameters for birthday reminder');
+    }
+    
+    try {
+      const id = await this.generateId();
+      const now = Date.now();
+      
+      await this.db.runAsync(
+        `INSERT INTO birthday_reminders (
+          id, entity_id, birthday_date, reminder_time, 
+          days_in_advance, is_enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, entityId, birthdayDate, reminderTime, daysInAdvance, isEnabled ? 1 : 0, now, now]
+      );
+      
+      return id;
+    } catch (error) {
+      console.error('Error adding birthday reminder:', error);
+      throw error;
+    }
+  }
+  
+  async updateBirthdayReminder(
+    id: string,
+    updates: {
+      birthdayDate?: string;
+      reminderTime?: string;
+      daysInAdvance?: number;
+      isEnabled?: boolean;
+      notificationId?: string | null;
+    }
+  ): Promise<boolean> {
+    if (!id) {
+      return false;
+    }
+    
+    try {
+      const setParts = [];
+      const params = [];
+      
+      if (updates.birthdayDate !== undefined) {
+        setParts.push('birthday_date = ?');
+        params.push(updates.birthdayDate);
+      }
+      
+      if (updates.reminderTime !== undefined) {
+        setParts.push('reminder_time = ?');
+        params.push(updates.reminderTime);
+      }
+      
+      if (updates.daysInAdvance !== undefined) {
+        setParts.push('days_in_advance = ?');
+        params.push(updates.daysInAdvance);
+      }
+      
+      if (updates.isEnabled !== undefined) {
+        setParts.push('is_enabled = ?');
+        params.push(updates.isEnabled ? 1 : 0);
+      }
+      
+      if (updates.notificationId !== undefined) {
+        setParts.push('notification_id = ?');
+        params.push(updates.notificationId);
+      }
+      
+      setParts.push('updated_at = ?');
+      params.push(Date.now());
+      
+      params.push(id);
+      
+      await this.db.runAsync(
+        `UPDATE birthday_reminders SET ${setParts.join(', ')} WHERE id = ?`,
+        params
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error updating birthday reminder:', error);
+      return false;
+    }
+  }
+  
+  async getBirthdayReminder(id: string): Promise<BirthdayReminder | null> {
+    if (!id) {
+      return null;
+    }
+    
+    try {
+      const reminder = await this.db.getFirstAsync<BirthdayReminder>(
+        `SELECT * FROM birthday_reminders WHERE id = ?`,
+        [id]
+      );
+      
+      if (!reminder) {
+        return null;
+      }
+      
+      return {
+        ...reminder,
+        is_enabled: Boolean(reminder.is_enabled)
+      };
+    } catch (error) {
+      console.error('Error getting birthday reminder:', error);
+      return null;
+    }
+  }
+  
+  async getBirthdayReminderForEntity(entityId: string): Promise<BirthdayReminder | null> {
+    if (!entityId) {
+      return null;
+    }
+    
+    try {
+      const reminder = await this.db.getFirstAsync<BirthdayReminder>(
+        `SELECT * FROM birthday_reminders WHERE entity_id = ?`,
+        [entityId]
+      );
+      
+      if (!reminder) {
+        return null;
+      }
+      
+      return {
+        ...reminder,
+        is_enabled: Boolean(reminder.is_enabled)
+      };
+    } catch (error) {
+      console.error('Error getting entity birthday reminder:', error);
+      return null;
+    }
+  }
+  
+  async deleteBirthdayReminder(id: string): Promise<boolean> {
+    if (!id) {
+      return false;
+    }
+    
+    try {
+      await this.db.runAsync(
+        `DELETE FROM birthday_reminders WHERE id = ?`,
+        [id]
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error deleting birthday reminder:', error);
+      return false;
+    }
+  }
+  
+  async getAllBirthdayReminders(): Promise<BirthdayReminder[]> {
+    try {
+      const reminders = await this.db.getAllAsync<BirthdayReminder>(
+        `SELECT * FROM birthday_reminders ORDER BY birthday_date ASC`
+      );
+      
+      return reminders.map(reminder => ({
+        ...reminder,
+        is_enabled: Boolean(reminder.is_enabled)
+      }));
+    } catch (error) {
+      console.error('Error getting all birthday reminders:', error);
+      return [];
+    }
+  }
+  
+  async getUpcomingBirthdays(daysAhead: number = 30): Promise<{entity: Entity, birthday: string, daysUntil: number}[]> {
+    try {
+      const entities = await this.getAllEntities(EntityType.PERSON);
+      const result: {entity: Entity, birthday: string, daysUntil: number}[] = [];
+      const today = new Date();
+      
+      for (const entity of entities) {
+        const birthday = await this.getBirthdayForPerson(entity.id);
+        if (birthday) {
+          let birthdayDate: Date;
+          
+          // Handle birthday format without year (NOYR:MM-DD)
+          if (birthday.startsWith('NOYR:')) {
+            const monthDay = birthday.substring(5);
+            const [month, day] = monthDay.split('-').map(Number);
+            
+            // Create a temporary date with today's year
+            birthdayDate = new Date(today.getFullYear(), month - 1, day);
+          } else {
+            // Regular date with year
+            birthdayDate = new Date(birthday);
+          }
+          
+          const thisYearBirthday = new Date(
+            today.getFullYear(),
+            birthdayDate.getMonth(),
+            birthdayDate.getDate()
+          );
+          
+          // If the birthday has already passed this year, use next year
+          if (thisYearBirthday < today) {
+            thisYearBirthday.setFullYear(thisYearBirthday.getFullYear() + 1);
+          }
+          
+          // Calculate days until birthday
+          const daysUntil = Math.ceil((thisYearBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (daysUntil <= daysAhead) {
+            result.push({
+              entity,
+              birthday,
+              daysUntil
+            });
+          }
+        }
+      }
+      
+      // Sort by days until birthday
+      return result.sort((a, b) => a.daysUntil - b.daysUntil);
+    } catch (error) {
+      console.error('Error getting upcoming birthdays:', error);
+      return [];
+    }
+  }
+
+  private async addBirthdayField(): Promise<void> {
+    try {
+      // Check if the column already exists
+      const columnInfo = await this.db.getAllAsync(`PRAGMA table_info(entities)`);
+      const birthdayColumnExists = columnInfo.some((col: any) => col.name === 'birthday');
+      
+      if (!birthdayColumnExists) {
+        // Add the birthday column to the entities table
+        await this.db.execAsync(`
+          ALTER TABLE entities ADD COLUMN birthday TEXT;
+        `);
+        
+        console.log("Added birthday column to entities table");
+        
+        // Migrate existing birthday data from encrypted_data
+        interface EntityWithEncryptedData {
+          id: string;
+          encrypted_data: string | null;
+        }
+        
+        const entities = await this.db.getAllAsync<EntityWithEncryptedData>(
+          `SELECT id, encrypted_data 
+          FROM entities 
+          WHERE type = ? AND encrypted_data IS NOT NULL`,
+          [EntityType.PERSON]
+        );
+        
+        let migratedCount = 0;
+        
+        for (const entity of entities) {
+          try {
+            if (entity.encrypted_data) {
+              const decrypted = await this.decryptData(entity.encrypted_data);
+              const contactData = JSON.parse(decrypted) as any;
+              
+              if (contactData.birthday) {
+                await this.db.runAsync(
+                  `UPDATE entities SET birthday = ? WHERE id = ?`,
+                  [contactData.birthday, entity.id]
+                );
+                migratedCount++;
+              }
+            }
+          } catch (e) {
+            console.error(`Error migrating birthday for entity ${entity.id}:`, e);
+          }
+        }
+        
+        console.log(`Migrated ${migratedCount} birthday records from encrypted data`);
+      } else {
+        console.log("Birthday column already exists in entities table");
+      }
+    } catch (error) {
+      console.error('Error adding birthday field:', error);
+      throw error;
     }
   }
 }

@@ -12,6 +12,7 @@ import DebugScreen from '../screens/DebugScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import GroupMemberScreen from '../screens/GroupMemberScreen';
 import InteractionTypesScreen from '../screens/InteractionTypesScreen';
+import NotificationManagerScreen from '../screens/NotificationManagerScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -73,6 +74,11 @@ export default function AppNavigator() {
           name="InteractionTypes" 
           component={InteractionTypesScreen} 
           options={{ title: 'Interaction Types' }} 
+        />
+        <Stack.Screen 
+          name="NotificationManager" 
+          component={NotificationManagerScreen} 
+          options={{ title: 'Notification Manager' }} 
         />
       </Stack.Navigator>
     </NavigationContainer>

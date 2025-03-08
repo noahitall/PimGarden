@@ -6,10 +6,12 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Entity } from '../types';
 import { database, EntityType } from '../database/Database';
 import EntityCard from '../components/EntityCard';
+import UpcomingBirthdays from '../components/UpcomingBirthdays';
 import { isFeatureEnabledSync } from '../config/FeatureFlags';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { debounce } from 'lodash';
 import { eventEmitter } from '../utils/EventEmitter';
+import { notificationService } from '../services/NotificationService';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -35,6 +37,7 @@ const HomeScreen: React.FC = () => {
   const [keepFavoritesFirst, setKeepFavoritesFirst] = useState(true);
   const [isCompactMode, setIsCompactMode] = useState(false);
   const [refreshTimestamp, setRefreshTimestamp] = useState<number>(Date.now());
+  const [showBirthdays, setShowBirthdays] = useState(true);
   
   // Calculate number of columns based on screen width and view mode
   const screenWidth = Dimensions.get('window').width;
@@ -81,6 +84,11 @@ const HomeScreen: React.FC = () => {
         if (savedViewMode !== null) {
           setIsCompactMode(savedViewMode === 'true');
         }
+        
+        const savedShowBirthdays = await AsyncStorage.getItem('showBirthdays');
+        if (savedShowBirthdays !== null) {
+          setShowBirthdays(savedShowBirthdays === 'true');
+        }
       } catch (error) {
         console.error('Error loading preferences:', error);
       }
@@ -88,17 +96,36 @@ const HomeScreen: React.FC = () => {
     loadPreferences();
   }, []);
 
-  // Save preferences when they change
-  const savePreferences = async (newSortBy?: SortOption, newKeepFavoritesFirst?: boolean, newCompactMode?: boolean) => {
+  // Save user preferences
+  const savePreferences = async (
+    newSortBy?: SortOption, 
+    newKeepFavoritesFirst?: boolean, 
+    newCompactMode?: boolean,
+    newShowBirthdays?: boolean
+  ) => {
     try {
-      if (newSortBy) {
+      // Save sort preference
+      if (newSortBy !== undefined) {
         await AsyncStorage.setItem('sortBy', newSortBy);
+        setSortBy(newSortBy);
       }
+      
+      // Save favorites first preference
       if (newKeepFavoritesFirst !== undefined) {
         await AsyncStorage.setItem('keepFavoritesFirst', String(newKeepFavoritesFirst));
+        setKeepFavoritesFirst(newKeepFavoritesFirst);
       }
+      
+      // Save compact mode preference
       if (newCompactMode !== undefined) {
         await AsyncStorage.setItem('isCompactMode', String(newCompactMode));
+        setIsCompactMode(newCompactMode);
+      }
+      
+      // Save show birthdays preference
+      if (newShowBirthdays !== undefined) {
+        await AsyncStorage.setItem('showBirthdays', String(newShowBirthdays));
+        setShowBirthdays(newShowBirthdays);
       }
     } catch (error) {
       console.error('Error saving preferences:', error);
@@ -383,7 +410,90 @@ const HomeScreen: React.FC = () => {
     </View>
   );
   
-  // Set navigation options with settings button
+  // Get readable text for current sort option
+  const getSortByText = (): string => {
+    switch (sortBy) {
+      case 'name':
+        return 'Name (A-Z)';
+      case 'recent_interaction':
+        return 'Recent Interaction';
+      case 'updated':
+      default:
+        return 'Recently Updated';
+    }
+  };
+
+  // Get the next sort option in rotation
+  const getNextSortOption = (): SortOption => {
+    switch (sortBy) {
+      case 'updated':
+        return 'name';
+      case 'name':
+        return 'recent_interaction';
+      case 'recent_interaction':
+      default:
+        return 'updated';
+    }
+  };
+
+  // Computed sort by text
+  const sortByText = getSortByText();
+  
+  // Toggle birthdays section
+  const toggleBirthdaysSection = () => {
+    savePreferences(undefined, undefined, undefined, !showBirthdays);
+  };
+  
+  // Meatball menu for more options
+  const renderOptionsMenu = () => (
+    <Menu
+      visible={sortMenuVisible}
+      onDismiss={() => setSortMenuVisible(false)}
+      anchor={
+        <IconButton 
+          icon="dots-vertical" 
+          size={24} 
+          onPress={() => setSortMenuVisible(true)}
+        />
+      }
+    >
+      <Menu.Item
+        title={`Sort by ${sortByText}`}
+        onPress={() => {
+          const newSortBy = getNextSortOption();
+          savePreferences(newSortBy);
+          setSortMenuVisible(false);
+        }}
+        leadingIcon="sort"
+      />
+      <Menu.Item
+        title={`${keepFavoritesFirst ? 'Don\'t keep' : 'Keep'} favorites at top`}
+        onPress={() => {
+          savePreferences(undefined, !keepFavoritesFirst);
+          setSortMenuVisible(false);
+        }}
+        leadingIcon={keepFavoritesFirst ? 'star' : 'star-outline'}
+      />
+      <Menu.Item
+        title={`${isCompactMode ? 'Normal' : 'Compact'} view`}
+        onPress={() => {
+          savePreferences(undefined, undefined, !isCompactMode);
+          setSortMenuVisible(false);
+        }}
+        leadingIcon={isCompactMode ? 'view-grid-outline' : 'view-grid'}
+      />
+      <Menu.Item
+        title={`${showBirthdays ? 'Hide' : 'Show'} Birthdays`}
+        onPress={() => {
+          toggleBirthdaysSection();
+          setSortMenuVisible(false);
+        }}
+        leadingIcon={showBirthdays ? 'cake-variant' : 'cake-variant-outline'}
+      />
+    </Menu>
+  );
+  
+  // Set navigation options with search and settings buttons
   React.useLayoutEffect(() => {
     // Create debounced handlers to prevent double-tap issues
     const debouncedToggleSearch = debounce(() => {
@@ -417,121 +527,63 @@ const HomeScreen: React.FC = () => {
       ),
     });
   }, [navigation, searchVisible]);
-  
+
   return (
     <View style={styles.container}>
-      {/* Merge mode banner */}
-      {mergeMode && (
+      {/* Collapsible search header section */}
+      {searchVisible && (
+        <View style={styles.searchSection}>
+          <View style={styles.searchContainer}>
+            <Searchbar
+              placeholder="Search"
+              onChangeText={handleSearch}
+              value={searchQuery}
+              style={styles.searchBar}
+              icon="magnify"
+              onIconPress={() => {}}
+            />
+          </View>
+          {renderOptionsMenu()}
+        </View>
+      )}
+      
+      {/* Banner for merge mode */}
+      {mergeMode && sourceEntity && (
         <Banner
           visible={true}
-          icon="merge"
           actions={[
             {
               label: 'Cancel',
               onPress: cancelMergeMode,
             },
           ]}
+          icon="merge"
         >
-          {mergeMessage}
+          Select a target to merge "{sourceEntity.name}" into.
         </Banner>
       )}
       
-      {renderFilterChips()}
+      {/* Show upcoming birthdays section if enabled */}
+      {showBirthdays && <UpcomingBirthdays />}
       
-      <Animated.View style={[styles.searchBarContainer, { height: searchBarHeight }]}>
-        <View style={styles.searchRow}>
-          <Menu
-            visible={sortMenuVisible}
-            onDismiss={() => setSortMenuVisible(false)}
-            anchor={
-              <Appbar.Action
-                icon="sort"
-                onPress={() => setSortMenuVisible(true)}
-                style={styles.sortButton}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              />
-            }
-          >
-            <Menu.Item
-              title="Sort by Last Updated"
-              onPress={() => {
-                setSortBy('updated');
-                savePreferences('updated');
-                setSortMenuVisible(false);
-                loadEntities();
-              }}
-              leadingIcon={sortBy === 'updated' ? 'check' : undefined}
-            />
-            <Menu.Item
-              title="Sort by Name"
-              onPress={() => {
-                setSortBy('name');
-                savePreferences('name');
-                setSortMenuVisible(false);
-                loadEntities();
-              }}
-              leadingIcon={sortBy === 'name' ? 'check' : undefined}
-            />
-            <Menu.Item
-              title="Sort by Recent Interaction"
-              onPress={() => {
-                setSortBy('recent_interaction');
-                savePreferences('recent_interaction');
-                setSortMenuVisible(false);
-                loadEntities();
-              }}
-              leadingIcon={sortBy === 'recent_interaction' ? 'check' : undefined}
-            />
-            <Divider />
-            <Menu.Item
-              title="Keep Favorites First"
-              onPress={() => {
-                const newValue = !keepFavoritesFirst;
-                setKeepFavoritesFirst(newValue);
-                savePreferences(undefined, newValue);
-                setSortMenuVisible(false);
-                loadEntities();
-              }}
-              leadingIcon={keepFavoritesFirst ? 'check' : undefined}
-            />
-            <Menu.Item
-              title="Compact View"
-              onPress={() => {
-                const newValue = !isCompactMode;
-                setIsCompactMode(newValue);
-                savePreferences(undefined, undefined, newValue);
-                setSortMenuVisible(false);
-              }}
-              leadingIcon={isCompactMode ? 'check' : undefined}
-            />
-          </Menu>
-          <Searchbar
-            placeholder="Search by name, phone, email, address, or tags"
-            onChangeText={handleSearch}
-            value={searchQuery}
-            style={styles.searchBar}
-            autoCapitalize="none"
-          />
-        </View>
-      </Animated.View>
+      {/* Filter chips */}
+      {renderFilterChips()}
       
       <FlatList
         key={`grid-${numColumns}`}
         data={entities}
+        numColumns={numColumns}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
-        numColumns={numColumns}
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
+          <RefreshControl
+            refreshing={refreshing}
             onRefresh={loadEntities}
-            progressViewOffset={10} // Better positioning on Android
+            colors={['#6200ee']}
           />
         }
         onScroll={handleScroll}
-        scrollEventThrottle={8} // More responsive scroll detection (was 16)
-        overScrollMode="always" // Ensure overscroll works on Android
       />
       
       {/* Debug button (only show if feature flag is enabled) */}
@@ -572,6 +624,33 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  searchSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  searchContainer: {
+    flex: 1,
+    marginRight: 8,
+  },
+  searchBar: {
+    elevation: 0,
+    backgroundColor: '#f0f0f0',
+    height: 40,
+    borderRadius: 20,
+  },
+  headerButtonsContainer: {
+    flexDirection: 'row',
+  },
+  headerButton: {
+    margin: 0,
+    marginRight: 8,
+  },
   filterContainer: {
     flexDirection: 'row',
     padding: 8,
@@ -610,42 +689,11 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: '#6200ee',
   },
-  searchBarContainer: {
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    elevation: 4,
-    zIndex: 1,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  sortButton: {
-    margin: 0,
-    marginRight: 8,
-    padding: 8,
-  },
-  searchBar: {
-    flex: 1,
-    elevation: 0,
-    backgroundColor: '#fff',
-  },
   debugButton: {
     position: 'absolute',
     bottom: 80,
     right: 16,
     opacity: 0.7,
-  },
-  headerButtonsContainer: {
-    flexDirection: 'row',
-  },
-  headerButton: {
-    margin: 0,
-    marginRight: 8,
   },
 });
 

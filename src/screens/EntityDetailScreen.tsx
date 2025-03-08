@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, View, ScrollView, Image, Alert, TouchableOpacity, FlatList, Dimensions, TextInput, SafeAreaView, Pressable, Keyboard, TouchableWithoutFeedback } from 'react-native';
-import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons, Menu, Dialog, Portal, Modal } from 'react-native-paper';
+import { Text, Card, Button, IconButton, Divider, ActivityIndicator, List, Title, Paragraph, Chip, SegmentedButtons, Menu, Dialog, Portal, Modal, Switch } from 'react-native-paper';
+import Slider from '@react-native-community/slider';
 // @ts-ignore
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import { RootStackParamList, Entity, PhoneNumber, EmailAddress, PhysicalAddress } from '../types';
-import { database, EntityType, InteractionType } from '../database/Database';
+import { database, EntityType, InteractionType, BirthdayReminder } from '../database/Database';
 import { debounce } from 'lodash';
 import ContactFieldsSection from '../components/ContactFieldsSection';
 import SafeDateTimePicker from '../components/SafeDateTimePicker';
@@ -15,6 +16,9 @@ import GroupMembersSection from '../components/GroupMembersSection';
 import EditInteractionModal from '../components/EditInteractionModal';
 import { isFeatureEnabledSync } from '../config/FeatureFlags';
 import { eventEmitter } from '../utils/EventEmitter';
+import { notificationService } from '../services/NotificationService';
+import { format, parseISO, isValid } from 'date-fns';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 // Define the InteractionLog interface
 interface InteractionLog {
@@ -107,6 +111,37 @@ const EntityDetailScreen: React.FC = () => {
   const [editInteractionModalVisible, setEditInteractionModalVisible] = useState(false);
   const [selectedInteraction, setSelectedInteraction] = useState<InteractionLog | null>(null);
   
+  const [birthday, setBirthday] = useState<string | null>(null);
+  const [birthdayReminder, setBirthdayReminder] = useState<BirthdayReminder | null>(null);
+  const [reminderDialogVisible, setReminderDialogVisible] = useState(false);
+  const [reminderDaysInAdvance, setReminderDaysInAdvance] = useState(1);
+  const [reminderTime, setReminderTime] = useState(new Date());
+  const [birthdayPickerVisible, setBirthdayPickerVisible] = useState(false);
+  const [selectedBirthday, setSelectedBirthday] = useState<Date | undefined>(undefined);
+  const [reminderEnabled, setReminderEnabled] = useState(true);
+  
+  // State for birthday picker - moved from renderBirthdayPicker to component level to avoid hook errors
+  const defaultDate = selectedBirthday || new Date(new Date().getFullYear() - 30, 0, 1);
+  const [tempMonth, setTempMonth] = useState(defaultDate.getMonth());
+  const [tempDay, setTempDay] = useState(defaultDate.getDate() - 1); // 0-indexed for array
+  const [tempYear, setTempYear] = useState<number | null>(null); // Default to null (empty year)
+  
+  // Update temp values when selectedBirthday changes
+  useEffect(() => {
+    if (selectedBirthday) {
+      setTempMonth(selectedBirthday.getMonth());
+      setTempDay(selectedBirthday.getDate() - 1);
+      // Only set year if it seems intentionally set (not default year)
+      const currentYear = new Date().getFullYear();
+      if (selectedBirthday.getFullYear() !== currentYear && 
+          selectedBirthday.getFullYear() !== currentYear - 30) {
+        setTempYear(selectedBirthday.getFullYear());
+      } else {
+        setTempYear(null); // Reset to empty if it appears to be a default year
+      }
+    }
+  }, [selectedBirthday]);
+  
   // Load entity data
   useEffect(() => {
     loadEntityData();
@@ -177,14 +212,31 @@ const EntityDetailScreen: React.FC = () => {
         const photoCount = await database.getEntityPhotoCount(data.id);
         setHasMorePhotos(photoCount > photos.length);
         
-        // Load contact data for person entities
+        // Load person data for person entities
         if (data.type === EntityType.PERSON) {
           await loadContactData(data.id);
+          
+          // Simply get the birthday directly without separate function
+          const birthdayDate = await database.getBirthdayForPerson(data.id);
+          setBirthday(birthdayDate);
+          if (birthdayDate) {
+            setSelectedBirthday(new Date(birthdayDate));
+          }
+          
+          // Load birthday reminder if there is one
+          const reminder = await database.getBirthdayReminderForEntity(data.id);
+          setBirthdayReminder(reminder);
+          if (reminder) {
+            setReminderDaysInAdvance(reminder.days_in_advance);
+            setReminderEnabled(reminder.is_enabled);
+            if (reminder.reminder_time) {
+              setReminderTime(new Date(reminder.reminder_time));
+            }
+          }
         }
       }
     } catch (error) {
       console.error('Error loading entity data:', error);
-      Alert.alert('Error', 'Failed to load entity data');
     } finally {
       setLoading(false);
     }
@@ -871,7 +923,6 @@ const EntityDetailScreen: React.FC = () => {
         emailAddresses: [],
         physicalAddresses: []
       });
-      // Don't show error alert to user as it would disrupt their experience
     }
   };
 
@@ -954,6 +1005,434 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
 
+  // Initialize notification service
+  useEffect(() => {
+    notificationService.init();
+  }, []);
+  
+  // Handle birthday change with a more flexible approach for birth years
+  const handleBirthdayChange = (event: any, date?: Date) => {
+    setBirthdayPickerVisible(false);
+    if (date && event.type !== 'dismissed') {
+      setSelectedBirthday(date);
+      saveBirthday(date, false);
+    }
+  };
+
+  // Custom month-day picker modal for birthdays
+  const renderBirthdayPicker = () => {
+    // Generate month options (1-12)
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    
+    // Generate day options (1-31)
+    const days = Array.from({ length: 31 }, (_, i) => i + 1);
+    
+    // Generate year options (100 years in the past to today)
+    const currentYear = new Date().getFullYear();
+    const years = Array.from({ length: 100 }, (_, i) => currentYear - 99 + i);
+    
+    return (
+      <Portal>
+        <Modal 
+          visible={birthdayPickerVisible} 
+          onDismiss={() => setBirthdayPickerVisible(false)}
+          contentContainerStyle={styles.birthdayModal}
+        >
+          <Card>
+            <Card.Title title="Select Birthday" />
+            <Card.Content>
+              <Text style={styles.birthdayPickerLabel}>For birthdays, we only need month and day. Year is optional.</Text>
+              
+              <View style={styles.birthdayPickerContainer}>
+                <View style={styles.birthdayPickerColumn}>
+                  <Text style={styles.birthdayPickerHeader}>Month</Text>
+                  <ScrollView 
+                    style={styles.birthdayPickerScroll}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    {months.map((month, index) => (
+                      <TouchableOpacity
+                        key={`month-${index}`}
+                        style={[
+                          styles.birthdayPickerItem,
+                          tempMonth === index && styles.birthdayPickerItemSelected
+                        ]}
+                        onPress={() => setTempMonth(index)}
+                      >
+                        <Text 
+                          style={[
+                            styles.birthdayPickerItemText,
+                            tempMonth === index && styles.birthdayPickerItemTextSelected
+                          ]}
+                        >
+                          {month}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+                
+                <View style={styles.birthdayPickerColumn}>
+                  <Text style={styles.birthdayPickerHeader}>Day</Text>
+                  <ScrollView 
+                    style={styles.birthdayPickerScroll}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    {days.map((day, index) => (
+                      <TouchableOpacity
+                        key={`day-${day}`}
+                        style={[
+                          styles.birthdayPickerItem,
+                          tempDay === index && styles.birthdayPickerItemSelected
+                        ]}
+                        onPress={() => setTempDay(index)}
+                      >
+                        <Text 
+                          style={[
+                            styles.birthdayPickerItemText,
+                            tempDay === index && styles.birthdayPickerItemTextSelected
+                          ]}
+                        >
+                          {day}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+                
+                <View style={styles.birthdayPickerColumn}>
+                  <Text style={styles.birthdayPickerHeader}>Year (Optional)</Text>
+                  <ScrollView 
+                    style={styles.birthdayPickerScroll}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    <TouchableOpacity
+                      key="year-none"
+                      style={[
+                        styles.birthdayPickerItem,
+                        tempYear === null && styles.birthdayPickerItemSelected
+                      ]}
+                      onPress={() => setTempYear(null)}
+                    >
+                      <Text 
+                        style={[
+                          styles.birthdayPickerItemText,
+                          tempYear === null && styles.birthdayPickerItemTextSelected
+                        ]}
+                      >
+                        Not specified
+                      </Text>
+                    </TouchableOpacity>
+                    {years.map((year) => (
+                      <TouchableOpacity
+                        key={`year-${year}`}
+                        style={[
+                          styles.birthdayPickerItem,
+                          tempYear === year && styles.birthdayPickerItemSelected
+                        ]}
+                        onPress={() => setTempYear(year)}
+                      >
+                        <Text 
+                          style={[
+                            styles.birthdayPickerItemText,
+                            tempYear === year && styles.birthdayPickerItemTextSelected
+                          ]}
+                        >
+                          {year}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </View>
+              
+              <View style={styles.birthdayPickerPreview}>
+                <Text style={styles.birthdayPickerPreviewText}>
+                  {months[tempMonth]} {days[tempDay]}{tempYear ? `, ${tempYear}` : ''}
+                </Text>
+              </View>
+              
+              <View style={styles.birthdayPickerButtons}>
+                <Button onPress={() => setBirthdayPickerVisible(false)}>Cancel</Button>
+                <Button 
+                  mode="contained"
+                  onPress={() => {
+                    // Use current year as placeholder if year is not specified
+                    // This keeps the date format valid while focusing on month/day
+                    const yearToUse = tempYear || new Date().getFullYear();
+                    const newDate = new Date(yearToUse, tempMonth, days[tempDay]);
+                    setSelectedBirthday(newDate);
+                    saveBirthday(newDate, tempYear === null);
+                    setBirthdayPickerVisible(false);
+                  }}
+                >
+                  Save
+                </Button>
+              </View>
+            </Card.Content>
+          </Card>
+        </Modal>
+      </Portal>
+    );
+  };
+  
+  // Save birthday data with option to ignore year
+  const saveBirthday = async (date: Date | null, ignoreYear: boolean = false) => {
+    if (!entity) return;
+    
+    try {
+      let isoDate = date ? date.toISOString() : null;
+      
+      // If we want to ignore the year, we store it with special format: MM-DD
+      // This allows us to focus just on the month and day
+      if (ignoreYear && date) {
+        // Extract just month and day (MM-DD)
+        const monthDay = format(date, 'MM-dd');
+        // Store with special prefix to indicate no year
+        isoDate = `NOYR:${monthDay}`;
+      }
+      
+      const result = await database.setBirthdayForPerson(entity.id, isoDate);
+      
+      if (result) {
+        setBirthday(isoDate);
+        
+        // Show feedback on success
+        Alert.alert(
+          "Birthday Saved",
+          "The birthday has been saved successfully."
+        );
+      } else {
+        Alert.alert(
+          "Error",
+          "Failed to save birthday. Please try again."
+        );
+      }
+    } catch (error) {
+      console.error('Error saving birthday:', error);
+      Alert.alert(
+        "Error",
+        "Failed to save birthday. Please try again."
+      );
+    }
+  };
+  
+  // Format birthday for display
+  const formatBirthday = (dateString: string | null) => {
+    console.log(`[DEBUG UI] Formatting birthday: ${dateString}`);
+    if (!dateString) return 'Not set';
+    
+    try {
+      // Check if this is a special no-year format
+      if (dateString.startsWith('NOYR:')) {
+        // Extract the MM-DD part
+        const monthDay = dateString.substring(5);
+        const [month, day] = monthDay.split('-').map(Number);
+        
+        // Create a temporary date to format (year doesn't matter)
+        const tempDate = new Date();
+        tempDate.setMonth(month - 1); // Month is 0-indexed in JS
+        tempDate.setDate(day);
+        
+        // Format the date without year
+        return format(tempDate, 'MMMM d');
+      }
+      
+      // Regular date with year
+      const date = new Date(dateString);
+      const formatted = format(date, 'MMMM d, yyyy');
+      console.log(`[DEBUG UI] Formatted birthday: ${formatted}`);
+      return formatted;
+    } catch (error) {
+      console.error(`[DEBUG UI] Error formatting birthday:`, error);
+      return 'Invalid date';
+    }
+  };
+
+  // Handle reminder dialog
+  const showReminderDialog = () => {
+    if (!birthday) {
+      // Ask to set birthday first if not set
+      Alert.alert(
+        'Birthday Required',
+        'Please set a birthday first before setting up a reminder.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    setReminderDialogVisible(true);
+  };
+  
+  // Handle reminder delete
+  const handleDeleteReminder = async () => {
+    if (!birthdayReminder) return;
+    
+    try {
+      if (birthdayReminder.notification_id) {
+        await notificationService.cancelNotification(birthdayReminder.notification_id);
+      }
+      
+      await database.deleteBirthdayReminder(birthdayReminder.id);
+      setBirthdayReminder(null);
+      setReminderDialogVisible(false);
+    } catch (error) {
+      console.error('Error deleting reminder:', error);
+    }
+  };
+  
+  // Render birthday section (only for persons)
+  const renderBirthdaySection = () => {
+    if (!entity || entity.type !== EntityType.PERSON) return null;
+    
+    return (
+      <Card style={styles.sectionCard}>
+        <Card.Title title="Birthday & Reminders" />
+        <Card.Content>
+          <List.Item
+            title="Birthday"
+            description={formatBirthday(birthday)}
+            right={props => <IconButton {...props} icon="calendar" onPress={() => setBirthdayPickerVisible(true)} />}
+          />
+          
+          {birthday && (
+            <List.Item
+              title="Birthday Reminder"
+              description={birthdayReminder 
+                ? `${reminderEnabled ? 'Enabled' : 'Disabled'}, ${birthdayReminder.days_in_advance} day(s) before`
+                : 'Not set'}
+              right={props => <IconButton {...props} icon="bell" onPress={showReminderDialog} />}
+            />
+          )}
+        </Card.Content>
+        
+        {/* Birthday Picker - Custom month/day scroller */}
+        {renderBirthdayPicker()}
+        
+        {/* Reminder Dialog */}
+        <Portal>
+          <Dialog visible={reminderDialogVisible} onDismiss={() => setReminderDialogVisible(false)}>
+            <Dialog.Title>Birthday Reminder</Dialog.Title>
+            <Dialog.Content>
+              <Paragraph style={styles.reminderInfo}>
+                Reminders will be sent annually at 5:00 PM Eastern Time.
+              </Paragraph>
+              
+              <List.Item
+                title="Enable Reminder"
+                right={props => (
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Switch value={reminderEnabled} onValueChange={setReminderEnabled} />
+                  </View>
+                )}
+              />
+              
+              <List.Item
+                title="Days Before Birthday"
+                description={`${reminderDaysInAdvance} day(s) before`}
+                disabled={!reminderEnabled}
+                right={props => (
+                  <View style={{ width: 100, marginRight: 8 }}>
+                    <Slider
+                      style={{ width: 100 }}
+                      value={reminderDaysInAdvance}
+                      onValueChange={(value: number) => setReminderDaysInAdvance(value)}
+                      minimumValue={1}
+                      maximumValue={14}
+                      step={1}
+                      disabled={!reminderEnabled}
+                    />
+                  </View>
+                )}
+              />
+            </Dialog.Content>
+            <Dialog.Actions>
+              {birthdayReminder && (
+                <Button color="red" onPress={handleDeleteReminder}>Delete</Button>
+              )}
+              <Button onPress={() => setReminderDialogVisible(false)}>Cancel</Button>
+              <Button onPress={saveReminder}>Save</Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+      </Card>
+    );
+  };
+
+  // Save birthday reminder
+  const saveReminder = async () => {
+    if (!entity || !birthday) return;
+    
+    try {
+      // Use 5:00 PM as the standard time for all reminders
+      const standardReminderTime = new Date();
+      standardReminderTime.setHours(17, 0, 0, 0);
+      const reminderTimeIso = standardReminderTime.toISOString();
+      
+      if (birthdayReminder) {
+        await database.updateBirthdayReminder(birthdayReminder.id, {
+          birthdayDate: birthday,
+          reminderTime: reminderTimeIso,
+          daysInAdvance: reminderDaysInAdvance,
+          isEnabled: reminderEnabled
+        });
+      } else {
+        const reminderId = await database.addBirthdayReminder(
+          entity.id,
+          birthday,
+          reminderTimeIso,
+          reminderDaysInAdvance,
+          reminderEnabled
+        );
+        
+        const newReminder = await database.getBirthdayReminder(reminderId);
+        setBirthdayReminder(newReminder);
+      }
+      
+      // Schedule notification
+      if (reminderEnabled) {
+        const notificationId = await notificationService.scheduleBirthdayReminder({
+          id: birthdayReminder?.notification_id || '',
+          entityId: entity.id,
+          entityName: entity.name,
+          birthdayDate: birthday,
+          reminderTime: reminderTimeIso,
+          daysInAdvance: reminderDaysInAdvance,
+          isEnabled: reminderEnabled
+        });
+        
+        if (birthdayReminder) {
+          await database.updateBirthdayReminder(birthdayReminder.id, {
+            notificationId: notificationId
+          });
+        }
+      } else if (birthdayReminder?.notification_id) {
+        // Cancel existing notification if reminder is disabled
+        await notificationService.cancelNotification(birthdayReminder.notification_id);
+        await database.updateBirthdayReminder(birthdayReminder.id, {
+          notificationId: null
+        });
+      }
+      
+      setReminderDialogVisible(false);
+      
+      // Show confirmation
+      Alert.alert(
+        "Reminder Saved",
+        "The birthday reminder has been saved successfully."
+      );
+    } catch (error) {
+      console.error('Error saving reminder:', error);
+      Alert.alert(
+        "Error",
+        "Failed to save reminder. Please try again."
+      );
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1028,9 +1507,6 @@ const EntityDetailScreen: React.FC = () => {
                   <Text style={styles.placeholderText}>{entity.name.charAt(0)}</Text>
                 </View>
               )}
-              <View style={styles.editImageBadge}>
-                <IconButton icon="camera" size={16} style={styles.editImageIcon} />
-              </View>
             </TouchableOpacity>
             
             <View style={styles.headerInfo}>
@@ -1219,18 +1695,6 @@ const EntityDetailScreen: React.FC = () => {
                     {photos.map(item => renderPhotoItem(item))}
                   </View>
                 )}
-                
-                {hasMorePhotos && (
-                  <Button 
-                    mode="outlined" 
-                    onPress={handleViewMorePhotos}
-                    disabled={loadingPhotos}
-                    loading={loadingPhotos}
-                    style={styles.viewMoreButton}
-                  >
-                    View More
-                  </Button>
-                )}
               </Card.Content>
             </Card>
           )}
@@ -1388,6 +1852,9 @@ const EntityDetailScreen: React.FC = () => {
             </Dialog.Actions>
           </Dialog>
         </Portal>
+        
+        {/* Add birthday section for person entities */}
+        {entity?.type === EntityType.PERSON && renderBirthdaySection()}
       </ScrollView>
       
       {/* Edit Interaction Modal */}
@@ -1893,6 +2360,85 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#666',
+  },
+  datePickerCard: {
+    marginTop: 10,
+    marginHorizontal: 16,
+  },
+  datePickerContainer: {
+    paddingVertical: 10,
+  },
+  datePickerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  birthdayModal: {
+    margin: 20,
+    padding: 0,
+  },
+  birthdayPickerLabel: {
+    textAlign: 'center',
+    marginBottom: 10,
+    fontStyle: 'italic',
+    color: '#666',
+  },
+  birthdayPickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  birthdayPickerColumn: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  birthdayPickerHeader: {
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  birthdayPickerScroll: {
+    height: 200,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+  },
+  birthdayPickerItem: {
+    padding: 10,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  birthdayPickerItemSelected: {
+    backgroundColor: '#e0f7fa',
+    borderLeftWidth: 3,
+    borderLeftColor: '#6200ee',
+  },
+  birthdayPickerItemText: {
+    fontSize: 16,
+  },
+  birthdayPickerItemTextSelected: {
+    color: '#6200ee',
+    fontWeight: 'bold',
+  },
+  birthdayPickerPreview: {
+    backgroundColor: '#f0f0f0',
+    padding: 12,
+    borderRadius: 8,
+    marginVertical: 10,
+  },
+  birthdayPickerPreviewText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  birthdayPickerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  reminderInfo: {
+    fontStyle: 'italic',
+    marginBottom: 10,
   },
 });
 

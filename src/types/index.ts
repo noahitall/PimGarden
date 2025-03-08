@@ -44,6 +44,7 @@ export interface ContactData {
   phoneNumbers: PhoneNumber[];
   emailAddresses: EmailAddress[];
   physicalAddresses: PhysicalAddress[];
+  birthday?: string; // ISO format date string for birthday
 }
 
 // Person entity
@@ -79,4 +80,5 @@ export type RootStackParamList = {
   Settings: undefined;
   GroupMembers: { groupId: string; groupName: string };
   InteractionTypes: undefined;
+  NotificationManager: undefined;
 }; 

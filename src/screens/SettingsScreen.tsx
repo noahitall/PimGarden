@@ -868,6 +868,18 @@ const SettingsScreen: React.FC = () => {
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
+        {/* Notification Section */}
+        <List.Section>
+          <List.Subheader>Notifications</List.Subheader>
+          <List.Item
+            title="Notification Manager"
+            description="View and manage scheduled notifications"
+            left={props => <List.Icon {...props} icon="bell-outline" />}
+            right={props => <List.Icon {...props} icon="chevron-right" />}
+            onPress={() => navigation.navigate('NotificationManager')}
+          />
+        </List.Section>
+        
         {/* Interaction Score Settings Card */}
         <Card style={styles.card}>
           <Card.Title 
