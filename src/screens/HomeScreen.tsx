@@ -319,15 +319,32 @@ const HomeScreen: React.FC = () => {
   
   // Toggle search bar visibility
   const toggleSearchBar = (show: boolean) => {
-    setSearchVisible(show);
-    Animated.timing(searchBarHeight, {
-      toValue: show ? 60 : 0,
-      duration: 250, // Slightly longer for smoother animation
-      useNativeDriver: false,
-    }).start();
+    // Only proceed if there's an actual change
+    if (show === searchVisible) return;
     
-    if (!show) {
-      setSearchQuery('');
+    // If showing, first set visibility to true, then animate height
+    if (show) {
+      setSearchVisible(true);
+      // Then start animation
+      Animated.timing(searchBarHeight, {
+        toValue: 60,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
+    } else {
+      // If hiding, animate first, then hide the component
+      Animated.timing(searchBarHeight, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: false,
+      }).start(() => {
+        // Only set visibility to false after animation completes
+        setSearchVisible(false);
+        // Clear search when hiding
+        setSearchQuery('');
+        // Ensure menu is closed
+        setSortMenuVisible(false);
+      });
     }
   };
   
@@ -339,11 +356,9 @@ const HomeScreen: React.FC = () => {
   // Handle scroll events to show/hide search bar
   const handleScroll = (event: any) => {
     const scrollY = event.nativeEvent.contentOffset.y;
-    // More sensitive thresholds for Android pull-down
-    if (scrollY < -15 && !searchVisible) {
+    // Only show search bar when user pulls down significantly
+    if (scrollY < -50 && !searchVisible) {
       toggleSearchBar(true);
-    } else if (scrollY > 40 && searchVisible) {
-      toggleSearchBar(false);
     }
   };
   
@@ -530,9 +545,9 @@ const HomeScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {/* Collapsible search header section */}
+      {/* Only render search section when searchVisible is true to ensure it's hidden by default */}
       {searchVisible && (
-        <View style={styles.searchSection}>
+        <Animated.View style={[styles.searchSection, { height: searchBarHeight, overflow: 'hidden' }]}>
           <View style={styles.searchContainer}>
             <Searchbar
               placeholder="Search"
@@ -544,7 +559,7 @@ const HomeScreen: React.FC = () => {
             />
           </View>
           {renderOptionsMenu()}
-        </View>
+        </Animated.View>
       )}
       
       {/* Banner for merge mode */}
@@ -629,7 +644,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
@@ -637,6 +651,7 @@ const styles = StyleSheet.create({
   searchContainer: {
     flex: 1,
     marginRight: 8,
+    justifyContent: 'center',
   },
   searchBar: {
     elevation: 0,
