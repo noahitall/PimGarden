@@ -15,18 +15,27 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async () => {
     const reminders = await database.getAllBirthdayReminders();
     const enabledReminders = reminders.filter(r => r.is_enabled);
     
+    console.log(`Found ${enabledReminders.length} enabled birthday reminders to check`);
+    
     // Check if any notifications need to be rescheduled
+    let rescheduled = 0;
     for (const reminder of enabledReminders) {
       // Get entity and birthday info
       const entity = await database.getEntityById(reminder.entity_id);
-      if (!entity) continue;
+      if (!entity) {
+        console.log(`Entity ${reminder.entity_id} not found, skipping reminder`);
+        continue;
+      }
       
       const birthday = await database.getBirthdayForPerson(reminder.entity_id);
-      if (!birthday) continue;
+      if (!birthday) {
+        console.log(`No birthday set for ${entity.name}, skipping reminder`);
+        continue;
+      }
       
       // Reschedule the notification - this will ensure notifications stay scheduled
       // even when the app has been closed for an extended period
-      await notificationService.scheduleBirthdayReminder({
+      const notificationId = await notificationService.scheduleBirthdayReminder({
         id: reminder.notification_id || '',
         entityId: reminder.entity_id,
         entityName: entity.name,
@@ -35,9 +44,13 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async () => {
         daysInAdvance: reminder.days_in_advance,
         isEnabled: true
       });
+      
+      if (notificationId) {
+        rescheduled++;
+      }
     }
     
-    console.log('Background notification task completed');
+    console.log(`Background notification task completed. Rescheduled ${rescheduled} notifications.`);
     return BackgroundFetch.BackgroundFetchResult.NewData;
   } catch (error) {
     console.error('Error in background notification task:', error);

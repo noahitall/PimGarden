@@ -175,6 +175,15 @@ class NotificationService {
       nextBirthday = addYears(nextBirthday, 1);
     }
 
+    // Ensure we're not scheduling more than 1 year in advance
+    const oneYearFromNow = new Date();
+    oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+    
+    if (nextBirthday > oneYearFromNow) {
+      console.log(`Birthday for ${reminder.entityName} is more than 1 year away. Not scheduling until later.`);
+      return '';
+    }
+
     // Calculate reminder date (days in advance)
     const reminderDate = new Date(nextBirthday);
     reminderDate.setDate(reminderDate.getDate() - reminder.daysInAdvance);
@@ -189,8 +198,9 @@ class NotificationService {
       if (reminderDate.getDate() === now.getDate()) {
         reminderTime.setDate(reminderTime.getDate() + 1);
       } else {
-        // Otherwise, set it for next year
-        reminderTime.setFullYear(reminderTime.getFullYear() + 1);
+        // Skip scheduling if it would be more than a year away
+        console.log(`Reminder time for ${reminder.entityName}'s birthday is in the past and would be scheduled for next year.`);
+        return '';
       }
     }
 
