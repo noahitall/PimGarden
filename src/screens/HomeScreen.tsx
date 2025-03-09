@@ -42,6 +42,7 @@ const HomeScreen: React.FC = () => {
   const [mergeDialogVisible, setMergeDialogVisible] = useState(false);
   const [targetEntity, setTargetEntity] = useState<Entity | null>(null);
   const [loadingMerge, setLoadingMerge] = useState(false);
+  const [menuAnchorPosition, setMenuAnchorPosition] = useState({ x: 0, y: 0 });
   const windowWidth = Dimensions.get('window').width;
   const searchInputRef = useRef<any>(null);
   const searchBarHeight = useRef(new Animated.Value(0)).current;
@@ -509,8 +510,16 @@ const HomeScreen: React.FC = () => {
     <Menu
       visible={menuVisible}
       onDismiss={() => setMenuVisible(false)}
-      anchor={{ x: windowWidth - 56, y: 56 }}
+      anchor={menuAnchorPosition}
     >
+      <Menu.Item
+        onPress={() => {
+          toggleSearchBar(!searchVisible);
+          dismissMenuWithDelay();
+        }}
+        title={`${searchVisible ? 'Hide' : 'Show'} Search Bar`}
+        leadingIcon={searchVisible ? 'magnify-off' : 'magnify'}
+      />
       <Menu.Item
         onPress={() => {
           const newSortBy = getNextSortOption();
@@ -552,24 +561,26 @@ const HomeScreen: React.FC = () => {
     </Menu>
   );
   
-  // Set navigation options with search and settings buttons
+  // Set navigation options with settings and dots menu buttons
   React.useLayoutEffect(() => {
     // Create debounced handlers to prevent double-tap issues
-    const debouncedToggleSearch = debounce(() => {
-      toggleSearchBar(!searchVisible);
-    }, 300, { leading: true, trailing: false });
-    
     const debouncedNavigateToSettings = debounce(() => {
       navigation.navigate('Settings');
+    }, 300, { leading: true, trailing: false });
+    
+    const debouncedOpenMenu = debounce(() => {
+      // Position the menu under the three-dot icon in the header
+      setMenuAnchorPosition({ x: windowWidth - 56, y: 56 });
+      setMenuVisible(true);
     }, 300, { leading: true, trailing: false });
 
     navigation.setOptions({
       headerRight: () => (
         <View style={styles.headerButtonsContainer}>
           <Appbar.Action 
-            icon="magnify" 
+            icon="dots-vertical" 
             color="white" 
-            onPress={debouncedToggleSearch}
+            onPress={debouncedOpenMenu}
             style={styles.headerButton}
             // Add hitSlop to increase touch area
             hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
@@ -585,7 +596,7 @@ const HomeScreen: React.FC = () => {
         </View>
       ),
     });
-  }, [navigation, searchVisible]);
+  }, [navigation, searchVisible, menuVisible]);
 
   // Handle new entity creation
   const handleAddEntity = () => {
@@ -633,7 +644,7 @@ const HomeScreen: React.FC = () => {
   const handleLoadMore = () => {
     setCurrentPage(currentPage + 1);
   };
-  
+
   // Render footer with Load More button
   const renderFooter = () => {
     if (!hasMoreToLoad) return null;
@@ -664,7 +675,7 @@ const HomeScreen: React.FC = () => {
               style={styles.searchBar}
               inputStyle={{ 
                 textAlignVertical: 'center', 
-                height: 40, 
+                height: 30, 
                 paddingTop: 0,
                 paddingBottom: 0,
                 margin: 0
@@ -794,7 +805,7 @@ const styles = StyleSheet.create({
     flex: 1,
     elevation: 0,
     backgroundColor: '#f0f0f0',
-    height: 40,
+    height: 50,
     borderRadius: 20,
     justifyContent: 'center',
     paddingVertical: 0,
