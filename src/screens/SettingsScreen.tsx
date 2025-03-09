@@ -1018,7 +1018,7 @@ const SettingsScreen: React.FC = () => {
           <Text style={{ fontWeight: 'bold', marginBottom: 8 }}>
             Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
                         tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
-                        tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
+                        tempScoreSettings.decayPreset === 'standard' ? 'Middle' :
                         'Fast'}
           </Text>
           
@@ -1095,7 +1095,7 @@ const SettingsScreen: React.FC = () => {
               <Text style={[
                 { fontSize: 14, fontWeight: 'bold' },
                 tempScoreSettings.decayPreset === 'standard' ? { color: '#2196F3' } : null
-              ]}>Standard</Text>
+              ]}>Middle</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -1170,7 +1170,7 @@ const SettingsScreen: React.FC = () => {
             title="Interaction Score Decay"
             description={`${scoreSettings.decayPreset === 'none' ? 'None' : 
                          scoreSettings.decayPreset === 'slow' ? 'Slow' : 
-                         scoreSettings.decayPreset === 'standard' ? 'Standard' : 
+                         scoreSettings.decayPreset === 'standard' ? 'Middle' : 
                          'Fast'} decay rate for older interactions`}
             left={props => <List.Icon {...props} icon="chart-timeline-variant" />}
             onPress={showScoreSettingsDialog}
