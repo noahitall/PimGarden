@@ -971,11 +971,31 @@ const SettingsScreen: React.FC = () => {
       <Dialog
         visible={entityLimitDialogVisible}
         onDismiss={() => setEntityLimitDialogVisible(false)}
-        style={{ maxWidth: 350, alignSelf: 'center', borderRadius: 8, maxHeight: '50%' }}
+        style={{ 
+          maxWidth: 350, 
+          alignSelf: 'center', 
+          borderRadius: 8, 
+          maxHeight: '50%',
+          overflow: 'hidden'
+        }}
       >
-        <Dialog.Title>Entity List Limit</Dialog.Title>
-        <Dialog.Content style={{ paddingTop: 0 }}>
-          <ScrollView style={{ borderWidth: 0, borderRadius: 0 }}>
+        <View style={{ 
+          flexGrow: 1, 
+          flexDirection: 'column',
+          backgroundColor: 'white' 
+        }}>
+          <View style={{ padding: 16, paddingBottom: 8 }}>
+            <Text style={{ fontSize: 20, fontWeight: 'bold' }}>Entity List Limit</Text>
+          </View>
+          
+          <ScrollView
+            style={{ 
+              flexGrow: 1, 
+              borderWidth: 0,
+              backgroundColor: 'white'
+            }}
+            contentContainerStyle={{ padding: 16, paddingTop: 0 }}
+          >
             <RadioButton.Group 
               onValueChange={(value) => saveEntityListLimit(Number(value))} 
               value={String(entityListLimit)}
@@ -985,23 +1005,31 @@ const SettingsScreen: React.FC = () => {
               <RadioButton.Item label="100 entities" value="100" />
             </RadioButton.Group>
           </ScrollView>
-        </Dialog.Content>
-        <Dialog.Actions style={styles.dialogActions}>
-          <Button 
-            mode="outlined"
-            onPress={() => setEntityLimitDialogVisible(false)}
-            style={styles.dialogButton}
-          >
-            Cancel
-          </Button>
-          <Button 
-            mode="contained"
-            onPress={() => setEntityLimitDialogVisible(false)}
-            style={styles.dialogButton}
-          >
-            Done
-          </Button>
-        </Dialog.Actions>
+          
+          <View style={{ 
+            flexDirection: 'row',
+            justifyContent: 'flex-end',
+            paddingHorizontal: 16,
+            paddingVertical: 8,
+            borderWidth: 0,
+            borderTopWidth: 0
+          }}>
+            <Button 
+              mode="outlined"
+              onPress={() => setEntityLimitDialogVisible(false)}
+              style={styles.dialogButton}
+            >
+              Cancel
+            </Button>
+            <Button 
+              mode="contained"
+              onPress={() => setEntityLimitDialogVisible(false)}
+              style={styles.dialogButton}
+            >
+              Done
+            </Button>
+          </View>
+        </View>
       </Dialog>
     </Portal>
   );
@@ -1012,11 +1040,31 @@ const SettingsScreen: React.FC = () => {
       <Dialog
         visible={scoreSettingsDialogVisible}
         onDismiss={cancelScoreSettings}
-        style={{ maxWidth: 380, alignSelf: 'center', borderRadius: 8, maxHeight: '50%' }}
+        style={{ 
+          maxWidth: 380, 
+          alignSelf: 'center', 
+          borderRadius: 8, 
+          maxHeight: '50%',
+          overflow: 'hidden'
+        }}
       >
-        <Dialog.Title>Interaction Score Decay</Dialog.Title>
-        <Dialog.Content style={{ paddingTop: 0 }}>
-          <ScrollView style={{ borderWidth: 0, borderRadius: 0 }}>
+        <View style={{ 
+          flexGrow: 1, 
+          flexDirection: 'column',
+          backgroundColor: 'white' 
+        }}>
+          <View style={{ padding: 16, paddingBottom: 8 }}>
+            <Text style={{ fontSize: 20, fontWeight: 'bold' }}>Interaction Score Decay</Text>
+          </View>
+          
+          <ScrollView 
+            style={{ 
+              flexGrow: 1, 
+              borderWidth: 0,
+              backgroundColor: 'white'
+            }}
+            contentContainerStyle={{ padding: 16, paddingTop: 0 }}
+          >
             <Text style={styles.dialogDescription}>
               Select how quickly interaction scores decay over time.
               Faster decay causes older interactions to contribute less to the total score.
@@ -1024,9 +1072,9 @@ const SettingsScreen: React.FC = () => {
             
             <Text style={styles.sliderLabel}>
               Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
-                          tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
-                          tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
-                          'Fast'}
+                           tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
+                           tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
+                           'Fast'}
             </Text>
             
             {/* Preset selection buttons in a segmented control style */}
@@ -1100,25 +1148,33 @@ const SettingsScreen: React.FC = () => {
               </Text>
             </View>
           </ScrollView>
-        </Dialog.Content>
-        <Dialog.Actions style={styles.dialogActions}>
-          <Button 
-            mode="outlined"
-            onPress={cancelScoreSettings}
-            style={styles.dialogButton}
-          >
-            Cancel
-          </Button>
-          <Button 
-            mode="contained"
-            onPress={saveScoreSettingsFromDialog}
-            disabled={isSavingSettings}
-            loading={isSavingSettings}
-            style={styles.dialogButton}
-          >
-            Save and Update
-          </Button>
-        </Dialog.Actions>
+          
+          <View style={{ 
+            flexDirection: 'row',
+            justifyContent: 'flex-end',
+            paddingHorizontal: 16,
+            paddingVertical: 8,
+            borderWidth: 0,
+            borderTopWidth: 0
+          }}>
+            <Button 
+              mode="outlined"
+              onPress={cancelScoreSettings}
+              style={styles.dialogButton}
+            >
+              Cancel
+            </Button>
+            <Button 
+              mode="contained"
+              onPress={saveScoreSettingsFromDialog}
+              disabled={isSavingSettings}
+              loading={isSavingSettings}
+              style={styles.dialogButton}
+            >
+              Save and Update
+            </Button>
+          </View>
+        </View>
       </Dialog>
     </Portal>
   );
