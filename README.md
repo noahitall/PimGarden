@@ -27,6 +27,8 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - Create groups and manage group memberships
 - Add and manage tags for better entity organization
 - Create custom action types with configurable scores and colors
+- Birthday tracking and notifications for contacts
+- Upcoming birthdays display on home screen (toggleable feature)
 
 ## User Interface Features
 
@@ -36,12 +38,16 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - Toggle favorites filter to show only your favorite entities
 - Toggle between full-sized and compact card views
 - Mark entities as favorites by tapping the star icon
+- View upcoming birthdays with countdown display (when feature is enabled)
+- Entity cards with sparklines showing recent interaction history
 
 ### Entity Details
 - View and add custom interaction types with personalized icons and colors
 - Tap on an entity's avatar to see a menu of interaction options
 - View interaction history with a sparkline visualization that works in both view modes
 - Add tags to categorize entities for easier management
+- Set and manage birthday information for contacts
+- Configure birthday reminder notifications
 
 ### Groups Management
 - Create groups to organize people and topics
@@ -49,10 +55,17 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - Groups can receive interactions that propagate to all members
 - Track group membership changes
 
+### Notification Features
+- Birthday reminders with customizable advance notice
+- Schedule notifications to be delivered at optimal times
+- Support for notification channels on Android
+- Background notification task for reliable delivery
+
 ### Settings
 - Customize interaction score settings with decay factors and decay types
 - Adjust how quickly interaction scores decay over time
 - Developer options for database maintenance (in dev mode)
+- Feature flag toggles for experimental features
 
 ## Technical Improvements
 
@@ -63,12 +76,18 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - Group membership tracking with timestamps
 - Tag system with improved query performance
 - Color support for interaction types
+- Birthday and notification tracking
 
 ### Performance
 - Optimized entity loading with configurable sorting
 - Efficient filtering that works with large numbers of entities
 - Adaptive layout for different screen sizes
 - Improved database query performance
+
+### Stability
+- Enhanced text rendering with safe wrappers to prevent rendering errors
+- Improved logging system to avoid issues during React reconciliation
+- Graceful handling of startup processes
 
 ## Development Guidelines
 
@@ -82,6 +101,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 6. **UI Consistency**: UI components should maintain consistent look and feel across all screens
 7. **Error Handling**: All database operations should have proper error handling and fallbacks
 8. **Migrations**: Database changes should include appropriate migrations
+9. **Text Rendering**: Use appropriate text wrappers to ensure proper rendering in React Native
 
 ## Technical Architecture
 
@@ -92,6 +112,7 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 - React Native Paper for UI components
 - Expo Contacts for accessing device contacts
 - Expo Image Picker for camera and photo library integration
+- Expo Notifications for birthday reminders
 
 ## Getting Started
 
@@ -132,18 +153,19 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 
 ## App Structure
 
-- **Home Screen**: Displays a grid of entity cards with minimalist design featuring larger photos and names in either full or compact view mode. Pull down to reveal a search bar for finding entities by name, phone, or email. Sort and filter entities using the top menu.
-- **Entity Detail Screen**: Shows detailed information about an entity, including a chronological log of interactions with pagination support. Tap on the entity's photo to take a new picture, select from the photo library, or record an interaction.
+- **Home Screen**: Displays a grid of entity cards with minimalist design featuring larger photos and names in either full or compact view mode. Pull down to reveal a search bar for finding entities by name, phone, or email. Sort and filter entities using the top menu. Optionally shows upcoming birthdays.
+- **Entity Detail Screen**: Shows detailed information about an entity, including a chronological log of interactions with pagination support. Tap on the entity's photo to take a new picture, select from the photo library, or record an interaction. Allows setting birthday and configuring reminders.
 - **Edit Entity Screen**: Create or edit entity information with consistent type selection UI. Create and manage custom interaction types.
 - **Contact Import Screen**: Import contacts from your device
 - **Group Member Screen**: Manage group memberships by adding or removing members
 - **Settings Screen**: Configure application settings including interaction scoring preferences
+- **Notification Manager Screen**: Manage notification settings and preferences for birthday reminders
 
 ## Data Model
 
 The app manages three types of entities:
 
-1. **Persons**: Imported from contacts or manually created
+1. **Persons**: Imported from contacts or manually created, can include birthday information
 2. **Groups**: Collections of persons and topics with tracked membership
 3. **Topics**: Subjects or themes that can be associated with entities
 
@@ -164,6 +186,15 @@ The app tracks interactions with entities and calculates a score based on:
 - Recency of interactions
 - Custom score values assigned to different interaction types
 - Configurable decay settings to reduce scores for older interactions
+
+## Feature Flags
+
+The app uses feature flags to control the visibility and availability of features:
+- Development features (debug buttons, data reset)
+- Stable features (contact import, merge)
+- Experimental features (birthday display)
+
+Feature flags can be toggled in development mode or programmatically for controlled rollouts.
 
 ## Contributing
 
