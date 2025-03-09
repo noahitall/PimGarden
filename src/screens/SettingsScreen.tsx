@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, ScrollView, Alert, Share, Platform, Clipboard } from 'react-native';
+import { StyleSheet, View, ScrollView, Alert, Share, Platform, Clipboard, TouchableOpacity } from 'react-native';
 import { 
   Appbar, 
   List, 
@@ -1029,33 +1029,63 @@ const SettingsScreen: React.FC = () => {
                            'Fast'}
             </Text>
             
-            <View style={styles.sliderContainer}>
-              <View style={styles.sliderLabelsContainer}>
-                <Text style={styles.sliderStepLabel}>None</Text>
-                <Text style={styles.sliderStepLabel}>Slow</Text>
-                <Text style={styles.sliderStepLabel}>Standard</Text>
-                <Text style={styles.sliderStepLabel}>Fast</Text>
-              </View>
+            {/* Preset selection buttons in a segmented control style */}
+            <View style={styles.presetButtonsContainer}>
+              <TouchableOpacity 
+                style={[
+                  styles.presetButton,
+                  scoreSettings.decayPreset === 'none' ? styles.presetButtonActive : null,
+                  { borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }
+                ]} 
+                onPress={() => handlePresetChange('none')}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  scoreSettings.decayPreset === 'none' ? styles.presetButtonTextActive : null
+                ]}>None</Text>
+              </TouchableOpacity>
               
-              <Slider
-                value={
-                  scoreSettings.decayPreset === 'none' ? 0 :
-                  scoreSettings.decayPreset === 'slow' ? 1 :
-                  scoreSettings.decayPreset === 'standard' ? 2 :
-                  3
-                }
-                onValueChange={(value: number) => {
-                  const preset = value === 0 ? 'none' :
-                                 value === 1 ? 'slow' :
-                                 value === 2 ? 'standard' :
-                                 'fast';
-                  handlePresetChange(preset);
-                }}
-                minimumValue={0}
-                maximumValue={3}
-                step={1}
-                style={styles.slider}
-              />
+              <TouchableOpacity 
+                style={[
+                  styles.presetButton,
+                  scoreSettings.decayPreset === 'slow' ? styles.presetButtonActive : null,
+                  { borderLeftWidth: 0 }
+                ]} 
+                onPress={() => handlePresetChange('slow')}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  scoreSettings.decayPreset === 'slow' ? styles.presetButtonTextActive : null
+                ]}>Slow</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.presetButton,
+                  scoreSettings.decayPreset === 'standard' ? styles.presetButtonActive : null,
+                  { borderLeftWidth: 0 }
+                ]} 
+                onPress={() => handlePresetChange('standard')}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  scoreSettings.decayPreset === 'standard' ? styles.presetButtonTextActive : null
+                ]}>Standard</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.presetButton,
+                  scoreSettings.decayPreset === 'fast' ? styles.presetButtonActive : null,
+                  { borderLeftWidth: 0, borderTopRightRadius: 4, borderBottomRightRadius: 4 }
+                ]} 
+                onPress={() => handlePresetChange('fast')}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  scoreSettings.decayPreset === 'fast' ? styles.presetButtonTextActive : null
+                ]}>Fast</Text>
+              </TouchableOpacity>
             </View>
             
             <View style={styles.presetDescriptionContainer}>
@@ -1762,13 +1792,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sliderContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
+    width: '100%',
+    marginVertical: 10,
+    paddingHorizontal: 4,
   },
   slider: {
-    flex: 1,
-    height: 40,
+    width: '100%',
+    height: 40, // Increase height for better touch target
   },
   sliderLabel: {
     marginTop: 10,
@@ -1890,6 +1920,47 @@ const styles = StyleSheet.create({
   },
   presetDescription: {
     color: '#666',
+  },
+  trackMarkersContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    width: '100%',
+    marginTop: 8,
+  },
+  trackMarker: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#CCCCCC',
+  },
+  trackMarkerActive: {
+    backgroundColor: '#2196F3',
+  },
+  presetButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    width: '100%',
+    marginBottom: 8,
+  },
+  presetButton: {
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#CCCCCC',
+    flex: 1,
+    alignItems: 'center',
+  },
+  presetButtonActive: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#2196F3',
+  },
+  presetButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  presetButtonTextActive: {
+    color: '#2196F3',
   },
 });
 
