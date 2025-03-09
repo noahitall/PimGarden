@@ -54,76 +54,8 @@ export class InteractionConfigManager {
       const configFileInfo = await FileSystem.getInfoAsync(configFilePath);
       console.log('[InteractionConfigManager] Config file exists:', configFileInfo.exists, 'at path:', configFilePath);
       
-      // If config file doesn't exist, copy from bundle assets
-      if (!configFileInfo.exists) {
-        console.log('[InteractionConfigManager] Config file not found, trying to copy from assets...');
-        
-        try {
-          // First check our src config directory
-          const srcConfigPath = './src/config/' + this.CONFIG_FILE;
-          console.log('[InteractionConfigManager] Trying src config path:', srcConfigPath);
-          
-          const srcFileInfo = await FileSystem.getInfoAsync(srcConfigPath);
-          console.log('[InteractionConfigManager] Src config file exists:', srcFileInfo.exists);
-          
-          if (srcFileInfo.exists) {
-            const configContent = await FileSystem.readAsStringAsync(srcConfigPath);
-            console.log('[InteractionConfigManager] Src config content length:', configContent.length);
-            
-            // Write to document directory
-            await FileSystem.writeAsStringAsync(configFilePath, configContent);
-            console.log('[InteractionConfigManager] Config file initialized from src');
-            return;
-          }
-          
-          // Fall back to assets directory
-          const assetConfigPath = this.ASSET_CONFIG_PATH + this.CONFIG_FILE;
-          console.log('[InteractionConfigManager] Trying asset config path:', assetConfigPath);
-          
-          const assetFileInfo = await FileSystem.getInfoAsync(assetConfigPath);
-          console.log('[InteractionConfigManager] Asset config file exists:', assetFileInfo.exists);
-          
-          if (assetFileInfo.exists) {
-            const configContent = await FileSystem.readAsStringAsync(assetConfigPath);
-            console.log('[InteractionConfigManager] Asset config content length:', configContent.length);
-            
-            // Write to document directory
-            await FileSystem.writeAsStringAsync(configFilePath, configContent);
-            console.log('[InteractionConfigManager] Config file initialized from assets');
-          } else {
-            throw new Error('Config file not found in assets');
-          }
-        } catch (assetError) {
-          console.error('[InteractionConfigManager] Error copying from assets:', assetError);
-          
-          // Try alternative paths
-          console.log('[InteractionConfigManager] Trying alternative path...');
-          try {
-            // Try with the bundle directory 
-            const bundleConfigPath = FileSystem.bundleDirectory + 'assets/config/default-interactions.yaml';
-            console.log('[InteractionConfigManager] Trying bundle directory path:', bundleConfigPath);
-            
-            const bundleFileInfo = await FileSystem.getInfoAsync(bundleConfigPath);
-            console.log('[InteractionConfigManager] Bundle config file exists:', bundleFileInfo.exists);
-            
-            if (bundleFileInfo.exists) {
-              const configContent = await FileSystem.readAsStringAsync(bundleConfigPath);
-              await FileSystem.writeAsStringAsync(configFilePath, configContent);
-              console.log('[InteractionConfigManager] Config file initialized from bundle directory');
-            } else {
-              throw new Error('Config file not found in bundle directory');
-            }
-          } catch (bundleError) {
-            console.error('[InteractionConfigManager] Error with bundle path:', bundleError);
-            
-            // Last resort - use the hardcoded default
-            console.log('[InteractionConfigManager] Using hardcoded default config');
-            const defaultConfig = await this.getDefaultConfig();
-            await FileSystem.writeAsStringAsync(configFilePath, defaultConfig);
-            console.log('[InteractionConfigManager] Hardcoded default config written to file');
-          }
-        }
-      }
+      // Don't try to create or copy the config file if it doesn't exist
+      // The app will use hardcoded defaults when needed
     } catch (error) {
       console.error('[InteractionConfigManager] Error initializing interaction config:', error);
     }
@@ -143,7 +75,16 @@ export class InteractionConfigManager {
         'src/config/' + this.CONFIG_FILE,
         'assets/config/' + this.CONFIG_FILE,
         FileSystem.documentDirectory + 'src/config/' + this.CONFIG_FILE,
-        FileSystem.documentDirectory + 'assets/config/' + this.CONFIG_FILE
+        FileSystem.documentDirectory + 'assets/config/' + this.CONFIG_FILE,
+        // Add our custom plugin paths for iOS
+        FileSystem.bundleDirectory + 'src-config-default-interactions.yaml',
+        FileSystem.bundleDirectory + 'assets-config-default-interactions.yaml',
+        // More Android specific paths
+        FileSystem.bundleDirectory + 'assets/src/config/' + this.CONFIG_FILE,
+        FileSystem.bundleDirectory + 'assets/assets/config/' + this.CONFIG_FILE,
+        // Raw asset paths that might work
+        'asset:/src/config/' + this.CONFIG_FILE,
+        'asset:/assets/config/' + this.CONFIG_FILE
       ];
       
       for (const path of possiblePaths) {
@@ -163,8 +104,9 @@ export class InteractionConfigManager {
         }
       }
       
-      // If all paths fail, use the hardcoded default
-      throw new Error('Could not find configuration file in any location');
+      // If all paths fail, use the hardcoded default without writing to filesystem
+      console.log('[InteractionConfigManager] All file paths failed, using hardcoded defaults');
+      return this.getHardcodedDefaultConfig();
     } catch (error) {
       // If that fails, return the hardcoded default
       console.warn('[InteractionConfigManager] Error reading default config, using embedded fallback:', error);
@@ -280,16 +222,10 @@ tags:
         console.log('[InteractionConfigManager] YAML content start:', yamlContent.substring(0, 100));
         console.log('[InteractionConfigManager] YAML content end:', yamlContent.substring(yamlContent.length - 100));
       } else {
-        // Use default config
-        console.log('[InteractionConfigManager] Config file not found, using default config');
-        yamlContent = await this.getDefaultConfig();
-        console.log('[InteractionConfigManager] Default config length:', yamlContent.length);
-        
-        // Also save it for future use
-        console.log('[InteractionConfigManager] Saving default config for future use');
-        await FileSystem.makeDirectoryAsync(this.CONFIG_PATH, { intermediates: true });
-        await FileSystem.writeAsStringAsync(configFilePath, yamlContent);
-        console.log('[InteractionConfigManager] Default config saved to file');
+        // Use default config without saving to filesystem
+        console.log('[InteractionConfigManager] Config file not found, using hardcoded config');
+        yamlContent = this.getHardcodedDefaultConfig();
+        console.log('[InteractionConfigManager] Hardcoded config length:', yamlContent.length);
       }
       
       // Parse the YAML

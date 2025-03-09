@@ -32,6 +32,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="me.noze.pimgarden"/>
+        <data android:scheme="exp+pimgarden"/>
       </intent-filter>
     </activity>
   </application>

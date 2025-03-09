@@ -12,7 +12,8 @@
     "build:production": "eas build --profile production",
     "submit:production": "eas submit --profile production",
     "update": "eas update --auto",
-    "prebuild": "npx expo prebuild"
+    "fix-config": "node fix-config-files.js",
+    "prebuild": "npm run fix-config && npx expo prebuild"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^1.23.1",
@@ -42,7 +43,8 @@
     "react-native": "0.76.7",
     "react-native-paper": "^5.13.1",
     "react-native-safe-area-context": "^4.12.0",
-    "react-native-screens": "~4.4.0"
+    "react-native-screens": "~4.4.0",
+    "expo-dev-client": "~5.0.12"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
