@@ -50,19 +50,13 @@ export default function App() {
         await database.getDatabaseInfo();
         
         // Initialize the interaction config manager
-        console.log('App: Initializing InteractionConfigManager...');
         await InteractionConfigManager.init();
-        console.log('App: InteractionConfigManager initialized');
         
         // Initialize birthday notifications
-        console.log('App: Initializing BirthdayNotificationManager...');
         await BirthdayNotificationManager.init();
-        console.log('App: BirthdayNotificationManager initialized');
         
         // Register background task for notifications
-        console.log('App: Registering background notification task...');
         await registerBackgroundNotificationTask();
-        console.log('App: Background notification task registered');
         
         setIsLoading(false);
       } catch (err) {

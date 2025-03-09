@@ -90,7 +90,8 @@ const UpcomingBirthdays: React.FC<UpcomingBirthdaysProps> = ({ showHidden = fals
       // Sort by days until birthday
       setBirthdays(result.sort((a, b) => a.daysUntil - b.daysUntil));
     } catch (error) {
-      console.error('Error loading upcoming birthdays:', error);
+      // No need to log the error, just handle gracefully
+      setBirthdays([]);
     } finally {
       setLoading(false);
     }
@@ -122,7 +123,6 @@ const UpcomingBirthdays: React.FC<UpcomingBirthdaysProps> = ({ showHidden = fals
       const birthdate = new Date(birthdayStr);
       return format(birthdate, 'MMM d');
     } catch (error) {
-      console.error('Error formatting birthday date:', error, birthdayStr);
       return 'Unknown';
     }
   };

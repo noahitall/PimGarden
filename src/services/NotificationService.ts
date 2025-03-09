@@ -180,7 +180,6 @@ class NotificationService {
     oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
     
     if (nextBirthday > oneYearFromNow) {
-      console.log(`Birthday for ${reminder.entityName} is more than 1 year away. Not scheduling until later.`);
       return '';
     }
 
@@ -199,7 +198,6 @@ class NotificationService {
         reminderTime.setDate(reminderTime.getDate() + 1);
       } else {
         // Skip scheduling if it would be more than a year away
-        console.log(`Reminder time for ${reminder.entityName}'s birthday is in the past and would be scheduled for next year.`);
         return '';
       }
     }
@@ -240,12 +238,6 @@ class NotificationService {
         channelId: 'birthdays',
       },
     });
-
-    // Note: For truly recurring annual notifications, we would need to 
-    // re-schedule these notifications each year or use a native module
-    // that supports yearly triggers directly.
-    
-    console.log(`Scheduled birthday reminder for ${reminder.entityName} on ${format(reminderTime, 'MMM d, yyyy h:mm a')} (5:15pm ET)`);
 
     return notificationId;
   }

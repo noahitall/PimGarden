@@ -1273,7 +1273,6 @@ const EntityDetailScreen: React.FC = () => {
   
   // Format birthday for display
   const formatBirthday = (dateString: string | null) => {
-    console.log(`[DEBUG UI] Formatting birthday: ${dateString}`);
     if (!dateString) return 'Not set';
     
     try {
@@ -1295,7 +1294,6 @@ const EntityDetailScreen: React.FC = () => {
       // Regular date with year
       const date = new Date(dateString);
       const formatted = format(date, 'MMMM d, yyyy');
-      console.log(`[DEBUG UI] Formatted birthday: ${formatted}`);
       return formatted;
     } catch (error) {
       console.error(`[DEBUG UI] Error formatting birthday:`, error);

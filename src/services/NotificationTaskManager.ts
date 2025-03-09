@@ -9,13 +9,9 @@ const BACKGROUND_NOTIFICATION_TASK = 'background-notification-check';
 // Register the task
 TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async () => {
   try {
-    console.log('Running background notification task');
-    
     // Get all enabled birthday reminders
     const reminders = await database.getAllBirthdayReminders();
     const enabledReminders = reminders.filter(r => r.is_enabled);
-    
-    console.log(`Found ${enabledReminders.length} enabled birthday reminders to check`);
     
     // Check if any notifications need to be rescheduled
     let rescheduled = 0;
@@ -23,13 +19,11 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async () => {
       // Get entity and birthday info
       const entity = await database.getEntityById(reminder.entity_id);
       if (!entity) {
-        console.log(`Entity ${reminder.entity_id} not found, skipping reminder`);
         continue;
       }
       
       const birthday = await database.getBirthdayForPerson(reminder.entity_id);
       if (!birthday) {
-        console.log(`No birthday set for ${entity.name}, skipping reminder`);
         continue;
       }
       
@@ -50,7 +44,6 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async () => {
       }
     }
     
-    console.log(`Background notification task completed. Rescheduled ${rescheduled} notifications.`);
     return BackgroundFetch.BackgroundFetchResult.NewData;
   } catch (error) {
     console.error('Error in background notification task:', error);
@@ -65,7 +58,6 @@ export async function registerBackgroundNotificationTask() {
       stopOnTerminate: false,    // Keep running after app is closed
       startOnBoot: true,         // Run task when device is restarted
     });
-    console.log('Background notification task registered');
   } catch (error) {
     console.error('Error registering background task:', error);
   }
@@ -74,7 +66,6 @@ export async function registerBackgroundNotificationTask() {
 export async function unregisterBackgroundNotificationTask() {
   try {
     await BackgroundFetch.unregisterTaskAsync(BACKGROUND_NOTIFICATION_TASK);
-    console.log('Background notification task unregistered');
   } catch (error) {
     console.error('Error unregistering background task:', error);
   }
