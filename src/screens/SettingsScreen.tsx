@@ -1227,6 +1227,13 @@ const SettingsScreen: React.FC = () => {
                 />
               )}
             />
+            
+            <List.Item
+              title="Database Fix Utility"
+              description="Tools to fix database issues (birthday field)"
+              left={props => <List.Icon {...props} icon="database-check" />}
+              onPress={() => navigation.navigate('DatabaseFix')}
+            />
           </Card.Content>
         </Card>
         

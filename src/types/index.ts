@@ -82,4 +82,5 @@ export type RootStackParamList = {
   GroupMembers: { groupId: string; groupName: string };
   InteractionTypes: undefined;
   NotificationManager: undefined;
+  DatabaseFix: undefined;
 }; 

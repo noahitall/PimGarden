@@ -13,6 +13,7 @@ import SettingsScreen from '../screens/SettingsScreen';
 import GroupMemberScreen from '../screens/GroupMemberScreen';
 import InteractionTypesScreen from '../screens/InteractionTypesScreen';
 import NotificationManagerScreen from '../screens/NotificationManagerScreen';
+import DatabaseFixScreen from '../screens/DatabaseFixScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -79,6 +80,11 @@ export default function AppNavigator() {
           name="NotificationManager" 
           component={NotificationManagerScreen} 
           options={{ title: 'Notification Manager' }} 
+        />
+        <Stack.Screen 
+          name="DatabaseFix" 
+          component={DatabaseFixScreen} 
+          options={{ title: 'Database Fix' }} 
         />
       </Stack.Navigator>
     </NavigationContainer>

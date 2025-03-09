@@ -4812,30 +4812,38 @@ export class Database {
   }
 
   private async addBirthdaySupport(): Promise<void> {
-    // Check if the table already exists
-    const tableExists = await this.db.getFirstAsync(`
-      SELECT name FROM sqlite_master 
-      WHERE type='table' AND name='birthday_reminders'
-    `);
-    
-    if (!tableExists) {
-      // Create birthday_reminders table
-      await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS birthday_reminders (
-          id TEXT PRIMARY KEY,
-          entity_id TEXT NOT NULL,
-          birthday_date TEXT NOT NULL,
-          reminder_time TEXT NOT NULL,
-          days_in_advance INTEGER NOT NULL DEFAULT 1,
-          is_enabled INTEGER NOT NULL DEFAULT 1,
-          notification_id TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
-          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
-        )
+    try {
+      // First add the birthday column to entities table
+      await this.addBirthdayField();
+      
+      // Check if the table already exists
+      const tableExists = await this.db.getFirstAsync(`
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='birthday_reminders'
       `);
       
-      console.log("Created birthday_reminders table");
+      if (!tableExists) {
+        // Create birthday_reminders table
+        await this.db.execAsync(`
+          CREATE TABLE IF NOT EXISTS birthday_reminders (
+            id TEXT PRIMARY KEY,
+            entity_id TEXT NOT NULL,
+            birthday_date TEXT NOT NULL,
+            reminder_time TEXT NOT NULL,
+            days_in_advance INTEGER NOT NULL DEFAULT 1,
+            is_enabled INTEGER NOT NULL DEFAULT 1,
+            notification_id TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+          )
+        `);
+        
+        console.log("Created birthday_reminders table");
+      }
+    } catch (error) {
+      console.error('Error adding birthday support:', error);
+      throw error;
     }
   }
   
@@ -5166,6 +5174,29 @@ export class Database {
     } catch (error) {
       console.error('Error adding birthday field:', error);
       throw error;
+    }
+  }
+
+  // Utility method to force adding the birthday field if it doesn't exist
+  async forceBirthdayFieldMigration(): Promise<boolean> {
+    try {
+      console.log('Forcing birthday field migration...');
+      await this.addBirthdayField();
+      return true;
+    } catch (error) {
+      console.error('Error forcing birthday field migration:', error);
+      return false;
+    }
+  }
+
+  // Utility method to check if the birthday column exists
+  async checkBirthdayColumnExists(): Promise<boolean> {
+    try {
+      const columnInfo = await this.db.getAllAsync('PRAGMA table_info(entities)');
+      return columnInfo.some((col: any) => col.name === 'birthday');
+    } catch (error) {
+      console.error('Error checking if birthday column exists:', error);
+      return false;
     }
   }
 }

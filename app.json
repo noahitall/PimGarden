@@ -4,16 +4,20 @@
     "slug": "PimGarden",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/catlogozoomed.jpg",
     "userInterfaceStyle": "light",
     "newArchEnabled": false,
+    "assetBundlePatterns": [
+      "assets/config/*",
+      "src/config/*"
+    ],
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/catlogozoomed.jpg",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "notification": {
-      "icon": "./assets/icon.png",
+      "icon": "./assets/catlogozoomed.jpg",
       "color": "#ffffff",
       "androidMode": "default",
       "androidCollapsedTitle": "PimGarden",
@@ -23,11 +27,12 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/catlogozoomed.jpg",
           "color": "#ffffff",
           "sounds": []
         }
-      ]
+      ],
+      "./config-plugin.js"
     ],
     "ios": {
       "supportsTablet": true,
@@ -42,13 +47,13 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/catlogozoomed.jpg",
         "backgroundColor": "#ffffff"
       },
       "package": "me.noze.pimgarden"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/catlogozoomed.jpg"
     },
     "extra": {
       "eas": {

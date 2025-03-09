@@ -976,53 +976,9 @@ const EntityDetailScreen: React.FC = () => {
   // Set the header options
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <View style={{ flexDirection: 'row' }}>
-          <IconButton
-            icon={isFavorite ? "star" : "star-outline"}
-            size={24}
-            onPress={handleToggleFavorite}
-            iconColor={isFavorite ? "#FFD700" : undefined}
-          />
-          <IconButton
-            icon="dots-vertical"
-            size={24}
-            onPress={() => setOptionsMenuVisible(true)}
-          />
-          <Menu
-            visible={optionsMenuVisible}
-            onDismiss={() => setOptionsMenuVisible(false)}
-            anchor={{ x: Dimensions.get('window').width - 24, y: 0 }}
-          >
-            <Menu.Item
-              title={isHidden ? "Unhide from lists" : "Hide from lists"}
-              leadingIcon={isHidden ? "eye" : "eye-off"}
-              onPress={() => {
-                setOptionsMenuVisible(false);
-                handleToggleHidden();
-              }}
-            />
-            <Menu.Item
-              title="Edit"
-              leadingIcon="pencil"
-              onPress={() => {
-                setOptionsMenuVisible(false);
-                handleEdit();
-              }}
-            />
-            <Menu.Item
-              title="Delete"
-              leadingIcon="delete"
-              onPress={() => {
-                setOptionsMenuVisible(false);
-                handleDelete();
-              }}
-            />
-          </Menu>
-        </View>
-      ),
+      headerRight: () => null, // Remove all header right controls
     });
-  }, [navigation, isFavorite, isHidden, optionsMenuVisible]);
+  }, [navigation]);
 
   // Save interaction updates
   const handleSaveInteraction = async (interactionId: string, updates: { timestamp: number; type: string }) => {
