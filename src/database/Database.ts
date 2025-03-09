@@ -305,24 +305,9 @@ export class Database {
       }
       
       if (currentVersion < 10) {
-        // Keep existing migration for version 10
-        await this.addBirthdayField();
+        await this.addHiddenFieldSupport();
         await this.db.runAsync('PRAGMA user_version = 10;');
         console.log('Migration to version 10 complete');
-      }
-      
-      if (currentVersion < 11) {
-        // Keep existing migration for version 11
-        // This depends on what migration 11 actually was in your project
-        await this.db.runAsync('PRAGMA user_version = 11;');
-        console.log('Migration to version 11 complete');
-      }
-      
-      if (currentVersion < 12) {
-        // Add our new hidden field migration at version 12
-        await this.addHiddenFieldSupport();
-        await this.db.runAsync('PRAGMA user_version = 12;');
-        console.log('Migration to version 12 complete');
       }
     } catch (error) {
       console.error('Error running migrations:', error);
@@ -357,15 +342,6 @@ export class Database {
   // Method to get entity hidden state
   async isHidden(entityId: string): Promise<boolean> {
     try {
-      // First check if the is_hidden column exists
-      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
-      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
-      
-      if (!hasHiddenColumn) {
-        // If column doesn't exist yet, no entities are hidden
-        return false;
-      }
-      
       const result = await this.db.getFirstAsync<{ is_hidden: number }>(
         'SELECT is_hidden FROM entities WHERE id = ?',
         [entityId]
@@ -380,15 +356,6 @@ export class Database {
   // Method to hide/unhide entity
   async setHidden(entityId: string, hidden: boolean): Promise<boolean> {
     try {
-      // First check if the is_hidden column exists
-      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
-      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
-      
-      if (!hasHiddenColumn) {
-        // If column doesn't exist yet, run the migration to add it
-        await this.addHiddenFieldSupport();
-      }
-      
       await this.db.runAsync(
         'UPDATE entities SET is_hidden = ? WHERE id = ?',
         [hidden ? 1 : 0, entityId]
@@ -907,10 +874,6 @@ export class Database {
     } = {}
   ): Promise<Entity[]> {
     try {
-      // First check if the is_hidden column exists before using it
-      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
-      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
-      
       let query = '';
       const params: any[] = [];
 
@@ -941,8 +904,8 @@ export class Database {
         params.push(type);
       }
       
-      // Filter out hidden entities unless showHidden is true, but only if the column exists
-      if (!options.showHidden && hasHiddenColumn) {
+      // Filter out hidden entities unless showHidden is true
+      if (!options.showHidden) {
         conditions.push('(e.is_hidden IS NULL OR e.is_hidden = 0)');
       }
       
@@ -1841,8 +1804,6 @@ export class Database {
   // Get interaction types appropriate for an entity based on its tags and type
   async getEntityInteractionTypes(entityId: string): Promise<InteractionType[]> {
     try {
-      console.log(`Getting interaction types for entity ${entityId}`);
-      
       // Get the entity to determine its type
       const entity = await this.getEntityById(entityId);
       if (!entity) {
@@ -1851,18 +1812,15 @@ export class Database {
       }
       
       const entityType = entity.type;
-      console.log(`Entity type: ${entityType}`);
       
       // For GROUP entities, get interaction types for all members
       if (entityType === EntityType.GROUP) {
         try {
           // Get all group members
           const groupMembers = await this.getGroupMembers(entityId);
-          console.log(`Found ${groupMembers.length} members for group ${entityId}`);
           
           if (groupMembers.length === 0) {
             // If no members, just continue with default group handling
-            console.log(`Group ${entityId} has no members, using default group interaction types`);
           } else {
             // Get interaction types for each member and combine them
             const allMemberTypes: InteractionType[] = [];
@@ -1873,7 +1831,6 @@ export class Database {
               
               // Get interaction types for this member
               const memberTypes = await this.getEntityInteractionTypes(member.id);
-              console.log(`Got ${memberTypes.length} interaction types for group member ${member.id} (${member.name})`);
               
               // Add to our combined list
               allMemberTypes.push(...memberTypes);
@@ -1885,8 +1842,8 @@ export class Database {
               const hasColorColumn = tableInfo.some((column: any) => column.name === 'color');
               
               const columnSelection = hasColorColumn 
-                ? "id, name, tag_id, icon, entity_type, color, score" 
-                : "id, name, tag_id, icon, entity_type, score";
+                ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
+                : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
               
               const generalContactQuery = `
                 SELECT ${columnSelection}
@@ -1897,18 +1854,19 @@ export class Database {
               
               const generalContact = await this.db.getAllAsync(generalContactQuery);
               if (generalContact && generalContact.length > 0) {
-                // Format the general contact interaction type with proper type casting
-                const generalContactItem = generalContact[0] as any;
-                const generalContactType = {
-                  id: generalContactItem.id,
-                  name: generalContactItem.name,
-                  tag_id: generalContactItem.tag_id,
-                  entity_type: generalContactItem.entity_type,
-                  icon: generalContactItem.icon || 'account-check',
-                  score: generalContactItem.score || 1,
-                  color: generalContactItem.color || '#666666'
-                } as InteractionType;
+                // Convert the general contact row to an InteractionType object
+                const contact = generalContact[0] as any;
+                const generalContactType: InteractionType = {
+                  id: contact.id,
+                  name: contact.name,
+                  tag_id: contact.tag_id,
+                  entity_type: contact.entity_type,
+                  icon: contact.icon || 'account-check',
+                  score: contact.score || 1,
+                  color: contact.color || '#666666'
+                };
                 
+                // Add to member types
                 allMemberTypes.push(generalContactType);
               }
             } catch (error) {
@@ -1917,14 +1875,13 @@ export class Database {
             
             // Remove duplicates by ID
             const uniqueTypesMap = new Map<string, InteractionType>();
-            allMemberTypes.forEach(type => {
+            allMemberTypes.forEach((type: InteractionType) => {
               if (!uniqueTypesMap.has(type.id)) {
                 uniqueTypesMap.set(type.id, type);
               }
             });
             
             const unionTypes = Array.from(uniqueTypesMap.values());
-            console.log(`Combined to ${unionTypes.length} unique interaction types for group ${entityId}`);
             return unionTypes;
           }
         } catch (error) {
@@ -1935,220 +1892,41 @@ export class Database {
       
       // Get all tags associated with this entity
       const entityTags = await this.getEntityTags(entityId);
-      console.log(`Entity has ${entityTags.length} tags`);
       
-      const entityTagIds = entityTags.map(tag => tag.id);
+      // Get all interaction types
+      const allTypes = await this.getInteractionTypes();
       
-      // Check if current schema has all required columns
-      const tableInfo = await this.db.getAllAsync("PRAGMA table_info(interaction_types)");
-      const hasColorColumn = tableInfo.some((column: any) => column.name === 'color');
-      const hasEntityTypeColumn = tableInfo.some((column: any) => column.name === 'entity_type');
-      const hasScoreColumn = tableInfo.some((column: any) => column.name === 'score');
-      
-      // Initialize empty result array
-      let allTypesRaw: any[] = [];
-      
-      // Get specifically entity type matching interaction types
-      const columnSelection = hasColorColumn 
-        ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
-        : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
-      
-      // For GROUP and TOPIC entities, only include the "General Contact" by default
-      // For PERSON entities, include all general interaction types that apply to persons
-      if (entityType === EntityType.GROUP || entityType === EntityType.TOPIC) {
-        try {
-          const generalContactQuery = `
-            SELECT ${columnSelection}
-            FROM interaction_types
-            WHERE name = 'General Contact'
-            LIMIT 1
-          `;
+      // Filter interaction types based on entity type and tags
+      const filteredTypes = allTypes.filter(type => {
+        // Special handling for topic entities
+        if (entityType === EntityType.TOPIC) {
+          // For topics, only include General Contact and tag-specific interaction types
+          if (type.name === 'General Contact') return true;
           
-          const generalContact = await this.db.getAllAsync(generalContactQuery);
-          allTypesRaw = [...generalContact];
+          // Include interaction types specifically associated with this entity's tags
+          if (type.tag_id && entityTags.some(tag => tag.id === type.tag_id)) return true;
           
-          // For topic entities, we'll still add tag-specific interaction types below,
-          // if the entity has any tags
-        } catch (error) {
-          console.warn('Error getting General Contact interaction type:', error);
+          // Exclude all other interaction types
+          return false;
         }
-      } else {
-        // This is a PERSON entity, get all applicable general interaction types
-        if (hasEntityTypeColumn) {
-          try {
-            const generalTypesQuery = `
-              SELECT ${columnSelection}
-              FROM interaction_types
-              WHERE tag_id IS NULL AND (entity_type IS NULL OR entity_type = ? OR entity_type LIKE ?)
-              ORDER BY interaction_types.name
-            `;
-            
-            // For entity_type, check exact match or if it's included in a JSON array
-            const entityTypeLike = `%"${entityType}"%`;
-            const generalTypes = await this.db.getAllAsync(generalTypesQuery, [entityType, entityTypeLike]);
-            allTypesRaw = [...generalTypes];
-          } catch (error) {
-            console.warn('Error getting general interaction types with entity_type filter:', error);
-          }
-        } else {
-          // Fallback for older schema without entity_type
-          try {
-            const generalTypesQuery = `
-              SELECT interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon
-              FROM interaction_types
-              WHERE tag_id IS NULL
-              ORDER BY interaction_types.name
-            `;
-            
-            const generalTypes = await this.db.getAllAsync(generalTypesQuery);
-            allTypesRaw = [...generalTypes];
-          } catch (error) {
-            console.warn('Error getting general interaction types (fallback):', error);
-          }
-        }
-      }
-      
-      // If entity has no tags, return only the appropriate general interaction types (as set above)
-      if (entityTagIds.length === 0) {
-        console.log(`Entity has no tags, returning ${allTypesRaw.length} general interaction types`);
         
-        // Add default color and score if missing
-        const allTypes = allTypesRaw
-          .filter(type => type && type.id) // Filter out any null or invalid types
-          .map(type => ({
-            id: type.id,
-            name: type.name,
-            tag_id: type.tag_id,
-            entity_type: type.entity_type,
-            icon: type.icon || 'account-check',
-            score: type.score || 1,
-            color: type.color || '#666666'
-          })) as InteractionType[];
+        // For non-topic entities, apply regular filtering
         
-        // Remove duplicates by id
-        const interactionTypesMap = new Map<string, InteractionType>();
-        allTypes.forEach(type => {
-          if (type && type.id && !interactionTypesMap.has(type.id)) {
-            interactionTypesMap.set(type.id, type);
-          }
-        });
+        // If the interaction type is not associated with any specific tag or entity type, include it
+        if (!type.tag_id && !type.entity_type) return true;
         
-        return Array.from(interactionTypesMap.values());
-      }
-      
-      // For entities with tags, add interaction types based on tags
-      
-      // 2. Get tag-specific interaction types with tag_id directly matching entity tags
-      try {
-        // Create placeholders for the IN clause
-        const placeholders = entityTagIds.map(() => '?').join(',');
+        // If the interaction type is associated with this entity type, include it
+        if (type.entity_type && (type.entity_type === entityType || type.entity_type === null)) return true;
         
-        const tagSpecificQuery = `
-          SELECT ${columnSelection}
-          FROM interaction_types
-          WHERE tag_id IN (${placeholders})
-          ORDER BY interaction_types.name
-        `;
+        // If the entity has tags and the interaction type is associated with any of those tags, include it
+        if (type.tag_id && entityTags.some(tag => tag.id === type.tag_id)) return true;
         
-        const tagSpecificTypes = await this.db.getAllAsync(tagSpecificQuery, entityTagIds);
-        allTypesRaw = [...allTypesRaw, ...tagSpecificTypes];
-      } catch (error) {
-        console.warn('Error getting tag-specific interaction types:', error);
-      }
-      
-      // 3. Get all inherited tag-related interaction types
-      // For groups: include interaction types from all member tags
-      // For persons: include interaction types from group tags they belong to
-      try {
-        // Get all related tags (from groups if this is a person, etc.)
-        const relatedTagIds = await this.getInheritedTagIds(entityId);
-        
-        if (relatedTagIds.length > 0) {
-          console.log(`Found ${relatedTagIds.length} inherited tags`);
-          
-          // Create placeholders for the IN clause
-          const placeholders = relatedTagIds.map(() => '?').join(',');
-          
-          const relatedTagQuery = `
-            SELECT ${columnSelection}
-            FROM interaction_types
-            WHERE tag_id IN (${placeholders})
-            ORDER BY interaction_types.name
-          `;
-          
-          const relatedTagTypes = await this.db.getAllAsync(relatedTagQuery, relatedTagIds);
-          allTypesRaw = [...allTypesRaw, ...relatedTagTypes];
-        }
-      } catch (error) {
-        console.warn('Error getting inherited tag interaction types:', error);
-      }
-      
-      // 4. Get interaction types from junction table interaction_type_tags
-      try {
-        const columnSelection = hasColorColumn 
-          ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
-          : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
-        
-        const placeholders = entityTagIds.map(() => '?').join(',');
-        const junctionQuery = `
-          SELECT DISTINCT ${columnSelection}
-          FROM interaction_types
-          JOIN interaction_type_tags itt ON interaction_types.id = itt.interaction_type_id
-          WHERE itt.tag_id IN (${placeholders})
-          ORDER BY interaction_types.name
-        `;
-        
-        const junctionTypes = await this.db.getAllAsync(junctionQuery, entityTagIds);
-        allTypesRaw = [...allTypesRaw, ...junctionTypes];
-      } catch (error) {
-        console.warn('Error getting interaction types from junction table:', error);
-      }
-      
-      // 5. Get ALL tag-related interaction types regardless of entity type
-      try {
-        const columnSelection = hasColorColumn 
-          ? "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.color, interaction_types.score" 
-          : "interaction_types.id, interaction_types.name, interaction_types.tag_id, interaction_types.icon, interaction_types.entity_type, interaction_types.score";
-        
-        const placeholders = entityTagIds.map(() => '?').join(',');
-        const allTagTypesQuery = `
-          SELECT DISTINCT ${columnSelection}
-          FROM interaction_types
-          JOIN interaction_type_tags itt ON interaction_types.id = itt.interaction_type_id
-          WHERE itt.tag_id IN (${placeholders})
-          ORDER BY interaction_types.name
-        `;
-        
-        const allTagTypes = await this.db.getAllAsync(allTagTypesQuery, entityTagIds);
-        allTypesRaw = [...allTypesRaw, ...allTagTypes];
-      } catch (error) {
-        console.warn('Error getting all tag-related interaction types:', error);
-      }
-      
-      // Add default color and score if missing and convert to InteractionType objects
-      const allTypes = allTypesRaw
-        .filter(type => type && type.id) // Filter out any null or invalid types
-        .map(type => ({
-          id: type.id,
-          name: type.name,
-          tag_id: type.tag_id,
-          entity_type: type.entity_type,
-          icon: type.icon || 'account-check',
-          score: type.score || 1,
-          color: type.color || '#666666'
-        })) as InteractionType[];
-      
-      // Remove duplicates by id
-      const interactionTypesMap = new Map<string, InteractionType>();
-      allTypes.forEach(type => {
-        if (type && type.id && !interactionTypesMap.has(type.id)) {
-          interactionTypesMap.set(type.id, type);
-        }
+        return false;
       });
       
-      return Array.from(interactionTypesMap.values());
+      return filteredTypes;
     } catch (error) {
-      console.error('Error getting entity interaction types:', error);
+      console.error('Error getting all interaction types for entity:', error);
       return [];
     }
   }
@@ -4927,8 +4705,6 @@ export class Database {
   // This is used for the interaction type picker when creating/editing interactions
   async getAllInteractionTypesForEntity(entityId: string): Promise<InteractionType[]> {
     try {
-      console.log(`Getting ALL interaction types for entity ${entityId} (for interaction picker)`);
-      
       // Get the entity to determine its type
       const entity = await this.getEntityById(entityId);
       if (!entity) {
@@ -4937,20 +4713,17 @@ export class Database {
       }
       
       const entityType = entity.type;
-      console.log(`Entity type: ${entityType}`);
       
       // For GROUP entities, get interaction types for all members
       if (entityType === EntityType.GROUP) {
         try {
           // Get all group members
           const groupMembers = await this.getGroupMembers(entityId);
-          console.log(`Found ${groupMembers.length} members for group ${entityId}`);
           
           if (groupMembers.length === 0) {
             // If no members, just return the default group interactions
             const entityTags = await this.getEntityTags(entityId);
             const entityTagNames = entityTags.map(tag => tag.name);
-            console.log(`Group has tags: ${entityTagNames.join(', ') || 'none'}`);
             
             // Get all interaction types
             const allTypes = await this.getInteractionTypes();
@@ -4962,7 +4735,6 @@ export class Database {
               return false;
             });
             
-            console.log(`Filtered to ${filteredTypes.length} interaction types for empty group ${entityId}`);
             return filteredTypes;
           }
           
@@ -4975,7 +4747,6 @@ export class Database {
             
             // Get interaction types for this member
             const memberTypes = await this.getAllInteractionTypesForEntity(member.id);
-            console.log(`Got ${memberTypes.length} interaction types for group member ${member.id} (${member.name})`);
             
             // Add to our combined list
             allMemberTypes.push(...memberTypes);
@@ -4990,7 +4761,6 @@ export class Database {
           });
           
           const unionTypes = Array.from(uniqueTypesMap.values());
-          console.log(`Combined to ${unionTypes.length} unique interaction types for group ${entityId}`);
           return unionTypes;
         } catch (error) {
           console.error('Error getting group member interaction types:', error);
@@ -5001,11 +4771,9 @@ export class Database {
       // Get all tags associated with this entity
       const entityTags = await this.getEntityTags(entityId);
       const entityTagNames = entityTags.map(tag => tag.name);
-      console.log(`Entity has tags: ${entityTagNames.join(', ') || 'none'}`);
       
       // Get all interaction types
       const allTypes = await this.getInteractionTypes();
-      console.log(`Retrieved ${allTypes.length} total interaction types`);
       
       // Filter interaction types based on entity type and tags
       const filteredTypes = allTypes.filter(type => {
@@ -5035,7 +4803,6 @@ export class Database {
         return false;
       });
       
-      console.log(`Filtered to ${filteredTypes.length} interaction types for entity ${entityId}`);
       return filteredTypes;
     } catch (error) {
       console.error('Error getting all interaction types for entity:', error);

@@ -134,7 +134,6 @@ const EntityCard: React.FC<EntityCardProps> = ({
   const loadInteractionTypes = async () => {
     try {
       setLoadingInteractionTypes(true);
-      console.log(`Loading interaction types for entity ${entity.id} in EntityCard`);
       
       // Use the new getAllInteractionTypesForEntity method to get all possible interaction types
       // This will show more interaction types in the menu regardless of tags

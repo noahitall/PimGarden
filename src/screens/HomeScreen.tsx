@@ -229,7 +229,6 @@ const HomeScreen: React.FC = () => {
   // Listen for the 'tagChange' event to refresh interaction types
   useEffect(() => {
     const handleTagChange = () => {
-      console.log('Tag change detected, refreshing interaction types in all cards');
       loadEntities();
     };
     
