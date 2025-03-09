@@ -9,6 +9,7 @@ import * as IntentLauncher from 'expo-intent-launcher';
 import { RootStackParamList } from '../types';
 import { contactService } from '../services/ContactService';
 import { database, EntityType } from '../database/Database';
+import { eventEmitter } from '../utils/EventEmitter';
 
 type ContactImportScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'ContactImport'>;
 
@@ -210,8 +211,20 @@ const ContactImportScreen: React.FC = () => {
         message += ` (${skippedCount} already imported)`;
       }
       
-      setSnackbarMessage(message);
-      setSnackbarVisible(true);
+      // Navigate back to home screen after successful import
+      if (importedCount > 0) {
+        // Trigger a refresh of the entity list
+        eventEmitter.emit('refreshEntities');
+        // Reset navigation stack with Home as the only screen
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Home' }],
+        });
+      } else {
+        // Only show a snackbar if we're not navigating away
+        setSnackbarMessage(message);
+        setSnackbarVisible(true);
+      }
       
       // Clear selection after import
       setSelectedContacts(new Set());
@@ -406,7 +419,15 @@ const ContactImportScreen: React.FC = () => {
             
             <Button
               mode="outlined"
-              onPress={() => navigation.goBack()}
+              onPress={() => {
+                // Trigger a refresh of the entity list
+                eventEmitter.emit('refreshEntities');
+                // Reset navigation stack with Home as the only screen
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Home' }],
+                });
+              }}
               style={styles.doneButton}
               disabled={importing || deduplicating}
             >

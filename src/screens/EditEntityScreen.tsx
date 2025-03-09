@@ -7,6 +7,7 @@ import { RootStackParamList } from '../types';
 import { database, EntityType } from '../database/Database';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Slider from '@react-native-community/slider';
+import { eventEmitter } from '../utils/EventEmitter';
 
 type EditEntityScreenRouteProp = RouteProp<RootStackParamList, 'EditEntity'>;
 type EditEntityScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EditEntity'>;
@@ -126,7 +127,9 @@ const EditEntityScreen: React.FC = () => {
             await database.setHidden(id, true);
           }
           
-          Alert.alert('Success', 'Entity created successfully');
+          // No success dialog for entity creation - just return to previous screen
+          // Trigger a refresh of the entity list
+          eventEmitter.emit('refreshEntities');
         } else {
           throw new Error('Failed to create entity');
         }

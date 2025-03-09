@@ -243,41 +243,73 @@ export const generatePassphrase = async (): Promise<string> => {
   const selectedWords: string[] = [];
   const wordCount = commonWords.length;
   
-  // Generate all needed random values at once for better performance
-  // We need enough bytes to select 6 words from our dictionary
-  const byteCount = Math.ceil(Math.log2(wordCount) / 8) * 6;
-  let randomBytes = await Crypto.getRandomBytesAsync(byteCount);
+  console.log(`Starting passphrase generation, dictionary size: ${wordCount}`);
   
-  let byteIndex = 0;
+  // Safer approach using direct random number generation
+  let attempts = 0;
+  const maxAttempts = 50; // Prevent infinite loops
   
-  // Select 6 unique random words from the dictionary
-  while (selectedWords.length < 6) {
-    // Use modulo to convert random bytes to an index within our dictionary range
-    // Grab enough bytes to cover our range (more accurate than a single byte modulo)
+  while (selectedWords.length < 6 && attempts < maxAttempts) {
+    attempts++;
+    
+    // Generate a secure random index directly
+    const randomBytes = await Crypto.getRandomBytesAsync(4); // 4 bytes = 32 bits
     let randomValue = 0;
-    const bytesNeeded = Math.min(4, byteCount - byteIndex); // Use at most 4 bytes (32 bits) at a time
     
-    for (let i = 0; i < bytesNeeded; i++) {
-      randomValue = (randomValue << 8) | randomBytes[byteIndex++];
+    // Convert bytes to a number (big-endian)
+    for (let i = 0; i < 4; i++) {
+      randomValue = (randomValue << 8) | randomBytes[i];
     }
     
-    // If we've used all our random bytes but still need more words, get more bytes
-    if (byteIndex >= byteCount && selectedWords.length < 6) {
-      randomBytes = await Crypto.getRandomBytesAsync(byteCount);
-      byteIndex = 0;
-    }
-    
+    // Ensure index is within bounds - use absolute value to guarantee non-negative
+    // Use the & operator with 0x7FFFFFFF to clear the sign bit (ensures positive value)
+    randomValue = randomValue & 0x7FFFFFFF; // Convert to positive number
     const randomIndex = randomValue % wordCount;
-    const word = commonWords[randomIndex];
     
-    // Avoid duplicate words
-    if (!selectedWords.includes(word)) {
-      selectedWords.push(word);
+    // Debug info
+    console.log(`Attempt ${attempts}: Index ${randomIndex} (out of ${wordCount})`);
+    
+    // Verify the index is valid
+    if (randomIndex >= 0 && randomIndex < wordCount) {
+      const word = commonWords[randomIndex];
+      
+      // Verify the word exists and isn't already selected
+      if (word && typeof word === 'string' && !selectedWords.includes(word)) {
+        selectedWords.push(word);
+        console.log(`Added word ${selectedWords.length}: ${word}`);
+      } else if (!word || typeof word !== 'string') {
+        console.error(`Invalid word at index ${randomIndex}`);
+      }
+    } else {
+      console.error(`Generated invalid index: ${randomIndex}`);
+    }
+  }
+  
+  // If we couldn't get 6 words using the random method, fall back to a simpler approach
+  if (selectedWords.length < 6) {
+    console.error(`Failed to generate 6 words after ${maxAttempts} attempts, using fallback method`);
+    
+    // Fallback: manually select words until we have 6
+    while (selectedWords.length < 6) {
+      // Use a simple Math.random() as fallback - always positive between 0 and wordCount-1
+      const randomIndex = Math.floor(Math.random() * wordCount);
+      const word = commonWords[randomIndex];
+      
+      if (word && typeof word === 'string' && !selectedWords.includes(word)) {
+        selectedWords.push(word);
+        console.log(`Added fallback word ${selectedWords.length}: ${word}`);
+      }
     }
   }
   
   // Join the words with spaces to create the passphrase
-  return selectedWords.join(' ');
+  const passphrase = selectedWords.join(' ');
+  
+  // Verify we have exactly 6 words
+  const wordCount6 = passphrase.trim().split(/\s+/).length;
+  console.log(`Generated passphrase with ${wordCount6} words: ${passphrase}`);
+  
+  return passphrase;
 };
 
 /**

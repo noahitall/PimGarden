@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StyleSheet, View, FlatList, Dimensions, RefreshControl, Animated, Alert, TouchableOpacity, ScrollView, SafeAreaView, Keyboard, ActivityIndicator } from 'react-native';
-import { FAB, Appbar, Chip, Searchbar, Button, Snackbar, Banner, Menu, IconButton, Divider, Text, Surface, Dialog, Portal } from 'react-native-paper';
+import { FAB, Appbar, Chip, Button, Snackbar, Banner, Menu, IconButton, Divider, Text, Surface, Dialog, Portal, Searchbar } from 'react-native-paper';
 import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Entity } from '../types';
@@ -25,8 +25,6 @@ const HomeScreen: React.FC = () => {
   const [allEntities, setAllEntities] = useState<Entity[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [entityCount, setEntityCount] = useState(0);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchVisible, setSearchVisible] = useState(false);
   const [filter, setFilter] = useState<EntityType | undefined>(undefined);
   const [showFavorites, setShowFavorites] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -44,8 +42,10 @@ const HomeScreen: React.FC = () => {
   const [loadingMerge, setLoadingMerge] = useState(false);
   const [menuAnchorPosition, setMenuAnchorPosition] = useState({ x: 0, y: 0 });
   const windowWidth = Dimensions.get('window').width;
-  const searchInputRef = useRef<any>(null);
-  const searchBarHeight = useRef(new Animated.Value(0)).current;
+  
+  // Search functionality
+  const [showSearchBar, setShowSearchBar] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Add state variables for pagination
   const [visibleEntities, setVisibleEntities] = useState<Entity[]>([]);
@@ -102,17 +102,25 @@ const HomeScreen: React.FC = () => {
           setNumColumns(savedCompactMode === 'true' ? 3 : 2);
         }
         
-        // Instead of using a separate state, now we check the feature flag
-        setShowBirthdays(isFeatureEnabledSync('ENABLE_BIRTHDAY_DISPLAY'));
+        const savedShowBirthdays = await AsyncStorage.getItem('showBirthdays');
+        if (savedShowBirthdays !== null) {
+          setShowBirthdays(savedShowBirthdays === 'true');
+        }
         
         const savedShowHidden = await AsyncStorage.getItem('showHidden');
         if (savedShowHidden !== null) {
           setShowHidden(savedShowHidden === 'true');
         }
+        
+        const savedShowSearchBar = await AsyncStorage.getItem('showSearchBar');
+        if (savedShowSearchBar !== null) {
+          setShowSearchBar(savedShowSearchBar === 'true');
+        }
       } catch (error) {
-        console.error('Error loading preferences:', error);
+        console.error('Error loading user preferences:', error);
       }
     };
+    
     loadPreferences();
   }, []);
 
@@ -122,38 +130,49 @@ const HomeScreen: React.FC = () => {
     newKeepFavoritesFirst?: boolean, 
     newCompactMode?: boolean,
     newShowBirthdays?: boolean,
-    newShowHidden?: boolean
+    newShowHidden?: boolean,
+    newShowSearchBar?: boolean
   ) => {
     try {
-      // Handle sortBy
-      if (newSortBy !== undefined) {
+      // Save sort preferences
+      if (newSortBy) {
         await AsyncStorage.setItem('sortBy', newSortBy);
         setSortBy(newSortBy);
       }
       
-      // Handle keepFavoritesFirst
+      // Save favorites first preference
       if (newKeepFavoritesFirst !== undefined) {
         await AsyncStorage.setItem('keepFavoritesFirst', String(newKeepFavoritesFirst));
         setKeepFavoritesFirst(newKeepFavoritesFirst);
       }
       
-      // Handle compactMode
+      // Save compact mode preference
       if (newCompactMode !== undefined) {
         await AsyncStorage.setItem('compactMode', String(newCompactMode));
         setIsCompactMode(newCompactMode);
         setNumColumns(newCompactMode ? 3 : 2);
       }
       
-      // Handle showBirthdays - now updates the feature flag
+      // Save birthday section visibility
       if (newShowBirthdays !== undefined) {
-        await updateFeatureFlag('ENABLE_BIRTHDAY_DISPLAY', newShowBirthdays);
+        await AsyncStorage.setItem('showBirthdays', String(newShowBirthdays));
         setShowBirthdays(newShowBirthdays);
       }
       
-      // Handle showHidden
+      // Save hidden entities visibility
       if (newShowHidden !== undefined) {
         await AsyncStorage.setItem('showHidden', String(newShowHidden));
         setShowHidden(newShowHidden);
+      }
+      
+      // Save search bar visibility
+      if (newShowSearchBar !== undefined) {
+        await AsyncStorage.setItem('showSearchBar', String(newShowSearchBar));
+        setShowSearchBar(newShowSearchBar);
+        // Clear search query if hiding search bar
+        if (!newShowSearchBar) {
+          setSearchQuery('');
+        }
       }
       
       // Force reload of data
@@ -174,27 +193,49 @@ const HomeScreen: React.FC = () => {
         data = await database.getFavorites();
       } else {
         // Get all entities
-        data = await database.getAllEntities(showHidden);
+        data = await database.getAllEntities(showHidden as any);
       }
       
-      // Apply filter if set
+      // Apply filter if set - ensure strict equality check for entity types
       if (filter) {
-        data = data.filter(entity => entity.type === filter);
+        // Make sure we're doing a strict type check
+        data = data.filter(entity => {
+          // Ensure entity.type is exactly equal to the filter type
+          return entity.type === filter;
+        });
       }
       
-      // Apply search filter if query exists
+      // Apply search filter if search query exists
       if (searchQuery.trim()) {
-        data = data.filter(entity => 
-          entity.name.toLowerCase().includes(searchQuery.toLowerCase())
-        );
+        const query = searchQuery.trim().toLowerCase();
+        data = data.filter(entity => {
+          // Search in basic entity fields
+          if (entity.name.toLowerCase().includes(query)) return true;
+          if (entity.details && entity.details.toLowerCase().includes(query)) return true;
+          
+          // For person entities, check the encrypted_data which may contain contact info
+          // This is a fallback since most contact info is already in details field
+          if (entity.encrypted_data) {
+            try {
+              // Try to parse the encrypted data
+              // Note: The encryption is handled internally by database.decryptData
+              const encryptedData = entity.encrypted_data.toLowerCase();
+              if (encryptedData.includes(query)) return true;
+            } catch (error) {
+              // Ignore errors trying to search encrypted data
+            }
+          }
+          
+          return false;
+        });
       }
       
       // Apply sorting
       data.sort((a, b) => {
         // First apply favorites sorting if enabled
         if (keepFavoritesFirst) {
-          const aFavorite = a.is_favorite || false;
-          const bFavorite = b.is_favorite || false;
+          const aFavorite = (a as any).is_favorite || false;
+          const bFavorite = (b as any).is_favorite || false;
           
           if (aFavorite && !bFavorite) return -1;
           if (!aFavorite && bFavorite) return 1;
@@ -217,20 +258,35 @@ const HomeScreen: React.FC = () => {
         ...entity,
         type: entity.type as EntityType
       }));
-      setEntities(typedData);
-      setAllEntities(typedData);
+      
+      setEntities(typedData as any);
+      setAllEntities(typedData as any);
     } catch (error) {
       console.error('Error loading entities:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [filter, searchQuery, showFavorites, sortBy, keepFavoritesFirst, showHidden]);
+  }, [filter, showFavorites, sortBy, keepFavoritesFirst, showHidden, searchQuery]);
   
-  // Refresh data when screen comes into focus
+  // Load entity data when screen is in focus
   useFocusEffect(
     useCallback(() => {
-      loadEntities();
-    }, [loadEntities])
+      if (isFocused) {
+        loadEntities();
+
+        // Set up listener for refreshEntities event
+        const refreshListener = () => {
+          loadEntities();
+        };
+        
+        eventEmitter.addEventListener('refreshEntities', refreshListener);
+        
+        // Clean up listener when component unmounts
+        return () => {
+          eventEmitter.removeEventListener('refreshEntities', refreshListener);
+        };
+      }
+    }, [isFocused, loadEntities])
   );
   
   // Listen for the 'tagChange' event to refresh interaction types
@@ -245,7 +301,7 @@ const HomeScreen: React.FC = () => {
     return () => {
       eventEmitter.removeEventListener('tagChange', handleTagChange);
     };
-  }, []);
+  }, [loadEntities]);
   
   // Handle card press - normal mode opens entity, merge mode selects target
   const handleCardPress = (id: string) => {
@@ -347,86 +403,162 @@ const HomeScreen: React.FC = () => {
   
   // Handle filter selection
   const handleFilterChange = (type: EntityType) => {
+    // Toggle filter or set new filter
     if (filter === type) {
-      setFilter(undefined);
-    } else {
-      setFilter(type);
-    }
-  };
-  
-  // Toggle favorites only filter
-  const handleFavoritesToggle = () => {
-    setShowFavorites(!showFavorites);
-  };
-  
-  // Toggle search bar visibility
-  const toggleSearchBar = (show: boolean) => {
-    if (show) {
-      // First make component visible
-      setSearchVisible(true);
-      // Then start animation
-      Animated.timing(searchBarHeight, {
-        toValue: 60,
-        duration: 250,
-        useNativeDriver: false
-      }).start();
-    } else {
-      // If hiding, animate first, then hide the component
-      Animated.timing(searchBarHeight, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: false
-      }).start(() => {
-        setSearchVisible(false);
-        setSearchQuery('');
-        // Ensure menu is closed
-        setMenuVisible(false);
+      // Call loadEntities before setting state to get current state
+      loadEntities().then(() => {
+        setFilter(undefined);
       });
+    } else {
+      // Set filter first, then call loadEntities with the new filter value directly
+      setFilter(type);
+      
+      // We need to manually filter for the new type since loadEntities will use the state
+      // which hasn't been updated yet
+      (async () => {
+        setRefreshing(true);
+        try {
+          let data;
+          
+          if (showFavorites) {
+            // Get only favorite entities
+            data = await database.getFavorites();
+          } else {
+            // Get all entities
+            data = await database.getAllEntities(showHidden as any);
+          }
+          
+          // Apply the new filter immediately (use the parameter, not the state)
+          data = data.filter(entity => entity.type === type);
+          
+          // Apply sorting
+          data.sort((a, b) => {
+            // First apply favorites sorting if enabled
+            if (keepFavoritesFirst) {
+              const aFavorite = (a as any).is_favorite || false;
+              const bFavorite = (b as any).is_favorite || false;
+              
+              if (aFavorite && !bFavorite) return -1;
+              if (!aFavorite && bFavorite) return 1;
+            }
+            
+            // Then apply the selected sort
+            switch (sortBy) {
+              case 'name':
+                return a.name.localeCompare(b.name);
+              case 'recent_interaction':
+                return b.interaction_score - a.interaction_score;
+              case 'updated':
+              default:
+                return b.updated_at - a.updated_at;
+            }
+          });
+          
+          // Set the entities with proper typing
+          const typedData = data.map(entity => ({
+            ...entity,
+            type: entity.type as EntityType
+          }));
+          
+          setEntities(typedData as any);
+          setAllEntities(typedData as any);
+        } catch (error) {
+          console.error('Error filtering entities:', error);
+        } finally {
+          setRefreshing(false);
+        }
+      })();
     }
   };
   
-  // Handle search query changes
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
+  // Handle clearing the filter (All option)
+  const handleClearFilter = () => {
+    // Clear filter
+    setFilter(undefined);
+    
+    // Immediately load all entities
+    (async () => {
+      setRefreshing(true);
+      try {
+        let data;
+        
+        if (showFavorites) {
+          // Get only favorite entities
+          data = await database.getFavorites();
+        } else {
+          // Get all entities
+          data = await database.getAllEntities(showHidden as any);
+        }
+        
+        // No filter to apply
+        
+        // Apply sorting
+        data.sort((a, b) => {
+          // First apply favorites sorting if enabled
+          if (keepFavoritesFirst) {
+            const aFavorite = (a as any).is_favorite || false;
+            const bFavorite = (b as any).is_favorite || false;
+            
+            if (aFavorite && !bFavorite) return -1;
+            if (!aFavorite && bFavorite) return 1;
+          }
+          
+          // Then apply the selected sort
+          switch (sortBy) {
+            case 'name':
+              return a.name.localeCompare(b.name);
+            case 'recent_interaction':
+              return b.interaction_score - a.interaction_score;
+            case 'updated':
+            default:
+              return b.updated_at - a.updated_at;
+          }
+        });
+        
+        // Set the entities with proper typing
+        const typedData = data.map(entity => ({
+          ...entity,
+          type: entity.type as EntityType
+        }));
+        
+        setEntities(typedData as any);
+        setAllEntities(typedData as any);
+      } catch (error) {
+        console.error('Error loading all entities:', error);
+      } finally {
+        setRefreshing(false);
+      }
+    })();
   };
-  
-  // Handle scroll events to show/hide search bar
-  const handleScroll = (event: any) => {
-    const scrollY = event.nativeEvent.contentOffset.y;
-    // Show search bar when user pulls down significantly
-    if (scrollY < -50 && !searchVisible) {
-      toggleSearchBar(true);
-    }
-  };
-  
+
   // Render filter chips
   const renderFilterChips = () => (
     <View style={styles.filterContainer}>
       <View style={styles.filterRow}>
         <Chip
           selected={filter === undefined}
-          onPress={() => setFilter(undefined)}
+          onPress={handleClearFilter}
           style={styles.filterChip}
         >
           All
         </Chip>
         <Chip
           selected={filter === EntityType.PERSON}
-          onPress={() => setFilter(EntityType.PERSON)}
+          onPress={() => handleFilterChange(EntityType.PERSON)}
           style={styles.filterChip}
         >
           People
         </Chip>
         <Chip
           selected={filter === EntityType.GROUP}
-          onPress={() => setFilter(EntityType.GROUP)}
+          onPress={() => handleFilterChange(EntityType.GROUP)}
           style={styles.filterChip}
         >
           Groups
         </Chip>
         <Chip
           selected={filter === EntityType.TOPIC}
-          onPress={() => setFilter(EntityType.TOPIC)}
+          onPress={() => handleFilterChange(EntityType.TOPIC)}
           style={styles.filterChip}
         >
           Topics
@@ -434,7 +566,7 @@ const HomeScreen: React.FC = () => {
         <IconButton
           icon={showFavorites ? 'star' : 'star-outline'}
           selected={showFavorites}
-          onPress={() => setShowFavorites(!showFavorites)}
+          onPress={handleFavoritesToggle}
           style={styles.favoriteChip}
           iconColor={showFavorites ? '#FFD700' : undefined}
         />
@@ -442,25 +574,29 @@ const HomeScreen: React.FC = () => {
     </View>
   );
   
-  // Render entity card
-  const renderItem = ({ item }: { item: Entity }) => (
-    <View style={[
-      styles.cardContainer,
-      isCompactMode && {
-        width: `${100 / numColumns}%`,
-        padding: 2,
-      }
-    ]}>
-      <EntityCard 
-        entity={item} 
-        onPress={handleCardPress} 
-        onLongPress={() => handleCardLongPress(item.id)}
-        selected={mergeMode && sourceEntity && sourceEntity.id === item.id}
-        isCompact={isCompactMode}
-        forceRefresh={Date.now()}
-      />
-    </View>
-  );
+  // Memoize the renderItem function to avoid unnecessary re-renders
+  const renderItem = useCallback(({ item }: { item: Entity }) => {
+    // Compute the selected state properly to avoid null/undefined type errors
+    const isSelected = mergeMode && sourceEntity ? sourceEntity.id === item.id : false;
+    
+    return (
+      <View style={[
+        styles.cardContainer,
+        isCompactMode && {
+          width: `${100 / numColumns}%`,
+          padding: 2,
+        }
+      ]}>
+        <EntityCard 
+          entity={item} 
+          onPress={handleCardPress} 
+          onLongPress={() => handleCardLongPress(item.id)}
+          selected={isSelected}
+          isCompact={isCompactMode}
+        />
+      </View>
+    );
+  }, [isCompactMode, numColumns, mergeMode, sourceEntity, handleCardPress, handleCardLongPress]);
   
   // Get readable text for current sort option
   const getSortByText = (): string => {
@@ -514,17 +650,8 @@ const HomeScreen: React.FC = () => {
     >
       <Menu.Item
         onPress={() => {
-          toggleSearchBar(!searchVisible);
+          handleSortChange();
           dismissMenuWithDelay();
-        }}
-        title={`${searchVisible ? 'Hide' : 'Show'} Search Bar`}
-        leadingIcon={searchVisible ? 'magnify-off' : 'magnify'}
-      />
-      <Menu.Item
-        onPress={() => {
-          const newSortBy = getNextSortOption();
-          savePreferences(newSortBy);
-          dismissMenuWithDelay(); // Use the delayed dismiss
         }}
         title={`Sort By: ${getSortByText()}`}
         leadingIcon="sort"
@@ -557,6 +684,14 @@ const HomeScreen: React.FC = () => {
         }}
         title={`${showHidden ? 'Hide' : 'Show'} Hidden Entities`}
         leadingIcon={showHidden ? 'eye-off' : 'eye'}
+      />
+      <Menu.Item
+        onPress={() => {
+          savePreferences(undefined, undefined, undefined, undefined, undefined, !showSearchBar);
+          dismissMenuWithDelay();
+        }}
+        title={`${showSearchBar ? 'Hide' : 'Show'} Search`}
+        leadingIcon="magnify"
       />
     </Menu>
   );
@@ -596,15 +731,12 @@ const HomeScreen: React.FC = () => {
         </View>
       ),
     });
-  }, [navigation, searchVisible, menuVisible]);
+  }, [navigation, menuVisible]);
 
   // Handle new entity creation
   const handleAddEntity = () => {
     navigation.navigate('EditEntity', { type: filter });
   };
-
-  // This is just a placeholder for the animation reference
-  const searchAnimationRef = useRef(new Animated.Value(0));
 
   // Show upcoming birthdays section if enabled
   useEffect(() => {
@@ -635,17 +767,26 @@ const HomeScreen: React.FC = () => {
     setHasMoreToLoad(entities.length > totalItems);
   }, [entities, currentPage, entityListLimit]);
   
-  // Reset pagination when filters change
+  // Reset pagination when filter/sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [filter, searchQuery, showFavorites, sortBy, keepFavoritesFirst, showHidden]);
+    // Don't call loadEntities here - it will be called by the handler functions
+  }, [filter, showFavorites, sortBy, keepFavoritesFirst, showHidden]);
   
+  // Handle sort/preferences changes
+  const handleSortChange = () => {
+    const newSortBy = getNextSortOption();
+    savePreferences(newSortBy);
+    // Wait for state update, then reload entities
+    setTimeout(() => loadEntities(), 0);
+  };
+
   // Function to load more entities
   const handleLoadMore = () => {
     setCurrentPage(currentPage + 1);
   };
-
-  // Render footer with Load More button
+  
+  // Render footer with load more button if needed
   const renderFooter = () => {
     if (!hasMoreToLoad) return null;
     
@@ -662,33 +803,74 @@ const HomeScreen: React.FC = () => {
     );
   };
 
+  // Add key extractor function for FlatList to optimize performance
+  const keyExtractor = useCallback((item: Entity) => item.id, []);
+
+  // Toggle favorites only filter
+  const handleFavoritesToggle = () => {
+    // Toggle favorites and immediately load updated data
+    const newShowFavorites = !showFavorites;
+    setShowFavorites(newShowFavorites);
+    
+    (async () => {
+      setRefreshing(true);
+      try {
+        let data;
+        
+        if (newShowFavorites) {
+          // Get only favorite entities with the new setting
+          data = await database.getFavorites();
+        } else {
+          // Get all entities with the new setting
+          data = await database.getAllEntities(showHidden as any);
+        }
+        
+        // Apply current filter
+        if (filter) {
+          data = data.filter(entity => entity.type === filter);
+        }
+        
+        // Apply sorting
+        data.sort((a, b) => {
+          // First apply favorites sorting if enabled
+          if (keepFavoritesFirst) {
+            const aFavorite = (a as any).is_favorite || false;
+            const bFavorite = (b as any).is_favorite || false;
+            
+            if (aFavorite && !bFavorite) return -1;
+            if (!aFavorite && bFavorite) return 1;
+          }
+          
+          // Then apply the selected sort
+          switch (sortBy) {
+            case 'name':
+              return a.name.localeCompare(b.name);
+            case 'recent_interaction':
+              return b.interaction_score - a.interaction_score;
+            case 'updated':
+            default:
+              return b.updated_at - a.updated_at;
+          }
+        });
+        
+        // Set the entities with proper typing
+        const typedData = data.map(entity => ({
+          ...entity,
+          type: entity.type as EntityType
+        }));
+        
+        setEntities(typedData as any);
+        setAllEntities(typedData as any);
+      } catch (error) {
+        console.error('Error toggling favorites filter:', error);
+      } finally {
+        setRefreshing(false);
+      }
+    })();
+  };
+
   return (
     <View style={styles.container}>
-      {/* Only render search section when searchVisible is true to ensure it's hidden by default */}
-      {searchVisible && (
-        <Animated.View style={[styles.searchSection, { height: searchBarHeight, overflow: 'hidden' }]}>
-          <View style={styles.searchContainer}>
-            <Searchbar
-              placeholder="Search"
-              onChangeText={handleSearch}
-              value={searchQuery}
-              style={styles.searchBar}
-              inputStyle={{ 
-                textAlignVertical: 'center', 
-                height: 30, 
-                paddingTop: 0,
-                paddingBottom: 0,
-                margin: 0
-              }}
-              theme={{ colors: { placeholder: '#666666' } }}
-              icon="magnify"
-              onIconPress={() => {}}
-              ref={searchInputRef}
-            />
-          </View>
-        </Animated.View>
-      )}
-      
       {/* Only render menu when it's visible */}
       {menuVisible && renderOptionsMenu()}
       
@@ -712,17 +894,41 @@ const HomeScreen: React.FC = () => {
       )}
       
       {/* Show upcoming birthdays section if enabled */}
-      {isFeatureEnabledSync('ENABLE_BIRTHDAY_DISPLAY') && <UpcomingBirthdays showHidden={showHidden} />}
+      {showBirthdays && <UpcomingBirthdays showHidden={showHidden} />}
       
       {/* Filter chips */}
       {renderFilterChips()}
       
+      {/* Search bar */}
+      {showSearchBar && (
+        <View style={styles.searchBarContainer}>
+          <Searchbar
+            placeholder="Search entities..."
+            onChangeText={(text) => {
+              setSearchQuery(text);
+            }}
+            value={searchQuery}
+            style={styles.searchBar}
+            onClearIconPress={() => setSearchQuery('')}
+            icon="magnify"
+            clearIcon="close-circle"
+          />
+          {searchQuery.trim() && (
+            <View style={styles.searchCountContainer}>
+              <Text style={styles.searchCountText}>
+                {entities.length} {entities.length === 1 ? 'match' : 'matches'}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+      
       <FlatList
-        key={`grid-${numColumns}`}
         data={visibleEntities}
-        numColumns={numColumns}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
+        numColumns={numColumns}
+        key={`list-${numColumns}`}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
@@ -733,7 +939,9 @@ const HomeScreen: React.FC = () => {
             progressBackgroundColor="#ffffff"
           />
         }
-        onScroll={handleScroll}
+        onScroll={(event) => {
+          // Empty onScroll handler to prevent errors
+        }}
         scrollEventThrottle={16}
         ListFooterComponent={renderFooter}
       />
@@ -783,32 +991,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-  },
-  searchSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  searchContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  searchBar: {
-    flex: 1,
-    elevation: 0,
-    backgroundColor: '#f0f0f0',
-    height: 50,
-    borderRadius: 20,
-    justifyContent: 'center',
-    paddingVertical: 0,
-    alignItems: 'center',
-    paddingTop: 0,
   },
   headerButtonsContainer: {
     flexDirection: 'row',
@@ -873,6 +1055,28 @@ const styles = StyleSheet.create({
   loadMoreButton: {
     width: '80%',
     marginBottom: 16,
+  },
+  searchBarContainer: {
+    padding: 8,
+  },
+  searchBar: {
+    backgroundColor: '#fff',
+  },
+  searchCountContainer: {
+    position: 'absolute',
+    top: 8,
+    right: 16,
+    padding: 4,
+    backgroundColor: '#6200ee',
+    borderRadius: 8,
+    margin: 4,
+  },
+  searchCountText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
 });
 

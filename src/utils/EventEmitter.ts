@@ -3,7 +3,7 @@
  */
 
 // Define the global events
-export type EventType = 'tagChange';
+export type EventType = 'tagChange' | 'refreshEntities';
 
 // Set up the event emitters
 class EventEmitter {
@@ -26,7 +26,7 @@ class EventEmitter {
     }
   }
   
-  emitEvent(event: EventType) {
+  emit(event: EventType) {
     if (this.listeners.has(event)) {
       const callbacks = this.listeners.get(event) || [];
       callbacks.forEach(callback => callback());

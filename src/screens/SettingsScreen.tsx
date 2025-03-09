@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, ScrollView, Alert, Share, Platform, Clipboard, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, ScrollView, Alert, Share, Platform, Clipboard, TouchableOpacity, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { 
   Appbar, 
   List, 
@@ -83,70 +83,37 @@ const SettingsScreen: React.FC = () => {
     decayPreset: 'none'
   });
   
-  // Function to handle preset changes (now updates temp settings)
-  const handlePresetChange = (preset: string) => {
-    let updatedSettings = { ...tempScoreSettings, decayPreset: preset };
-    
-    // Set appropriate decay factor and type based on preset
-    switch (preset) {
-      case 'none':
-        updatedSettings.decayFactor = 0;
-        updatedSettings.decayType = 'linear';
-        break;
-      case 'slow':
-        updatedSettings.decayFactor = 0.3;
-        updatedSettings.decayType = 'logarithmic';
-        break;
-      case 'standard':
-        updatedSettings.decayFactor = 0.6;
-        updatedSettings.decayType = 'linear';
-        break;
-      case 'fast':
-        updatedSettings.decayFactor = 0.8;
-        updatedSettings.decayType = 'exponential';
-        break;
-    }
-    
-    setTempScoreSettings(updatedSettings);
-  };
-  
-  // Show score settings dialog
-  const showScoreSettingsDialog = () => {
-    // Initialize temp settings with current settings
-    setTempScoreSettings({...scoreSettings});
-    setScoreSettingsDialogVisible(true);
-  };
-  
-  // Save score settings from dialog
-  const saveScoreSettingsFromDialog = async () => {
-    setScoreSettings(tempScoreSettings);
-    setScoreSettingsDialogVisible(false);
-    
-    try {
-      setIsSavingSettings(true);
-      await database.updateSettings(tempScoreSettings);
-      Alert.alert('Settings Saved', 'Interaction score settings have been updated.');
-    } catch (error) {
-      console.error('Error saving score settings:', error);
-      Alert.alert('Error', 'Failed to save interaction score settings.');
-    } finally {
-      setIsSavingSettings(false);
-    }
-  };
-  
-  // Cancel and close score settings dialog
-  const cancelScoreSettings = () => {
-    setScoreSettingsDialogVisible(false);
-  };
-  
   // Add error state variables
   const [passphraseError, setPassphraseError] = useState<string>('');
   const [restoreError, setRestoreError] = useState<string>('');
+  const [passphraseMatchStatus, setPassphraseMatchStatus] = useState('');
   
   // Create debounced validation functions
   const debouncedValidatePassphrase = useCallback(
-    debounce((text: string, generated: string) => {
-      setIsPassphraseValid(text === generated);
+    debounce((text: string, generatedPassphrase: string) => {
+      const isValid = validatePassphraseFormat(text);
+      setIsPassphraseValid(isValid);
+
+      // Check if we should validate against a generated passphrase
+      if (generatedPassphrase) {
+        if (text === generatedPassphrase) {
+          setPassphraseMatchStatus('Passphrase matches! You can now export your backup.');
+          setPassphraseError('');
+        } else if (text && text.length > 0) {
+          setPassphraseMatchStatus('');
+          setPassphraseError('Passphrase does not match the generated one. Please type it exactly as shown.');
+        } else {
+          setPassphraseMatchStatus('');
+          setPassphraseError('');
+        }
+      } else {
+        // For a manual passphrase, just check format validity
+        if (!isValid && text) {
+          setPassphraseError('Please enter a valid passphrase (6 lowercase words separated by spaces)');
+        } else {
+          setPassphraseError('');
+        }
+      }
     }, 300),
     []
   );
@@ -161,7 +128,30 @@ const SettingsScreen: React.FC = () => {
   // Handle passphrase input changes with debounce
   const handlePassphraseChange = (text: string) => {
     setPassphrase(text);
-    debouncedValidatePassphrase(text, generatedPassphrase);
+    
+    // Verify the passphrase format is valid
+    const isValid = validatePassphraseFormat(text);
+    setIsPassphraseValid(isValid);
+    
+    // If there's a generated passphrase, check if it matches
+    if (generatedPassphrase) {
+      // Check if user has correctly typed the generated passphrase
+      if (text === generatedPassphrase) {
+        setPassphraseMatchStatus('Passphrase matches! You can now export your backup.');
+        setPassphraseError('');
+      } else if (text && text.length > 0) {
+        // Only show mismatch error if user has started typing
+        setPassphraseMatchStatus('');
+        setPassphraseError('Passphrase does not match the generated one. Please type it exactly as shown.');
+      } else {
+        // Clear both when empty
+        setPassphraseMatchStatus('');
+        setPassphraseError('');
+      }
+    } else {
+      // Regular validation for custom passphrases
+      debouncedValidatePassphrase(text, generatedPassphrase);
+    }
   };
   
   // Handle restore passphrase input changes with debounce
@@ -311,12 +301,26 @@ const SettingsScreen: React.FC = () => {
   
   // Show backup dialog and generate initial passphrase
   const showBackupDialog = async () => {
-    const newPassphrase = await generatePassphrase();
-    setGeneratedPassphrase(newPassphrase);
-    setPassphrase('');
-    setIsPassphraseValid(false);
-    setShowPassphrase(false);
-    setBackupDialogVisible(true);
+    try {
+      const newPassphrase = await generatePassphrase();
+      setGeneratedPassphrase(newPassphrase);
+      setPassphrase('');
+      setIsPassphraseValid(false);
+      setShowPassphrase(false);
+      setBackupDialogVisible(true);
+    } catch (error) {
+      console.error('Error generating passphrase:', error);
+      setGeneratedPassphrase('');
+      setPassphrase('');
+      setIsPassphraseValid(false);
+      setShowPassphrase(false);
+      setBackupDialogVisible(true);
+      // Show alert if passphrase generation fails
+      Alert.alert(
+        'Passphrase Generation Failed',
+        'Unable to generate a secure passphrase. Please try again or enter your own passphrase.'
+      );
+    }
   };
   
   // Show restore dialog
@@ -335,14 +339,39 @@ const SettingsScreen: React.FC = () => {
 
   // Generate a new passphrase for export
   const handleGeneratePassphrase = async () => {
-    const newPassphrase = await generatePassphrase();
-    setGeneratedPassphrase(newPassphrase);
-    setPassphrase('');
-    setIsPassphraseValid(false);
+    try {
+      const newPassphrase = await generatePassphrase();
+      console.log(`New passphrase (${newPassphrase.split(/\s+/).length} words): ${newPassphrase}`);
+      
+      // Verify we have 6 words, otherwise try again
+      if (newPassphrase.trim().split(/\s+/).length !== 6) {
+        console.error('Generated passphrase does not have 6 words, retrying...');
+        // Try one more time
+        const retryPassphrase = await generatePassphrase();
+        console.log(`Retry passphrase (${retryPassphrase.split(/\s+/).length} words): ${retryPassphrase}`);
+        setGeneratedPassphrase(retryPassphrase);
+      } else {
+        setGeneratedPassphrase(newPassphrase);
+      }
+      
+      setPassphrase('');
+      setIsPassphraseValid(false);
+    } catch (error) {
+      console.error('Error generating passphrase:', error);
+      Alert.alert(
+        'Passphrase Generation Failed',
+        'Unable to generate a secure passphrase. Please try again or enter your own passphrase.'
+      );
+    }
   };
 
-  // Check if user has correctly typed in the passphrase
+  // Check if user has correctly typed in the generated passphrase
   const isPassphraseMatching = (): boolean => {
+    // If there's no generated passphrase, any valid passphrase is acceptable
+    if (!generatedPassphrase) {
+      return isValidPassphrase(passphrase);
+    }
+    // If there is a generated passphrase, it must match exactly
     return passphrase === generatedPassphrase;
   };
 
@@ -386,8 +415,17 @@ const SettingsScreen: React.FC = () => {
   
   // Export data as encrypted backup
   const handleExportData = async () => {
+    // Check if we need to validate against a generated passphrase
+    if (generatedPassphrase && passphrase !== generatedPassphrase) {
+      Alert.alert(
+        'Passphrase Mismatch',
+        'Please enter the exact passphrase that was generated for you. This ensures you have properly recorded it for future restores.'
+      );
+      return;
+    }
+    
     if (!isValidPassphrase(passphrase)) {
-      Alert.alert('Error', 'Please enter a valid passphrase (at least 8 characters)');
+      Alert.alert('Error', 'Please enter a valid passphrase (6 lowercase words separated by spaces)');
       return;
     }
 
@@ -1001,6 +1039,62 @@ const SettingsScreen: React.FC = () => {
     </Portal>
   );
   
+  // Function to handle preset changes (now updates temp settings)
+  const handlePresetChange = (preset: string) => {
+    let updatedSettings = { ...tempScoreSettings, decayPreset: preset };
+    
+    // Set appropriate decay factor and type based on preset
+    switch (preset) {
+      case 'none':
+        updatedSettings.decayFactor = 0;
+        updatedSettings.decayType = 'linear';
+        break;
+      case 'slow':
+        updatedSettings.decayFactor = 0.3;
+        updatedSettings.decayType = 'logarithmic';
+        break;
+      case 'standard':
+        updatedSettings.decayFactor = 0.6;
+        updatedSettings.decayType = 'linear';
+        break;
+      case 'fast':
+        updatedSettings.decayFactor = 0.8;
+        updatedSettings.decayType = 'exponential';
+        break;
+    }
+    
+    setTempScoreSettings(updatedSettings);
+  };
+  
+  // Show score settings dialog
+  const showScoreSettingsDialog = () => {
+    // Initialize temp settings with current settings
+    setTempScoreSettings({...scoreSettings});
+    setScoreSettingsDialogVisible(true);
+  };
+  
+  // Save score settings from dialog
+  const saveScoreSettingsFromDialog = async () => {
+    setScoreSettings(tempScoreSettings);
+    setScoreSettingsDialogVisible(false);
+    
+    try {
+      setIsSavingSettings(true);
+      await database.updateSettings(tempScoreSettings);
+      Alert.alert('Settings Saved', 'Interaction score settings have been updated.');
+    } catch (error) {
+      console.error('Error saving score settings:', error);
+      Alert.alert('Error', 'Failed to save interaction score settings.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+  
+  // Cancel and close score settings dialog
+  const cancelScoreSettings = () => {
+    setScoreSettingsDialogVisible(false);
+  };
+
   // Render the score settings dialog
   const renderScoreSettingsDialog = () => (
     <Portal>
@@ -1153,7 +1247,7 @@ const SettingsScreen: React.FC = () => {
       </Dialog>
     </Portal>
   );
-  
+
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
@@ -1697,51 +1791,87 @@ const SettingsScreen: React.FC = () => {
           <Dialog
             visible={backupDialogVisible}
             onDismiss={() => {
+              Keyboard.dismiss();
               if (!isProcessing) setBackupDialogVisible(false);
             }}
           >
-            <Dialog.Title>Create Encrypted Backup</Dialog.Title>
-            <Dialog.Content>
-              <Text style={styles.dialogDescription}>
-                Enter a passphrase to encrypt your backup. 
-                This is required to restore your data later.
-              </Text>
-              
-              <TextInput
-                label="Passphrase"
-                value={passphrase}
-                onChangeText={handlePassphraseChange}
-                secureTextEntry={true}
-                style={styles.input}
-                disabled={isProcessing}
-              />
-              
-              <View style={styles.passphraseHintContainer}>
-                <Text style={styles.passphraseHintText}>
-                  Use a strong 6-word passphrase for better security or generate one automatically.
-                </Text>
-                <Button 
-                  mode="text" 
-                  onPress={handleGeneratePassphrase}
-                  disabled={isProcessing}
-                  compact
-                >
-                  Generate Passphrase
-                </Button>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View>
+                <Dialog.Title>Create Encrypted Backup</Dialog.Title>
+                <Dialog.Content>
+                  <Text style={styles.dialogDescription}>
+                    Enter a passphrase to encrypt your backup. 
+                    This is required to restore your data later.
+                  </Text>
+                  
+                  <TextInput
+                    label="Passphrase"
+                    value={passphrase}
+                    onChangeText={handlePassphraseChange}
+                    secureTextEntry={true}
+                    style={styles.input}
+                    disabled={isProcessing}
+                    onBlur={() => Keyboard.dismiss()}
+                  />
+                  
+                  {generatedPassphrase && (
+                    <View style={styles.passphraseDisplay}>
+                      <Text style={styles.passphraseHintText}>Your generated passphrase:</Text>
+                      <View style={styles.passphraseContainer}>
+                        {generatedPassphrase.split(/\s+/).map((word, index) => (
+                          <Text key={index} style={styles.passphraseWord}>
+                            {word}{index < 5 ? ' ' : ''}
+                          </Text>
+                        ))}
+                      </View>
+                      <Text style={styles.passphraseHintText}>
+                        Copy this passphrase and store it securely. You'll need it to restore your backup.
+                      </Text>
+                      <View style={styles.regenerateButtonContainer}>
+                        <Button 
+                          mode="contained" 
+                          onPress={handleGeneratePassphrase}
+                          disabled={isProcessing}
+                          icon="refresh"
+                          style={styles.regenerateButton}
+                        >
+                          Regenerate
+                        </Button>
+                      </View>
+                    </View>
+                  )}
+                  
+                  {/* Add match status indicator */}
+                  {generatedPassphrase && passphrase && passphrase === generatedPassphrase && (
+                    <View style={styles.matchStatusContainer}>
+                      <Text style={styles.matchSuccess}>
+                        ✓ Passphrase matches! You can now export.
+                      </Text>
+                    </View>
+                  )}
+                  
+                  <View style={styles.passphraseHintContainer}>
+                    <Text style={styles.passphraseHintText}>
+                      {!generatedPassphrase ? 
+                        "Use a strong 6-word passphrase for better security or generate one automatically." : 
+                        "Enter the passphrase above to continue, or regenerate a new one if needed."}
+                    </Text>
+                  </View>
+                  
+                  <HelperText type="error" visible={!!passphraseError}>
+                    {passphraseError}
+                  </HelperText>
+                  
+                  {isProcessing && (
+                    <ActivityIndicator 
+                      animating={true} 
+                      size="large" 
+                      style={styles.activityIndicator} 
+                    />
+                  )}
+                </Dialog.Content>
               </View>
-              
-              <HelperText type="error" visible={!!passphraseError}>
-                {passphraseError}
-              </HelperText>
-              
-              {isProcessing && (
-                <ActivityIndicator 
-                  animating={true} 
-                  size="large" 
-                  style={styles.activityIndicator} 
-                />
-              )}
-            </Dialog.Content>
+            </TouchableWithoutFeedback>
             <Dialog.Actions>
               <Button 
                 onPress={() => setBackupDialogVisible(false)}
@@ -1751,7 +1881,7 @@ const SettingsScreen: React.FC = () => {
               </Button>
               <Button 
                 onPress={handleExportData}
-                disabled={isProcessing || !isValidPassphrase(passphrase)}
+                disabled={isProcessing || !isValidPassphrase(passphrase) || (!!generatedPassphrase && passphrase !== generatedPassphrase)}
               >
                 Export
               </Button>
@@ -1860,10 +1990,6 @@ const styles = StyleSheet.create({
     color: '#d32f2f',
     fontStyle: 'italic',
   },
-  dangerButton: {
-    marginTop: 12,
-    borderColor: '#d32f2f',
-  },
   dialogWarningText: {
     fontWeight: 'bold',
     color: '#d32f2f',
@@ -1941,10 +2067,12 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
   },
   generatedPassphrase: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
     color: '#2196F3',
+    marginVertical: 8,
+    flexWrap: 'wrap'
   },
   filePathText: {
     marginTop: 8,
@@ -2044,6 +2172,45 @@ const styles = StyleSheet.create({
   },
   presetDescription: {
     color: '#666',
+  },
+  regenerateButtonContainer: {
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  regenerateButton: {
+    width: '80%',
+  },
+  passphraseContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginVertical: 10,
+  },
+  passphraseWord: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2196F3',
+    marginHorizontal: 2,
+    marginVertical: 2,
+  },
+  matchStatusContainer: {
+    marginVertical: 8,
+    padding: 8,
+    backgroundColor: '#E8F5E9',
+    borderRadius: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  matchSuccess: {
+    color: '#4CAF50',
+    fontWeight: 'bold',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dangerButton: {
+    marginTop: 12,
+    borderColor: '#d32f2f',
   },
 });
 
