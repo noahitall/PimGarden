@@ -1012,21 +1012,12 @@ const SettingsScreen: React.FC = () => {
         onDismiss={cancelScoreSettings}
         style={{ maxWidth: 380, alignSelf: 'center', borderRadius: 8 }}
       >
-        <Dialog.Title>Interaction Score Decay</Dialog.Title>
-        <Dialog.Content>
-          <Text style={[styles.dialogDescription, { marginBottom: 8 }]}>
-            Select how quickly interaction scores decay over time.
-            Faster decay causes older interactions to contribute less to the total score.
+        <Dialog.Title style={{ fontSize: 16, paddingBottom: 4 }}>Interaction Score Decay</Dialog.Title>
+        <Dialog.Content style={{ paddingTop: 0, paddingBottom: 6 }}>
+          <Text style={[styles.dialogDescription, { marginBottom: 4, fontSize: 13 }]}>
+            Choose how quickly interaction scores decay over time.
           </Text>
           
-          <Text style={[styles.sliderLabel, { marginBottom: 4 }]}>
-            Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
-                        tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
-                        tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
-                        'Fast'}
-          </Text>
-          
-          {/* Preset selection buttons in a segmented control style */}
           <View style={styles.presetButtonsContainer}>
             <TouchableOpacity 
               style={[
@@ -1085,17 +1076,15 @@ const SettingsScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
           
-          <View style={styles.presetDescriptionContainer}>
-            <Text style={styles.presetDescription}>
-              {tempScoreSettings.decayPreset === 'none' ? 
-                'No decay: All interactions count the same regardless of age.' :
-               tempScoreSettings.decayPreset === 'slow' ? 
-                'Slow decay: Older interactions gradually lose value (logarithmic).' :
-               tempScoreSettings.decayPreset === 'standard' ? 
-                'Standard decay: Interactions steadily lose value over time (linear).' :
-                'Fast decay: Older interactions rapidly lose value (exponential).'}
-            </Text>
-          </View>
+          <Text style={[styles.presetDescription, { fontSize: 12, marginTop: 2 }]}>
+            {tempScoreSettings.decayPreset === 'none' ? 
+              'All interactions count equally, regardless of age.' :
+             tempScoreSettings.decayPreset === 'slow' ? 
+              'Older interactions gradually lose value (logarithmic).' :
+             tempScoreSettings.decayPreset === 'standard' ? 
+              'Interactions steadily lose value over time (linear).' :
+              'Older interactions rapidly lose value (exponential).'}
+          </Text>
         </Dialog.Content>
         <Dialog.Actions style={styles.dialogActions}>
           <Button 
@@ -1985,14 +1974,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    marginVertical: 8,
+    marginVertical: 4,
   },
   presetButton: {
-    padding: 6,
+    padding: 4,
     borderWidth: 1,
     borderColor: '#CCCCCC',
     flex: 1,
     alignItems: 'center',
+    height: 30,
+    justifyContent: 'center',
   },
   presetButtonActive: {
     backgroundColor: '#E3F2FD',
@@ -2008,11 +1999,13 @@ const styles = StyleSheet.create({
   dialogButton: {
     marginHorizontal: 4,
     minWidth: 90,
+    height: 32,
   },
   dialogActions: {
     justifyContent: 'flex-end',
     paddingHorizontal: 8,
-    paddingBottom: 8,
+    paddingBottom: 6,
+    paddingTop: 0,
   },
 });
 
