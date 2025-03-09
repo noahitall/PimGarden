@@ -71,9 +71,21 @@ const SettingsScreen: React.FC = () => {
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   
-  // Function to handle preset changes
+  // Entity List Limit
+  const [entityListLimit, setEntityListLimit] = useState<number>(50); // Default to 50
+  const [entityLimitDialogVisible, setEntityLimitDialogVisible] = useState(false);
+  
+  // Interaction Score Settings dialog visibility
+  const [scoreSettingsDialogVisible, setScoreSettingsDialogVisible] = useState(false);
+  const [tempScoreSettings, setTempScoreSettings] = useState<AppSettings>({
+    decayFactor: 0,
+    decayType: 'linear',
+    decayPreset: 'none'
+  });
+  
+  // Function to handle preset changes (now updates temp settings)
   const handlePresetChange = (preset: string) => {
-    let updatedSettings = { ...scoreSettings, decayPreset: preset };
+    let updatedSettings = { ...tempScoreSettings, decayPreset: preset };
     
     // Set appropriate decay factor and type based on preset
     switch (preset) {
@@ -95,7 +107,36 @@ const SettingsScreen: React.FC = () => {
         break;
     }
     
-    setScoreSettings(updatedSettings);
+    setTempScoreSettings(updatedSettings);
+  };
+  
+  // Show score settings dialog
+  const showScoreSettingsDialog = () => {
+    // Initialize temp settings with current settings
+    setTempScoreSettings({...scoreSettings});
+    setScoreSettingsDialogVisible(true);
+  };
+  
+  // Save score settings from dialog
+  const saveScoreSettingsFromDialog = async () => {
+    setScoreSettings(tempScoreSettings);
+    setScoreSettingsDialogVisible(false);
+    
+    try {
+      setIsSavingSettings(true);
+      await database.updateSettings(tempScoreSettings);
+      Alert.alert('Settings Saved', 'Interaction score settings have been updated.');
+    } catch (error) {
+      console.error('Error saving score settings:', error);
+      Alert.alert('Error', 'Failed to save interaction score settings.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+  
+  // Cancel and close score settings dialog
+  const cancelScoreSettings = () => {
+    setScoreSettingsDialogVisible(false);
   };
   
   // Add error state variables
@@ -212,47 +253,16 @@ const SettingsScreen: React.FC = () => {
   // Reset all data in the app
   const resetAllData = async () => {
     try {
-      // Use the clearAllData method to actually delete all data from the database
-      // Set reloadDefaultInteractions to true to include default interactions after reset
-      const deletedRecords = await database.clearAllData(true);
-      
-      // Clear feature flags
-      await AsyncStorage.removeItem(FEATURE_FLAGS_STORAGE_KEY);
-      setFeatureFlags({...FeatureFlags});
-      
-      // Reset dialogs
-      setResetDataDialogVisible(false);
-      setResetDataConfirmDialogVisible(false);
-      
-      // Show success message with count of deleted records
+      setIsProcessing(true);
+      const deletedRecords = await database.clearAllData();
       Alert.alert(
-        'Data Reset Complete', 
-        `All data has been erased:\n\n` +
-        `• ${deletedRecords.entities} entities\n` +
-        `• ${deletedRecords.interactions} interactions\n` +
-        `• ${deletedRecords.photos} photos\n` +
-        `• ${deletedRecords.tags} tags\n` +
-        `• ${deletedRecords.favorites} favorites\n\n` +
-        `Total: ${deletedRecords.total} records`,
+        'Data Reset',
+        `All data has been successfully reset.\n\n${deletedRecords.entities} entities, ${deletedRecords.interactions} interactions, ${deletedRecords.photos} photos, ${deletedRecords.tags} tags and ${deletedRecords.favorites} favorites have been deleted.\n\nTotal: ${deletedRecords.total} records`,
         [{ text: 'OK' }]
       );
     } catch (error) {
       console.error('Error resetting data:', error);
       Alert.alert('Error', 'Failed to reset data');
-    }
-  };
-  
-  // Save score settings
-  const saveScoreSettings = async () => {
-    try {
-      setIsSavingSettings(true);
-      await database.updateSettings(scoreSettings);
-      Alert.alert('Settings Saved', 'Interaction score settings have been updated.');
-    } catch (error) {
-      console.error('Error saving score settings:', error);
-      Alert.alert('Error', 'Failed to save interaction score settings.');
-    } finally {
-      setIsSavingSettings(false);
     }
   };
   
@@ -928,10 +938,6 @@ const SettingsScreen: React.FC = () => {
     );
   };
   
-  // Add a state variable for entity list limit
-  const [entityListLimit, setEntityListLimit] = useState<number>(50); // Default to 50
-  const [entityLimitDialogVisible, setEntityLimitDialogVisible] = useState(false);
-  
   // Load entity list limit preference on mount
   useEffect(() => {
     const loadEntityListLimit = async () => {
@@ -984,6 +990,113 @@ const SettingsScreen: React.FC = () => {
     </Portal>
   );
   
+  // Render the score settings dialog
+  const renderScoreSettingsDialog = () => (
+    <Portal>
+      <Dialog
+        visible={scoreSettingsDialogVisible}
+        onDismiss={cancelScoreSettings}
+        style={{ maxWidth: 500, alignSelf: 'center' }}
+      >
+        <Dialog.Title>Interaction Score Decay</Dialog.Title>
+        <Dialog.Content>
+          <Text style={styles.dialogDescription}>
+            Select how quickly interaction scores decay over time.
+            Higher decay settings cause older interactions to contribute less to the total score.
+          </Text>
+          
+          <Text style={styles.sliderLabel}>
+            Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
+                        tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
+                        tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
+                        'Fast'}
+          </Text>
+          
+          {/* Preset selection buttons in a segmented control style */}
+          <View style={styles.presetButtonsContainer}>
+            <TouchableOpacity 
+              style={[
+                styles.presetButton,
+                tempScoreSettings.decayPreset === 'none' ? styles.presetButtonActive : null,
+                { borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }
+              ]} 
+              onPress={() => handlePresetChange('none')}
+            >
+              <Text style={[
+                styles.presetButtonText,
+                tempScoreSettings.decayPreset === 'none' ? styles.presetButtonTextActive : null
+              ]}>None</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                styles.presetButton,
+                tempScoreSettings.decayPreset === 'slow' ? styles.presetButtonActive : null,
+                { borderLeftWidth: 0 }
+              ]} 
+              onPress={() => handlePresetChange('slow')}
+            >
+              <Text style={[
+                styles.presetButtonText,
+                tempScoreSettings.decayPreset === 'slow' ? styles.presetButtonTextActive : null
+              ]}>Slow</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                styles.presetButton,
+                tempScoreSettings.decayPreset === 'standard' ? styles.presetButtonActive : null,
+                { borderLeftWidth: 0 }
+              ]} 
+              onPress={() => handlePresetChange('standard')}
+            >
+              <Text style={[
+                styles.presetButtonText,
+                tempScoreSettings.decayPreset === 'standard' ? styles.presetButtonTextActive : null
+              ]}>Standard</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                styles.presetButton,
+                tempScoreSettings.decayPreset === 'fast' ? styles.presetButtonActive : null,
+                { borderLeftWidth: 0, borderTopRightRadius: 4, borderBottomRightRadius: 4 }
+              ]} 
+              onPress={() => handlePresetChange('fast')}
+            >
+              <Text style={[
+                styles.presetButtonText,
+                tempScoreSettings.decayPreset === 'fast' ? styles.presetButtonTextActive : null
+              ]}>Fast</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.presetDescriptionContainer}>
+            <Text style={styles.presetDescription}>
+              {tempScoreSettings.decayPreset === 'none' ? 
+                'No decay: All interactions count the same regardless of age.' :
+               tempScoreSettings.decayPreset === 'slow' ? 
+                'Slow decay: Older interactions gradually lose value (logarithmic).' :
+               tempScoreSettings.decayPreset === 'standard' ? 
+                'Standard decay: Interactions steadily lose value over time (linear).' :
+                'Fast decay: Older interactions rapidly lose value (exponential).'}
+            </Text>
+          </View>
+        </Dialog.Content>
+        <Dialog.Actions>
+          <Button onPress={cancelScoreSettings}>Cancel</Button>
+          <Button 
+            onPress={saveScoreSettingsFromDialog}
+            disabled={isSavingSettings}
+            loading={isSavingSettings}
+          >
+            Save
+          </Button>
+        </Dialog.Actions>
+      </Dialog>
+    </Portal>
+  );
+  
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
@@ -995,6 +1108,15 @@ const SettingsScreen: React.FC = () => {
             description={`Display ${entityListLimit} entities at a time`}
             left={props => <List.Icon {...props} icon="format-list-numbered" />}
             onPress={() => setEntityLimitDialogVisible(true)}
+          />
+          <List.Item
+            title="Interaction Score Decay"
+            description={`${scoreSettings.decayPreset === 'none' ? 'None' : 
+                         scoreSettings.decayPreset === 'slow' ? 'Slow' : 
+                         scoreSettings.decayPreset === 'standard' ? 'Standard' : 
+                         'Fast'} decay rate for older interactions`}
+            left={props => <List.Icon {...props} icon="chart-timeline-variant" />}
+            onPress={showScoreSettingsDialog}
           />
         </List.Section>
         
@@ -1009,108 +1131,6 @@ const SettingsScreen: React.FC = () => {
             onPress={() => navigation.navigate('NotificationManager')}
           />
         </List.Section>
-        
-        {/* Interaction Score Settings Card */}
-        <Card style={styles.card}>
-          <Card.Title 
-            title="Interaction Score Settings" 
-            subtitle="Configure how interaction scores decay over time" 
-          />
-          <Card.Content>
-            <Text style={styles.sectionDescription}>
-              These settings control how quickly interaction scores decay over time.
-              Higher decay settings cause older interactions to contribute less to the total score.
-            </Text>
-            
-            <Text style={styles.sliderLabel}>
-              Decay Speed: {scoreSettings.decayPreset === 'none' ? 'None' :
-                           scoreSettings.decayPreset === 'slow' ? 'Slow' :
-                           scoreSettings.decayPreset === 'standard' ? 'Standard' :
-                           'Fast'}
-            </Text>
-            
-            {/* Preset selection buttons in a segmented control style */}
-            <View style={styles.presetButtonsContainer}>
-              <TouchableOpacity 
-                style={[
-                  styles.presetButton,
-                  scoreSettings.decayPreset === 'none' ? styles.presetButtonActive : null,
-                  { borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }
-                ]} 
-                onPress={() => handlePresetChange('none')}
-              >
-                <Text style={[
-                  styles.presetButtonText,
-                  scoreSettings.decayPreset === 'none' ? styles.presetButtonTextActive : null
-                ]}>None</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.presetButton,
-                  scoreSettings.decayPreset === 'slow' ? styles.presetButtonActive : null,
-                  { borderLeftWidth: 0 }
-                ]} 
-                onPress={() => handlePresetChange('slow')}
-              >
-                <Text style={[
-                  styles.presetButtonText,
-                  scoreSettings.decayPreset === 'slow' ? styles.presetButtonTextActive : null
-                ]}>Slow</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.presetButton,
-                  scoreSettings.decayPreset === 'standard' ? styles.presetButtonActive : null,
-                  { borderLeftWidth: 0 }
-                ]} 
-                onPress={() => handlePresetChange('standard')}
-              >
-                <Text style={[
-                  styles.presetButtonText,
-                  scoreSettings.decayPreset === 'standard' ? styles.presetButtonTextActive : null
-                ]}>Standard</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.presetButton,
-                  scoreSettings.decayPreset === 'fast' ? styles.presetButtonActive : null,
-                  { borderLeftWidth: 0, borderTopRightRadius: 4, borderBottomRightRadius: 4 }
-                ]} 
-                onPress={() => handlePresetChange('fast')}
-              >
-                <Text style={[
-                  styles.presetButtonText,
-                  scoreSettings.decayPreset === 'fast' ? styles.presetButtonTextActive : null
-                ]}>Fast</Text>
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.presetDescriptionContainer}>
-              <Text style={styles.presetDescription}>
-                {scoreSettings.decayPreset === 'none' ? 
-                  'No decay: All interactions count the same regardless of age.' :
-                 scoreSettings.decayPreset === 'slow' ? 
-                  'Slow decay: Older interactions gradually lose value (logarithmic).' :
-                 scoreSettings.decayPreset === 'standard' ? 
-                  'Standard decay: Interactions steadily lose value over time (linear).' :
-                  'Fast decay: Older interactions rapidly lose value (exponential).'}
-              </Text>
-            </View>
-            
-            <Button 
-              mode="contained"
-              onPress={saveScoreSettings}
-              disabled={isSavingSettings}
-              style={styles.button}
-              loading={isSavingSettings}
-            >
-              Save Score Settings
-            </Button>
-          </Card.Content>
-        </Card>
         
         {/* Interaction Types Management Card */}
         <Card style={styles.card}>
@@ -1526,6 +1546,7 @@ const SettingsScreen: React.FC = () => {
         </Card>
         
         {renderEntityLimitDialog()}
+        {renderScoreSettingsDialog()}
         
         <Portal>
           <Dialog visible={resetDialogVisible} onDismiss={() => setResetDialogVisible(false)}>
