@@ -686,10 +686,11 @@ const HomeScreen: React.FC = () => {
               ref={searchInputRef}
             />
           </View>
-          {/* Only render menu when it's visible */}
-          {menuVisible && renderOptionsMenu()}
         </Animated.View>
       )}
+      
+      {/* Only render menu when it's visible */}
+      {menuVisible && renderOptionsMenu()}
       
       {/* Banner for merge mode */}
       {mergeMode && sourceEntity && (
