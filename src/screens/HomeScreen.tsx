@@ -393,7 +393,7 @@ const HomeScreen: React.FC = () => {
   // Handle scroll events to show/hide search bar
   const handleScroll = (event: any) => {
     const scrollY = event.nativeEvent.contentOffset.y;
-    // Only show search bar when user pulls down significantly
+    // Show search bar when user pulls down significantly
     if (scrollY < -50 && !searchVisible) {
       toggleSearchBar(true);
     }
@@ -685,12 +685,6 @@ const HomeScreen: React.FC = () => {
               onIconPress={() => {}}
               ref={searchInputRef}
             />
-            <Appbar.Action 
-              icon="dots-vertical" 
-              color="#333"
-              onPress={() => setMenuVisible(true)}
-              style={styles.menuButton}
-            />
           </View>
           {/* Only render menu when it's visible */}
           {menuVisible && renderOptionsMenu()}
@@ -734,9 +728,12 @@ const HomeScreen: React.FC = () => {
             refreshing={refreshing}
             onRefresh={loadEntities}
             colors={['#6200ee']}
+            progressViewOffset={20}
+            progressBackgroundColor="#ffffff"
           />
         }
         onScroll={handleScroll}
+        scrollEventThrottle={16}
         ListFooterComponent={renderFooter}
       />
       

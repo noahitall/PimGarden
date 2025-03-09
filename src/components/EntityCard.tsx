@@ -81,7 +81,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
   // Function to refresh interaction data
   const refreshInteractionData = useCallback(async () => {
     try {
-      console.log(`Refreshing interaction data for entity ${entity.id} (updated_at: ${new Date(entity.updated_at).toISOString()})`);
+      //console.log(`Refreshing interaction data for entity ${entity.id} (updated_at: ${new Date(entity.updated_at).toISOString()})`);
       
       // Get the daily data for the last month
       const countsByDay = await database.getInteractionCountsByDay(entity.id);
