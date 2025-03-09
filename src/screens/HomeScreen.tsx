@@ -485,11 +485,18 @@ const HomeScreen: React.FC = () => {
   // Computed sort by text
   const sortByText = getSortByText();
   
+  // Helper to dismiss menu with a small delay
+  const dismissMenuWithDelay = () => {
+    // Short delay to ensure the action completes before dismissing
+    setTimeout(() => setMenuVisible(false), 100);
+  };
+
   // Toggle birthdays section
   const toggleBirthdaysSection = async () => {
     const newValue = !isFeatureEnabledSync('ENABLE_BIRTHDAY_DISPLAY');
     await updateFeatureFlag('ENABLE_BIRTHDAY_DISPLAY', newValue);
     setShowBirthdays(newValue);
+    dismissMenuWithDelay(); // Use the delayed dismiss
   };
   
   // Meatball menu for more options
@@ -503,18 +510,24 @@ const HomeScreen: React.FC = () => {
         onPress={() => {
           const newSortBy = getNextSortOption();
           savePreferences(newSortBy);
-          setMenuVisible(false);
+          dismissMenuWithDelay(); // Use the delayed dismiss
         }}
         title={`Sort By: ${getSortByText()}`}
         leadingIcon="sort"
       />
       <Menu.Item
-        onPress={() => savePreferences(undefined, !keepFavoritesFirst)}
+        onPress={() => {
+          savePreferences(undefined, !keepFavoritesFirst);
+          dismissMenuWithDelay(); // Use the delayed dismiss
+        }}
         title={`${keepFavoritesFirst ? 'Disable' : 'Enable'} Favorites First`}
         leadingIcon={keepFavoritesFirst ? 'star' : 'star-outline'}
       />
       <Menu.Item
-        onPress={() => savePreferences(undefined, undefined, !isCompactMode)}
+        onPress={() => {
+          savePreferences(undefined, undefined, !isCompactMode);
+          dismissMenuWithDelay(); // Use the delayed dismiss
+        }}
         title={`${isCompactMode ? 'Standard' : 'Compact'} View`}
         leadingIcon={isCompactMode ? 'view-grid-outline' : 'view-grid'}
       />
@@ -524,7 +537,10 @@ const HomeScreen: React.FC = () => {
         leadingIcon={showBirthdays ? 'cake-variant' : 'cake-variant-outline'}
       />
       <Menu.Item
-        onPress={() => savePreferences(undefined, undefined, undefined, undefined, !showHidden)}
+        onPress={() => {
+          savePreferences(undefined, undefined, undefined, undefined, !showHidden);
+          dismissMenuWithDelay(); // Use the delayed dismiss
+        }}
         title={`${showHidden ? 'Hide' : 'Show'} Hidden Entities`}
         leadingIcon={showHidden ? 'eye-off' : 'eye'}
       />
