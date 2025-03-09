@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, FlatList, TouchableOpacity, ScrollView } from 'react-native';
-import { Card, Text, IconButton, Chip, ActivityIndicator } from 'react-native-paper';
+import { StyleSheet, View, TouchableOpacity, ScrollView } from 'react-native';
+import { Card, Text, Chip } from 'react-native-paper';
 import { database, EntityType } from '../database/Database';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,25 +19,76 @@ interface BirthdayItem {
   daysUntil: number;
 }
 
-const UpcomingBirthdays: React.FC = () => {
+interface UpcomingBirthdaysProps {
+  showHidden?: boolean; // Whether to show hidden entities
+}
+
+const UpcomingBirthdays: React.FC<UpcomingBirthdaysProps> = ({ showHidden = false }) => {
   const navigation = useNavigation<NavigationProp>();
   const [birthdays, setBirthdays] = useState<BirthdayItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     loadUpcomingBirthdays();
-  }, []);
+  }, [showHidden]); // Re-fetch when showHidden changes
 
   const loadUpcomingBirthdays = async () => {
     setLoading(true);
     try {
-      const upcomingBirthdays = await database.getUpcomingBirthdays(30);
-      console.log('Loaded upcoming birthdays:', upcomingBirthdays.length);
-      upcomingBirthdays.forEach((item, index) => {
-        console.log(`Birthday ${index + 1}: ${item.entity.name}, birthday: ${item.birthday}, days: ${item.daysUntil}`);
-      });
-      setBirthdays(upcomingBirthdays);
+      // Get all person entities first based on showHidden parameter
+      const entities = await database.getAllEntities(
+        EntityType.PERSON,
+        { showHidden }
+      );
+      
+      // Manually process entities to get their birthdays
+      const result: BirthdayItem[] = [];
+      const today = new Date();
+      
+      for (const entity of entities) {
+        const birthday = await database.getBirthdayForPerson(entity.id);
+        if (birthday) {
+          let birthdayDate: Date;
+          
+          // Handle birthday format without year (NOYR:MM-DD)
+          if (birthday.startsWith('NOYR:')) {
+            const monthDay = birthday.substring(5);
+            const [month, day] = monthDay.split('-').map(Number);
+            
+            // Create a temporary date with today's year
+            birthdayDate = new Date(today.getFullYear(), month - 1, day);
+          } else {
+            // Regular date with year
+            birthdayDate = new Date(birthday);
+          }
+          
+          const thisYearBirthday = new Date(
+            today.getFullYear(),
+            birthdayDate.getMonth(),
+            birthdayDate.getDate()
+          );
+          
+          // If the birthday has already passed this year, use next year
+          if (thisYearBirthday < today) {
+            thisYearBirthday.setFullYear(thisYearBirthday.getFullYear() + 1);
+          }
+          
+          // Calculate days until birthday
+          const daysUntil = Math.ceil((thisYearBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          // Only include birthdays in the next 14 days
+          if (daysUntil <= 14) {
+            result.push({
+              entity,
+              birthday,
+              daysUntil
+            });
+          }
+        }
+      }
+      
+      // Sort by days until birthday
+      setBirthdays(result.sort((a, b) => a.daysUntil - b.daysUntil));
     } catch (error) {
       console.error('Error loading upcoming birthdays:', error);
     } finally {
@@ -47,26 +98,6 @@ const UpcomingBirthdays: React.FC = () => {
 
   const handlePersonPress = (personId: string) => {
     navigation.navigate('EntityDetail', { id: personId });
-  };
-
-  const toggleExpanded = () => {
-    setExpanded(!expanded);
-  };
-
-  // Calculate age for upcoming birthday
-  const getUpcomingAge = (birthdayStr: string): number | null => {
-    // Skip year calculation for NOYR format
-    if (birthdayStr.startsWith('NOYR:')) {
-      return null;
-    }
-    
-    try {
-      const birthdate = new Date(birthdayStr);
-      const now = new Date();
-      return differenceInYears(now, birthdate) + 1; // Add 1 for upcoming birthday
-    } catch (error) {
-      return null;
-    }
   };
 
   // Format date for display
@@ -106,8 +137,8 @@ const UpcomingBirthdays: React.FC = () => {
   if (loading) {
     return (
       <Card style={styles.compactCard}>
-        <Card.Content style={styles.loadingContainer}>
-          <ActivityIndicator animating={true} size="small" />
+        <Card.Content>
+          <Text style={styles.headerText}>Upcoming Birthdays</Text>
         </Card.Content>
       </Card>
     );
@@ -117,29 +148,20 @@ const UpcomingBirthdays: React.FC = () => {
     return (
       <Card style={styles.compactCard}>
         <Card.Content>
-          <View style={styles.headerRow}>
-            <Text style={styles.headerText}>Upcoming Birthdays</Text>
-            <IconButton icon="refresh" size={16} onPress={loadUpcomingBirthdays} />
-          </View>
-          <Text style={styles.noDataText}>No upcoming birthdays</Text>
+          <Text style={styles.headerText}>Upcoming Birthdays</Text>
+          <Text style={styles.noDataText}>No birthdays in the next 2 weeks</Text>
         </Card.Content>
       </Card>
     );
   }
 
-  // Limit displayed birthdays
-  const displayedBirthdays = expanded ? birthdays : birthdays.slice(0, 3);
-
   return (
     <Card style={styles.compactCard}>
       <Card.Content>
-        <View style={styles.headerRow}>
-          <Text style={styles.headerText}>Upcoming Birthdays</Text>
-          <IconButton icon="refresh" size={16} onPress={loadUpcomingBirthdays} />
-        </View>
+        <Text style={styles.headerText}>Upcoming Birthdays</Text>
         
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {displayedBirthdays.map((item) => (
+          {birthdays.map((item) => (
             <TouchableOpacity 
               key={item.entity.id}
               style={styles.horizontalBirthdayItem} 
@@ -159,22 +181,6 @@ const UpcomingBirthdays: React.FC = () => {
             </TouchableOpacity>
           ))}
         </ScrollView>
-        
-        {birthdays.length > 3 && !expanded && (
-          <TouchableOpacity style={styles.expandButton} onPress={toggleExpanded}>
-            <Text style={styles.expandButtonText}>
-              Show {birthdays.length - 3} more
-            </Text>
-          </TouchableOpacity>
-        )}
-        
-        {expanded && (
-          <TouchableOpacity style={styles.expandButton} onPress={toggleExpanded}>
-            <Text style={styles.expandButtonText}>
-              Show less
-            </Text>
-          </TouchableOpacity>
-        )}
       </Card.Content>
     </Card>
   );
@@ -187,19 +193,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
   },
-  loadingContainer: {
-    padding: 8,
-    alignItems: 'center',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
   headerText: {
     fontSize: 16,
     fontWeight: 'bold',
+    marginBottom: 8,
   },
   noDataText: {
     fontStyle: 'italic',
@@ -245,17 +242,7 @@ const styles = StyleSheet.create({
     fontSize: 8,
     margin: 0,
     padding: 0,
-  },
-  expandButton: {
-    alignItems: 'center',
-    padding: 4,
-    marginTop: 4,
-  },
-  expandButtonText: {
-    color: '#6200ee',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
+  }
 });
 
 export default UpcomingBirthdays; 

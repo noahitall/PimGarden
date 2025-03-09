@@ -643,7 +643,7 @@ const HomeScreen: React.FC = () => {
       )}
       
       {/* Show upcoming birthdays section if enabled */}
-      {isFeatureEnabledSync('ENABLE_BIRTHDAY_DISPLAY') && <UpcomingBirthdays />}
+      {isFeatureEnabledSync('ENABLE_BIRTHDAY_DISPLAY') && <UpcomingBirthdays showHidden={showHidden} />}
       
       {/* Filter chips */}
       {renderFilterChips()}
