@@ -65,6 +65,7 @@ const EntityDetailScreen: React.FC = () => {
   const [entity, setEntity] = useState<Entity | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFavorite, setIsFavorite] = useState(false);
+  const [isHidden, setIsHidden] = useState(false);
   const [interactionLogs, setInteractionLogs] = useState<InteractionLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
@@ -78,6 +79,9 @@ const EntityDetailScreen: React.FC = () => {
   const [hasMorePhotos, setHasMorePhotos] = useState(false);
   const [photosOffset, setPhotosOffset] = useState(0);
   const PHOTOS_LIMIT = 20;
+  
+  // Options menu state
+  const [optionsMenuVisible, setOptionsMenuVisible] = useState(false);
   
   // Active tab state
   const [activeTab, setActiveTab] = useState<TabValue>('interactions');
@@ -195,6 +199,10 @@ const EntityDetailScreen: React.FC = () => {
         // Check if entity is a favorite
         const favoriteStatus = await database.isFavorite(data.id);
         setIsFavorite(favoriteStatus);
+        
+        // Get hidden status
+        const hiddenStatus = await database.isHidden(data.id);
+        setIsHidden(hiddenStatus);
         
         // Load interaction logs
         await loadInteractionLogs(data.id);
@@ -965,13 +973,56 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
 
-  // Set the favorite star in the header
+  // Set the header options
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      // Remove the favorite star from the header
-      headerRight: () => null,
+      headerRight: () => (
+        <View style={{ flexDirection: 'row' }}>
+          <IconButton
+            icon={isFavorite ? "star" : "star-outline"}
+            size={24}
+            onPress={handleToggleFavorite}
+            iconColor={isFavorite ? "#FFD700" : undefined}
+          />
+          <IconButton
+            icon="dots-vertical"
+            size={24}
+            onPress={() => setOptionsMenuVisible(true)}
+          />
+          <Menu
+            visible={optionsMenuVisible}
+            onDismiss={() => setOptionsMenuVisible(false)}
+            anchor={{ x: Dimensions.get('window').width - 24, y: 0 }}
+          >
+            <Menu.Item
+              title={isHidden ? "Unhide from lists" : "Hide from lists"}
+              leadingIcon={isHidden ? "eye" : "eye-off"}
+              onPress={() => {
+                setOptionsMenuVisible(false);
+                handleToggleHidden();
+              }}
+            />
+            <Menu.Item
+              title="Edit"
+              leadingIcon="pencil"
+              onPress={() => {
+                setOptionsMenuVisible(false);
+                handleEdit();
+              }}
+            />
+            <Menu.Item
+              title="Delete"
+              leadingIcon="delete"
+              onPress={() => {
+                setOptionsMenuVisible(false);
+                handleDelete();
+              }}
+            />
+          </Menu>
+        </View>
+      ),
     });
-  }, [navigation]);
+  }, [navigation, isFavorite, isHidden, optionsMenuVisible]);
 
   // Save interaction updates
   const handleSaveInteraction = async (interactionId: string, updates: { timestamp: number; type: string }) => {
@@ -1433,6 +1484,33 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
 
+  // Handle toggling hidden state
+  const handleToggleHidden = async () => {
+    if (!entity) return;
+    
+    try {
+      const success = await database.toggleHidden(entity.id);
+      
+      if (success) {
+        // Update local state
+        setIsHidden(!isHidden);
+        
+        // Show feedback
+        Alert.alert(
+          isHidden ? 'Entity Unhidden' : 'Entity Hidden',
+          isHidden 
+            ? `${entity.name} will now appear in your normal views.` 
+            : `${entity.name} is now hidden from the main view.`
+        );
+      } else {
+        Alert.alert('Error', 'Failed to update visibility');
+      }
+    } catch (error) {
+      console.error('Error toggling hidden state:', error);
+      Alert.alert('Error', 'Failed to update visibility');
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1521,6 +1599,12 @@ const EntityDetailScreen: React.FC = () => {
                 />
               </View>
               <View style={styles.entityInfoRow}>
+                {isHidden && (
+                  <View style={styles.hiddenBadge}>
+                    <MaterialCommunityIcons name="eye-off" size={14} color="#fff" />
+                    <Text style={styles.hiddenText}>Hidden</Text>
+                  </View>
+                )}
                 <View style={styles.scoreIndicator}>
                   <Text style={styles.scoreValue}>{Math.round(entity.interaction_score)}</Text>
                   <Text style={styles.scoreLabel}>Interaction Score</Text>
@@ -2439,6 +2523,52 @@ const styles = StyleSheet.create({
   reminderInfo: {
     fontStyle: 'italic',
     marginBottom: 10,
+  },
+  hiddenStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  hiddenStatusText: {
+    color: '#fff',
+    marginLeft: 4,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  typeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6200ee',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  typeText: {
+    color: '#fff',
+    marginLeft: 4,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  hiddenBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginRight: 12,
+  },
+  hiddenText: {
+    color: '#fff',
+    marginLeft: 4,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
 

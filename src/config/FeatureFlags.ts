@@ -25,6 +25,7 @@ export const FeatureFlags = {
   // Feature toggles - enable stable features for production
   ENABLE_MERGE_FEATURE: true,
   ENABLE_CONTACT_IMPORT: true,
+  ENABLE_BIRTHDAY_DISPLAY: false, // Controls whether upcoming birthdays are shown on the home screen
   
   // Experimental features - consider if these are ready for production
   ENABLE_YEARLY_SPARKLINES: true, // This feature is stable enough for production

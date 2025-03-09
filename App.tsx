@@ -1,3 +1,6 @@
+// Import SafeLogger first to override console methods early
+import './src/utils/SafeLogger';
+
 import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -9,6 +12,7 @@ import { InteractionConfigManager } from './src/utils/InteractionConfigManager';
 import { BirthdayNotificationManager } from './src/utils/BirthdayNotificationManager';
 import * as Notifications from 'expo-notifications';
 import { registerBackgroundNotificationTask } from './src/services/NotificationTaskManager';
+import { ensureTextWrapped } from './src/components/SafeTouchableOpacity';
 
 // Configure how notifications appear when the app is in the foreground
 Notifications.setNotificationHandler({
@@ -27,6 +31,11 @@ const theme = {
     primary: '#6200ee',
     accent: '#03dac4',
   },
+};
+
+// Create a safe wrapper for loading and error views
+const SafeView: React.FC<{children: React.ReactNode}> = ({ children }) => {
+  return <View style={styles.container}>{ensureTextWrapped(children)}</View>;
 };
 
 export default function App() {
@@ -77,16 +86,16 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <View style={styles.container}>
+      <SafeView>
         <ActivityIndicator size="large" color="#6200ee" />
         <Text style={styles.loadingText}>Starting up...</Text>
-      </View>
+      </SafeView>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.container}>
+      <SafeView>
         <Text style={styles.errorText}>Something went wrong</Text>
         <Text style={styles.errorDetails}>{error}</Text>
         <Text style={styles.helpText}>Try restarting the app with "expo start --clear"</Text>
@@ -98,7 +107,7 @@ export default function App() {
             Learn more about Expo Go and native modules
           </Text>
         )}
-      </View>
+      </SafeView>
     );
   }
 

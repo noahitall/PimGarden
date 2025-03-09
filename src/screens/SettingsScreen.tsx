@@ -1080,6 +1080,18 @@ const SettingsScreen: React.FC = () => {
               <List.Subheader>Experimental Features</List.Subheader>
               
               <List.Item
+                title="Birthday Display"
+                description="Show upcoming birthdays section on home screen"
+                left={props => <List.Icon {...props} icon="cake-variant" />}
+                right={props => (
+                  <Switch
+                    value={featureFlags.ENABLE_BIRTHDAY_DISPLAY}
+                    onValueChange={() => toggleFeatureFlag('ENABLE_BIRTHDAY_DISPLAY')}
+                  />
+                )}
+              />
+              
+              <List.Item
                 title="Yearly Sparklines"
                 description="Show yearly data when no recent activity"
                 left={props => <List.Icon {...props} icon="chart-timeline-variant" />}

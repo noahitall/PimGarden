@@ -10,6 +10,7 @@ export interface Entity {
   interaction_score: number;
   created_at: number;
   updated_at: number;
+  is_hidden?: boolean; // Whether the entity is hidden from the main views
 }
 
 // Contact field interfaces

@@ -49,6 +49,7 @@ const EditEntityScreen: React.FC = () => {
   const [name, setName] = useState('');
   const [details, setDetails] = useState('');
   const [type, setType] = useState<EntityType>(route.params?.type || EntityType.PERSON);
+  const [isHidden, setIsHidden] = useState(false);
   
   // Determine if we're editing or creating an entity
   const isEditing = !!route.params?.id;
@@ -69,8 +70,12 @@ const EditEntityScreen: React.FC = () => {
       
       if (entity) {
         setName(entity.name);
-        setDetails(entity.details || '');
-        setType(entity.type as EntityType);
+        if (entity.details) setDetails(entity.details);
+        if (entity.type) setType(entity.type as EntityType);
+        
+        // Load hidden state
+        const hiddenState = await database.isHidden(entity.id);
+        setIsHidden(hiddenState);
       } else {
         Alert.alert('Error', 'Entity not found');
         navigation.goBack();
@@ -83,7 +88,7 @@ const EditEntityScreen: React.FC = () => {
     }
   };
   
-  // Save entity (create or update)
+  // Save entity data
   const saveEntity = async () => {
     if (!name.trim()) {
       Alert.alert('Error', 'Name is required');
@@ -103,6 +108,9 @@ const EditEntityScreen: React.FC = () => {
           }
         );
         
+        // Update hidden state
+        await database.setHidden(route.params?.id || '', isHidden);
+        
         Alert.alert('Success', 'Entity updated successfully');
       } else {
         // Create new entity
@@ -113,6 +121,11 @@ const EditEntityScreen: React.FC = () => {
         );
         
         if (id) {
+          // Set hidden state if needed
+          if (isHidden) {
+            await database.setHidden(id, true);
+          }
+          
           Alert.alert('Success', 'Entity created successfully');
         } else {
           throw new Error('Failed to create entity');
@@ -243,6 +256,26 @@ const EditEntityScreen: React.FC = () => {
             numberOfLines={4}
             disabled={saving}
           />
+          
+          {/* Hidden toggle */}
+          <View style={styles.checkboxContainer}>
+            <TouchableOpacity 
+              onPress={() => setIsHidden(!isHidden)}
+              style={styles.checkboxRow}
+            >
+              <Checkbox
+                status={isHidden ? 'checked' : 'unchecked'}
+                onPress={() => setIsHidden(!isHidden)}
+                disabled={saving}
+              />
+              <Text style={styles.checkboxLabel}>
+                Hide from main view
+              </Text>
+            </TouchableOpacity>
+            <HelperText type="info" style={styles.helperText}>
+              Hidden entities won't appear in the main list until you choose to show hidden entities.
+            </HelperText>
+          </View>
           
           {type === EntityType.GROUP && !isEditing && (
             <Text style={styles.helperText}>
@@ -436,6 +469,13 @@ const styles = StyleSheet.create({
   importButton: {
     marginTop: 8,
     marginBottom: 16,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  checkboxLabel: {
+    marginLeft: 8,
   },
 });
 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Image, TouchableOpacity, Dimensions, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Image, Dimensions, ScrollView, ActivityIndicator } from 'react-native';
 import { Text, Surface, Badge, IconButton, Dialog, Portal, Button, List, Avatar } from 'react-native-paper';
 import { Entity } from '../types';
 import { database, InteractionType } from '../database/Database';
+import SafeTouchableOpacity, { ensureTextWrapped } from './SafeTouchableOpacity';
 
 // Custom SparkLine component with compact mode support
 const SparkLine: React.FC<{ 
@@ -16,7 +17,8 @@ const SparkLine: React.FC<{
   const max = Math.max(...data, 1); // Ensure max is at least 1 to avoid division by zero
   const normalizedData = data.map(value => value / max);
   
-  return (
+  // Use ensureTextWrapped to safely handle any potential text issues
+  return ensureTextWrapped(
     <View style={[
       styles.sparkLineContainer,
       isCompact && styles.compactSparkLineContainer
@@ -27,14 +29,27 @@ const SparkLine: React.FC<{
           style={[
             styles.sparkLineBar, 
             { 
-              height: Math.max(value * (isCompact ? 10 : 20), 1), // Smaller height for compact
+              height: Math.max(value * (isCompact ? 10 : 20), 1), 
               backgroundColor: value > 0 ? '#6200ee' : '#e0e0e0',
-              width: isCompact ? 2 : (timespan === 'year' ? 9 : 3), // Thinner bars for compact
-              marginHorizontal: isCompact ? 0.5 : (timespan === 'year' ? 0 : 1), // Less spacing
+              width: isCompact ? 2 : (timespan === 'year' ? 9 : 3), 
+              marginHorizontal: isCompact ? 0.5 : (timespan === 'year' ? 0 : 1), 
             }
           ]} 
         />
       ))}
+    </View>
+  ) as React.ReactElement;
+};
+
+// Create a safer SparkLine component that ensures no text issues
+const SafeSparkLine: React.FC<{ 
+  data: number[]; 
+  timespan: 'month' | 'year';
+  isCompact?: boolean;
+}> = (props) => {
+  return (
+    <View>
+      <SparkLine {...props} />
     </View>
   );
 };
@@ -223,7 +238,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
           ]}>
             <View style={styles.compactTouchable}>
               {/* Left side: Avatar with interaction trigger */}
-              <TouchableOpacity
+              <SafeTouchableOpacity
                 style={styles.compactAvatarContainer}
                 onPress={() => {
                   // Explicitly set the interaction menu to visible
@@ -244,11 +259,23 @@ const EntityCard: React.FC<EntityCardProps> = ({
                     style={{ backgroundColor: '#9E9E9E' }}
                   />
                 )}
-              </TouchableOpacity>
+                
+                {/* Hidden indicator */}
+                {entity.is_hidden && (
+                  <View style={styles.hiddenIndicator}>
+                    <IconButton
+                      icon="eye-off"
+                      size={12}
+                      style={styles.hiddenIcon}
+                      iconColor="#fff"
+                    />
+                  </View>
+                )}
+              </SafeTouchableOpacity>
               
               {/* Center/Right: Content area with name and spark chart */}
               <View style={styles.compactContentWrapper}>
-                <TouchableOpacity 
+                <SafeTouchableOpacity 
                   style={styles.compactContent}
                   onPress={() => onPress(entity.id)}
                   onLongPress={() => onLongPress && onLongPress(entity.id)}
@@ -261,13 +288,13 @@ const EntityCard: React.FC<EntityCardProps> = ({
                   
                   {/* Compact spark chart */}
                   <View style={styles.compactSparkLineWrapper}>
-                    <SparkLine 
-                      data={interactionData.slice(-15)} // Show only last 15 data points
+                    <SafeSparkLine 
+                      data={interactionData.slice(-15)} 
                       timespan={interactionTimespan}
                       isCompact={true}
                     />
                   </View>
-                </TouchableOpacity>
+                </SafeTouchableOpacity>
               </View>
             </View>
           </Surface>
@@ -279,7 +306,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
     return (
       <View style={styles.cardWrapper}>
         <Surface style={[styles.card, { backgroundColor: getTypeColor() }, selected && styles.selectedCard]}>
-          <TouchableOpacity
+          <SafeTouchableOpacity
             style={styles.touchable}
             onPress={() => onPress(entity.id)}
             onLongPress={() => onLongPress && onLongPress(entity.id)}
@@ -290,10 +317,22 @@ const EntityCard: React.FC<EntityCardProps> = ({
               <Text style={styles.nameText} numberOfLines={2}>
                 {entity.name}
               </Text>
+              
+              {/* Hidden indicator for regular card */}
+              {entity.is_hidden && (
+                <View style={styles.regularHiddenIndicator}>
+                  <IconButton
+                    icon="eye-off"
+                    size={16}
+                    style={styles.hiddenIcon}
+                    iconColor="#fff"
+                  />
+                </View>
+              )}
             </View>
             
             <View style={styles.imageContainer}>
-              <TouchableOpacity
+              <SafeTouchableOpacity
                 onPress={() => {
                   setInteractionMenuVisible(true);
                 }}
@@ -307,7 +346,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
                     </Text>
                   </View>
                 )}
-              </TouchableOpacity>
+              </SafeTouchableOpacity>
             </View>
             
             <View style={styles.sparkLineWrapper}>
@@ -316,16 +355,19 @@ const EntityCard: React.FC<EntityCardProps> = ({
                   {interactionTimespan === 'month' ? 'Last 30 days' : 'Last 12 months'}
                 </Text>
               </View>
-              <SparkLine data={interactionData} timespan={interactionTimespan} />
+              <SafeSparkLine 
+                data={interactionData} 
+                timespan={interactionTimespan} 
+              />
             </View>
-          </TouchableOpacity>
+          </SafeTouchableOpacity>
         </Surface>
       </View>
     );
   };
 
   // Main render with both the card and the portal dialog
-  return (
+  return ensureTextWrapped(
     <>
       {renderCard()}
       
@@ -362,7 +404,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
         </Dialog>
       </Portal>
     </>
-  );
+  ) as React.ReactElement;
 };
 
 const { width } = Dimensions.get('window');
@@ -506,6 +548,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
+  },
+  
+  hiddenIndicator: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  
+  regularHiddenIndicator: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  
+  hiddenIcon: {
+    margin: 0,
+    padding: 0,
   },
 });
 

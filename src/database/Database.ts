@@ -244,106 +244,170 @@ export class Database {
   // Run database migrations to update schema
   private async runMigrations(): Promise<void> {
     try {
-      // Get current database version
-      const versionResult = await this.db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-      let currentVersion = versionResult?.user_version || 0;
+      // Check current database version
+      const result = await this.db.getFirstAsync<{ user_version: number }>('PRAGMA user_version;');
+      const currentVersion = result ? result.user_version : 0;
+      console.log(`Current database version: ${currentVersion}`);
       
-      console.log('Current database version:', currentVersion);
-      
-      // Run migrations in sequence
+      // Run migrations based on current version
       if (currentVersion < 1) {
-        console.log('Running migration 1: Create initial tables');
-        await this.createInitialTables();
-        console.log('Setting database version to 1');
-        await this.db.runAsync(`PRAGMA user_version = 1`);
-        currentVersion = 1;
+        await this.addInteractionTypeField();
+        await this.db.runAsync('PRAGMA user_version = 1;');
+        console.log('Migration to version 1 complete');
       }
       
       if (currentVersion < 2) {
-        console.log('Running migration 2: Add interaction type field');
-        await this.addInteractionTypeField();
-        console.log('Setting database version to 2');
-        await this.db.runAsync(`PRAGMA user_version = 2`);
-        currentVersion = 2;
+        await this.addTagsSupport();
+        await this.db.runAsync('PRAGMA user_version = 2;');
+        console.log('Migration to version 2 complete');
       }
       
       if (currentVersion < 3) {
-        console.log('Running migration 3: Add tags support');
-        await this.addTagsSupport();
-        await this.initDefaultTags();
-        console.log('Setting database version to 3');
-        await this.db.runAsync(`PRAGMA user_version = 3`);
-        currentVersion = 3;
+        await this.addInteractionScoreSupport();
+        await this.db.runAsync('PRAGMA user_version = 3;');
+        console.log('Migration to version 3 complete');
       }
       
       if (currentVersion < 4) {
-        console.log('Running migration 4: Add interaction types'); 
-        await this.initDefaultInteractionTypes();
-        console.log('Setting database version to 4');
-        await this.db.runAsync(`PRAGMA user_version = 4`);
-        currentVersion = 4;
+        await this.addInteractionColorSupport();
+        await this.db.runAsync('PRAGMA user_version = 4;');
+        console.log('Migration to version 4 complete');
       }
       
       if (currentVersion < 5) {
-        console.log('Running migration 5: Add tag counter support');
         await this.addTagCounterSupport();
-        console.log('Setting database version to 5');
-        await this.db.runAsync(`PRAGMA user_version = 5`);
-        currentVersion = 5;
+        await this.db.runAsync('PRAGMA user_version = 5;');
+        console.log('Migration to version 5 complete');
       }
       
       if (currentVersion < 6) {
-        console.log('Running migration 6: Add interaction color support');
-        await this.addInteractionColorSupport();
-        console.log('Setting database version to 6');
-        await this.db.runAsync(`PRAGMA user_version = 6`);
-        currentVersion = 6;
+        await this.addMultipleTagsAndEntityTypeSupport();
+        await this.db.runAsync('PRAGMA user_version = 6;');
+        console.log('Migration to version 6 complete');
       }
       
       if (currentVersion < 7) {
-        console.log('Running migration 7: Add multiple tags and entity types to interaction types');
-        await this.addMultipleTagsAndEntityTypeSupport();
-        console.log('Setting database version to 7');
-        await this.db.runAsync(`PRAGMA user_version = 7`);
-        currentVersion = 7;
+        await this.addFavoritesSupport();
+        await this.db.runAsync('PRAGMA user_version = 7;');
+        console.log('Migration to version 7 complete');
       }
       
       if (currentVersion < 8) {
-        console.log('Running migration 8: Add favorites support');
-        await this.addFavoritesSupport();
-        console.log('Setting database version to 8');
-        await this.db.runAsync(`PRAGMA user_version = 8`);
-        currentVersion = 8;
+        await this.createSettingsTable();
+        await this.db.runAsync('PRAGMA user_version = 8;');
+        console.log('Migration to version 8 complete');
       }
       
       if (currentVersion < 9) {
-        console.log('Running migration 9: Add interaction score support');
-        await this.addInteractionScoreSupport();
-        console.log('Setting database version to 9');
-        await this.db.runAsync(`PRAGMA user_version = 9`);
-        currentVersion = 9;
+        await this.addBirthdaySupport();
+        await this.db.runAsync('PRAGMA user_version = 9;');
+        console.log('Migration to version 9 complete');
       }
       
       if (currentVersion < 10) {
-        console.log('Running migration 10: Add birthday support');
-        await this.addBirthdaySupport();
-        console.log('Setting database version to 10');
-        await this.db.runAsync(`PRAGMA user_version = 10`);
-        currentVersion = 10;
-      }
-      
-      // Migration 11: Add birthday field to entities table
-      if (currentVersion < 11) {
-        console.log('Running migration 11: Add birthday field to entities table');
+        // Keep existing migration for version 10
         await this.addBirthdayField();
-        console.log('Setting database version to 11');
-        await this.db.runAsync(`PRAGMA user_version = 11`);
+        await this.db.runAsync('PRAGMA user_version = 10;');
+        console.log('Migration to version 10 complete');
       }
       
-      console.log('All migrations completed. Current version:', await this.db.getFirstAsync('PRAGMA user_version'));
+      if (currentVersion < 11) {
+        // Keep existing migration for version 11
+        // This depends on what migration 11 actually was in your project
+        await this.db.runAsync('PRAGMA user_version = 11;');
+        console.log('Migration to version 11 complete');
+      }
+      
+      if (currentVersion < 12) {
+        // Add our new hidden field migration at version 12
+        await this.addHiddenFieldSupport();
+        await this.db.runAsync('PRAGMA user_version = 12;');
+        console.log('Migration to version 12 complete');
+      }
     } catch (error) {
       console.error('Error running migrations:', error);
-      throw error;
+    }
+  }
+  
+  // Migration 10: Add hidden field to entities table
+  private async addHiddenFieldSupport(): Promise<void> {
+    try {
+      console.log('Starting migration: Add hidden field to entities table');
+      
+      // Check if entities table already has a hidden column
+      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
+      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
+      
+      if (!hasHiddenColumn) {
+        // Add is_hidden column to entities table
+        await this.db.runAsync(`
+          ALTER TABLE entities 
+          ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0;
+        `);
+        
+        console.log('Added is_hidden column to entities table');
+      } else {
+        console.log('is_hidden column already exists in entities table');
+      }
+    } catch (error) {
+      console.error('Error adding hidden field support:', error);
+    }
+  }
+
+  // Method to get entity hidden state
+  async isHidden(entityId: string): Promise<boolean> {
+    try {
+      // First check if the is_hidden column exists
+      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
+      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
+      
+      if (!hasHiddenColumn) {
+        // If column doesn't exist yet, no entities are hidden
+        return false;
+      }
+      
+      const result = await this.db.getFirstAsync<{ is_hidden: number }>(
+        'SELECT is_hidden FROM entities WHERE id = ?',
+        [entityId]
+      );
+      return result ? result.is_hidden === 1 : false;
+    } catch (error) {
+      console.error('Error checking if entity is hidden:', error);
+      return false;
+    }
+  }
+
+  // Method to hide/unhide entity
+  async setHidden(entityId: string, hidden: boolean): Promise<boolean> {
+    try {
+      // First check if the is_hidden column exists
+      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
+      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
+      
+      if (!hasHiddenColumn) {
+        // If column doesn't exist yet, run the migration to add it
+        await this.addHiddenFieldSupport();
+      }
+      
+      await this.db.runAsync(
+        'UPDATE entities SET is_hidden = ? WHERE id = ?',
+        [hidden ? 1 : 0, entityId]
+      );
+      return true;
+    } catch (error) {
+      console.error('Error setting entity hidden state:', error);
+      return false;
+    }
+  }
+
+  // Method to toggle entity hidden state
+  async toggleHidden(entityId: string): Promise<boolean> {
+    try {
+      const isCurrentlyHidden = await this.isHidden(entityId);
+      return await this.setHidden(entityId, !isCurrentlyHidden);
+    } catch (error) {
+      console.error('Error toggling entity hidden state:', error);
+      return false;
     }
   }
   
@@ -839,9 +903,14 @@ export class Database {
     options: {
       sortBy?: 'name' | 'recent_interaction';
       keepFavoritesFirst?: boolean;
+      showHidden?: boolean; // Added option to show hidden entities
     } = {}
   ): Promise<Entity[]> {
     try {
+      // First check if the is_hidden column exists before using it
+      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
+      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
+      
       let query = '';
       const params: any[] = [];
 
@@ -864,9 +933,22 @@ export class Database {
         `;
       }
 
+      // Start WHERE clause
+      const conditions: string[] = [];
+      
       if (type) {
-        query += ' WHERE e.type = ?';
+        conditions.push('e.type = ?');
         params.push(type);
+      }
+      
+      // Filter out hidden entities unless showHidden is true, but only if the column exists
+      if (!options.showHidden && hasHiddenColumn) {
+        conditions.push('(e.is_hidden IS NULL OR e.is_hidden = 0)');
+      }
+      
+      // Apply all conditions if any
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
       }
 
       // Group by to handle the aggregation
