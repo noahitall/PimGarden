@@ -13,7 +13,7 @@
       "backgroundColor": "#ffffff"
     },
     "notification": {
-      "icon": "./assets/notification-icon.png",
+      "icon": "./assets/icon.png",
       "color": "#ffffff",
       "androidMode": "default",
       "androidCollapsedTitle": "PimGarden",
@@ -23,7 +23,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
+          "icon": "./assets/icon.png",
           "color": "#ffffff",
           "sounds": []
         }
@@ -33,18 +33,27 @@
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": [
+          "remote-notification",
           "remote-notification"
-        ]
-      }
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "me.noze.pimgarden"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "me.noze.pimgarden"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "658a8c58-e58c-457d-87f0-d4de03a745b1"
+      }
     }
   }
 }
