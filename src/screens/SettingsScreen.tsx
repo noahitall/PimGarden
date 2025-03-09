@@ -46,6 +46,9 @@ const SettingsScreen: React.FC = () => {
   const [regeneratingDefaults, setRegeneratingDefaults] = useState(false);
   const [regenerateSuccessDialogVisible, setRegenerateSuccessDialogVisible] = useState(false);
   
+  // Feature flags visibility state
+  const [showFeatureFlags, setShowFeatureFlags] = useState(false);
+  
   // Backup and restore state
   const [backupDialogVisible, setBackupDialogVisible] = useState(false);
   const [restoreDialogVisible, setRestoreDialogVisible] = useState(false);
@@ -66,6 +69,10 @@ const SettingsScreen: React.FC = () => {
     decayType: 'linear'
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  
+  // Add error state variables
+  const [passphraseError, setPassphraseError] = useState<string>('');
+  const [restoreError, setRestoreError] = useState<string>('');
   
   // Create debounced validation functions
   const debouncedValidatePassphrase = useCallback(
@@ -924,6 +931,17 @@ const SettingsScreen: React.FC = () => {
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
+        {/* User Interface Section - Moved to the top */}
+        <List.Section>
+          <List.Subheader>User Interface</List.Subheader>
+          <List.Item
+            title="Entity List Limit"
+            description={`Display ${entityListLimit} entities at a time`}
+            left={props => <List.Icon {...props} icon="format-list-numbered" />}
+            onPress={() => setEntityLimitDialogVisible(true)}
+          />
+        </List.Section>
+        
         {/* Notification Section */}
         <List.Section>
           <List.Subheader>Notifications</List.Subheader>
@@ -1018,157 +1036,174 @@ const SettingsScreen: React.FC = () => {
           </Card.Content>
         </Card>
         
-        {__DEV__ && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Developer Options</Text>
-            <Button 
-              mode="outlined"
-              onPress={runDatabaseMigrations}
-              style={[styles.button, {marginTop: 10}]}
-              color="#FF5722"
-            >
-              Reset DB Version & Run Migrations
-            </Button>
-          </View>
-        )}
-        
+        {/* Feature Flags Toggle */}
         <Card style={styles.card}>
-          <Card.Title title="Feature Flags" subtitle="Toggle experimental features" />
+          <Card.Title title="Advanced Settings" subtitle="Manage advanced and experimental features" />
           <Card.Content>
-            <Text style={styles.sectionDescription}>
-              These settings control which features are enabled in the app.
-              Some features are experimental and may not work as expected.
-            </Text>
-            
-            <List.Section>
-              <List.Subheader>Development Features</List.Subheader>
-              
-              <List.Item
-                title="Show Debug Button"
-                description="Display the database debug button on the home screen"
-                left={props => <List.Icon {...props} icon="bug" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.SHOW_DEBUG_BUTTON}
-                    onValueChange={() => toggleFeatureFlag('SHOW_DEBUG_BUTTON')}
-                  />
-                )}
-              />
-              
-              <List.Item
-                title="Enable Historical Interactions"
-                description="Show button to generate random historical interactions on entity detail screen"
-                left={props => <List.Icon {...props} icon="clock-time-four-outline" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.ENABLE_HISTORICAL_INTERACTIONS}
-                    onValueChange={() => toggleFeatureFlag('ENABLE_HISTORICAL_INTERACTIONS')}
-                  />
-                )}
-              />
-              
-              <List.Item
-                title="Enable Data Reset"
-                description="Allow resetting all app data (dangerous)"
-                left={props => <List.Icon {...props} icon="delete-forever" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.ENABLE_DATA_RESET}
-                    onValueChange={() => toggleFeatureFlag('ENABLE_DATA_RESET')}
-                  />
-                )}
-              />
-              
-              <List.Item
-                title="Unencrypted Backup"
-                description="Allow unencrypted backups (security risk)"
-                left={props => <List.Icon {...props} icon="shield-alert" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.ENABLE_UNENCRYPTED_BACKUP}
-                    onValueChange={() => toggleFeatureFlag('ENABLE_UNENCRYPTED_BACKUP')}
-                  />
-                )}
-              />
-              
-              <List.Item
-                title="Interaction Config Reset"
-                description="Allow resetting interaction types from YAML config"
-                left={props => <List.Icon {...props} icon="database-refresh" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.ENABLE_INTERACTION_CONFIG_RESET}
-                    onValueChange={() => toggleFeatureFlag('ENABLE_INTERACTION_CONFIG_RESET')}
-                  />
-                )}
-              />
-              
-              <Divider />
-              
-              <List.Subheader>Core Features</List.Subheader>
-              
-              <List.Item
-                title="Entity Merging"
-                description="Enable merging of duplicate entities"
-                left={props => <List.Icon {...props} icon="merge" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.ENABLE_MERGE_FEATURE}
-                    onValueChange={() => toggleFeatureFlag('ENABLE_MERGE_FEATURE')}
-                  />
-                )}
-              />
-              
-              <List.Item
-                title="Contact Import"
-                description="Enable importing contacts from device"
-                left={props => <List.Icon {...props} icon="import" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.ENABLE_CONTACT_IMPORT}
-                    onValueChange={() => toggleFeatureFlag('ENABLE_CONTACT_IMPORT')}
-                  />
-                )}
-              />
-              
-              <Divider />
-              
-              <List.Subheader>Experimental Features</List.Subheader>
-              
-              <List.Item
-                title="Birthday Display"
-                description="Show upcoming birthdays section on home screen"
-                left={props => <List.Icon {...props} icon="cake-variant" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.ENABLE_BIRTHDAY_DISPLAY}
-                    onValueChange={() => toggleFeatureFlag('ENABLE_BIRTHDAY_DISPLAY')}
-                  />
-                )}
-              />
-              
-              <List.Item
-                title="Yearly Sparklines"
-                description="Show yearly data when no recent activity"
-                left={props => <List.Icon {...props} icon="chart-timeline-variant" />}
-                right={props => (
-                  <Switch
-                    value={featureFlags.ENABLE_YEARLY_SPARKLINES}
-                    onValueChange={() => toggleFeatureFlag('ENABLE_YEARLY_SPARKLINES')}
-                  />
-                )}
-              />
-            </List.Section>
-            
-            <Button 
-              mode="outlined" 
-              onPress={() => setResetDialogVisible(true)}
-              style={styles.resetButton}
-            >
-              Reset to Defaults
-            </Button>
+            <List.Item
+              title="Enable Feature Flags"
+              description="Show experimental and development features"
+              left={props => <List.Icon {...props} icon="flag-variant" />}
+              right={props => (
+                <Switch
+                  value={showFeatureFlags}
+                  onValueChange={setShowFeatureFlags}
+                />
+              )}
+            />
           </Card.Content>
         </Card>
+        
+        {/* Feature Flags Section - Only visible if toggled */}
+        {showFeatureFlags && (
+          <Card style={styles.card}>
+            <Card.Title title="Feature Flags" subtitle="Toggle experimental features" />
+            <Card.Content>
+              <Text style={styles.sectionDescription}>
+                These settings control which features are enabled in the app.
+                Some features are experimental and may not work as expected.
+              </Text>
+              
+              <List.Section>
+                <List.Subheader>Development Features</List.Subheader>
+                
+                <List.Item
+                  title="Show Debug Button"
+                  description="Display the database debug button on the home screen"
+                  left={props => <List.Icon {...props} icon="bug" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.SHOW_DEBUG_BUTTON}
+                      onValueChange={() => toggleFeatureFlag('SHOW_DEBUG_BUTTON')}
+                    />
+                  )}
+                />
+                
+                <List.Item
+                  title="Enable Historical Interactions"
+                  description="Show button to generate random historical interactions on entity detail screen"
+                  left={props => <List.Icon {...props} icon="clock-time-four-outline" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.ENABLE_HISTORICAL_INTERACTIONS}
+                      onValueChange={() => toggleFeatureFlag('ENABLE_HISTORICAL_INTERACTIONS')}
+                    />
+                  )}
+                />
+                
+                <List.Item
+                  title="Enable Data Reset"
+                  description="Allow resetting all app data (dangerous)"
+                  left={props => <List.Icon {...props} icon="delete-forever" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.ENABLE_DATA_RESET}
+                      onValueChange={() => {
+                        toggleFeatureFlag('ENABLE_DATA_RESET');
+                        // If enabling, show message
+                        if (!featureFlags.ENABLE_DATA_RESET) {
+                          Alert.alert(
+                            "Feature Enabled",
+                            "Please close and reopen the Settings screen to access the reset all data option.",
+                            [{ text: "OK" }]
+                          );
+                        }
+                      }}
+                    />
+                  )}
+                />
+                
+                <List.Item
+                  title="Unencrypted Backup"
+                  description="Allow unencrypted backups (security risk)"
+                  left={props => <List.Icon {...props} icon="shield-alert" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.ENABLE_UNENCRYPTED_BACKUP}
+                      onValueChange={() => toggleFeatureFlag('ENABLE_UNENCRYPTED_BACKUP')}
+                    />
+                  )}
+                />
+                
+                <List.Item
+                  title="Interaction Config Reset"
+                  description="Allow resetting interaction types from YAML config"
+                  left={props => <List.Icon {...props} icon="database-refresh" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.ENABLE_INTERACTION_CONFIG_RESET}
+                      onValueChange={() => toggleFeatureFlag('ENABLE_INTERACTION_CONFIG_RESET')}
+                    />
+                  )}
+                />
+                
+                <Divider />
+                
+                <List.Subheader>Core Features</List.Subheader>
+                
+                <List.Item
+                  title="Entity Merging"
+                  description="Enable merging of duplicate entities"
+                  left={props => <List.Icon {...props} icon="merge" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.ENABLE_MERGE_FEATURE}
+                      onValueChange={() => toggleFeatureFlag('ENABLE_MERGE_FEATURE')}
+                    />
+                  )}
+                />
+                
+                <List.Item
+                  title="Contact Import"
+                  description="Enable importing contacts from device"
+                  left={props => <List.Icon {...props} icon="import" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.ENABLE_CONTACT_IMPORT}
+                      onValueChange={() => toggleFeatureFlag('ENABLE_CONTACT_IMPORT')}
+                    />
+                  )}
+                />
+                
+                <Divider />
+                
+                <List.Subheader>Experimental Features</List.Subheader>
+                
+                <List.Item
+                  title="Birthday Display"
+                  description="Show upcoming birthdays section on home screen"
+                  left={props => <List.Icon {...props} icon="cake-variant" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.ENABLE_BIRTHDAY_DISPLAY}
+                      onValueChange={() => toggleFeatureFlag('ENABLE_BIRTHDAY_DISPLAY')}
+                    />
+                  )}
+                />
+                
+                <List.Item
+                  title="Yearly Sparklines"
+                  description="Show yearly data when no recent activity"
+                  left={props => <List.Icon {...props} icon="chart-timeline-variant" />}
+                  right={props => (
+                    <Switch
+                      value={featureFlags.ENABLE_YEARLY_SPARKLINES}
+                      onValueChange={() => toggleFeatureFlag('ENABLE_YEARLY_SPARKLINES')}
+                    />
+                  )}
+                />
+              </List.Section>
+              
+              <Button 
+                mode="outlined" 
+                onPress={() => setResetDialogVisible(true)}
+                style={styles.resetButton}
+              >
+                Reset to Defaults
+              </Button>
+            </Card.Content>
+          </Card>
+        )}
         
         {/* Backup and Restore Card */}
         <Card style={styles.card}>
@@ -1391,293 +1426,223 @@ const SettingsScreen: React.FC = () => {
           </Card.Content>
         </Card>
         
-        {/* Add our UI preference section in the settings list */}
-        <List.Section title="User Interface">
-          <List.Item
-            title="Entity List Limit"
-            description={`Display ${entityListLimit} entities at a time`}
-            left={props => <List.Icon {...props} icon="format-list-numbered" />}
-            onPress={() => setEntityLimitDialogVisible(true)}
-          />
-        </List.Section>
-      </ScrollView>
-      
-      {/* Reset confirmation dialog */}
-      <Portal>
-        <Dialog visible={resetDialogVisible} onDismiss={() => setResetDialogVisible(false)}>
-          <Dialog.Title>Reset Feature Flags</Dialog.Title>
-          <Dialog.Content>
-            <Text>
-              Are you sure you want to reset all feature flags to their default values?
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setResetDialogVisible(false)}>Cancel</Button>
-            <Button onPress={resetFeatureFlags}>Reset</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-      
-      {/* Reset all data first confirmation dialog */}
-      <Portal>
-        <Dialog visible={resetDataDialogVisible} onDismiss={() => setResetDataDialogVisible(false)}>
-          <Dialog.Title>Reset All Data</Dialog.Title>
-          <Dialog.Content>
-            <Text style={styles.dialogWarningText}>
-              Warning: This action will permanently delete ALL your data, including:
-            </Text>
-            <Text style={styles.dialogBulletPoint}>• All contacts and entities</Text>
-            <Text style={styles.dialogBulletPoint}>• All interaction records</Text>
-            <Text style={styles.dialogBulletPoint}>• All photos and tags</Text>
-            <Text style={styles.dialogBulletPoint}>• All settings and preferences</Text>
-            <Text style={styles.dialogText}>
-              This action cannot be undone. Are you sure you want to proceed?
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setResetDataDialogVisible(false)}>Cancel</Button>
-            <Button 
-              onPress={() => {
-                setResetDataDialogVisible(false);
-                setResetDataConfirmDialogVisible(true);
-              }}
-              textColor="#d32f2f"
-            >
-              Yes, I'm Sure
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-      
-      {/* Reset all data second confirmation dialog */}
-      <Portal>
-        <Dialog visible={resetDataConfirmDialogVisible} onDismiss={() => setResetDataConfirmDialogVisible(false)}>
-          <Dialog.Title>Final Confirmation</Dialog.Title>
-          <Dialog.Content>
-            <Text style={styles.dialogWarningText}>
-              Warning: This is your final confirmation
-            </Text>
-            <Text style={{marginTop: 15}}>
-              This will permanently erase all data. Are you absolutely sure?
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setResetDataConfirmDialogVisible(false)}>Cancel</Button>
-            <Button 
-              onPress={resetAllData}
-              textColor="#d32f2f"
-            >
-              Reset Everything
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-      
-      {/* Regenerate Success Dialog */}
-      <Portal>
-        <Dialog visible={regenerateSuccessDialogVisible} onDismiss={() => setRegenerateSuccessDialogVisible(false)}>
-          <Dialog.Title>Success</Dialog.Title>
-          <Dialog.Content>
-            <Text>Default tags and interaction types have been regenerated successfully.</Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setRegenerateSuccessDialogVisible(false)}>OK</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-      
-      {/* Backup Dialog */}
-      <Portal>
-        <Dialog 
-          visible={backupDialogVisible} 
-          onDismiss={() => {
-            if (!isProcessing) {
-              setBackupDialogVisible(false);
-              setPassphrase('');
-              setGeneratedPassphrase('');
-            }
-          }}
-          style={{ maxHeight: '80%' }}
-        >
-          <Dialog.Title>Create Encrypted Backup</Dialog.Title>
-          <Dialog.ScrollArea>
-            <ScrollView>
-              <View style={{ padding: 16 }}>
-                <Text style={styles.dialogText}>
-                  A secure 6-word passphrase has been generated for you. This will be used to encrypt your data.
+        {renderEntityLimitDialog()}
+        
+        <Portal>
+          <Dialog visible={resetDialogVisible} onDismiss={() => setResetDialogVisible(false)}>
+            <Dialog.Title>Reset Feature Flags</Dialog.Title>
+            <Dialog.Content>
+              <Text>Are you sure you want to reset all feature flags to their default values? This cannot be undone.</Text>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setResetDialogVisible(false)}>Cancel</Button>
+              <Button onPress={resetFeatureFlags}>Reset</Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+        
+        <Portal>
+          <Dialog visible={resetDataDialogVisible} onDismiss={() => setResetDataDialogVisible(false)}>
+            <Dialog.Title>Reset All Data</Dialog.Title>
+            <Dialog.Content>
+              <Text style={{ marginBottom: 10 }}>Are you absolutely sure you want to reset all data? This will delete all your contacts, entities, interactions, and settings.</Text>
+              <Text style={{ color: '#d32f2f', fontWeight: 'bold' }}>This action CANNOT be undone!</Text>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setResetDataDialogVisible(false)}>Cancel</Button>
+              <Button 
+                onPress={() => {
+                  setResetDataDialogVisible(false);
+                  setResetDataConfirmDialogVisible(true);
+                }}
+                color="#d32f2f"
+              >
+                Continue
+              </Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+        
+        <Portal>
+          <Dialog 
+            visible={resetDataConfirmDialogVisible} 
+            onDismiss={() => setResetDataConfirmDialogVisible(false)}
+          >
+            <Dialog.Title>Final Confirmation</Dialog.Title>
+            <Dialog.Content>
+              <Text style={{ marginBottom: 10 }}>
+                This is your final warning.
+              </Text>
+              <Text style={{ marginBottom: 10 }}>
+                All data will be permanently deleted and cannot be recovered unless you have created a backup.
+              </Text>
+              <Text style={{ color: '#d32f2f', fontWeight: 'bold' }}>
+                Are you absolutely sure you want to continue?
+              </Text>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setResetDataConfirmDialogVisible(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onPress={resetAllData}
+                color="#d32f2f"
+              >
+                Reset All Data
+              </Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+        
+        <Portal>
+          <Dialog
+            visible={regenerateSuccessDialogVisible}
+            onDismiss={() => setRegenerateSuccessDialogVisible(false)}
+          >
+            <Dialog.Title>Success</Dialog.Title>
+            <Dialog.Content>
+              <Text>Default interaction types have been regenerated successfully.</Text>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setRegenerateSuccessDialogVisible(false)}>OK</Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+        
+        <Portal>
+          <Dialog
+            visible={backupDialogVisible}
+            onDismiss={() => {
+              if (!isProcessing) setBackupDialogVisible(false);
+            }}
+          >
+            <Dialog.Title>Create Encrypted Backup</Dialog.Title>
+            <Dialog.Content>
+              <Text style={styles.dialogDescription}>
+                Enter a passphrase to encrypt your backup. 
+                This is required to restore your data later.
+              </Text>
+              
+              <TextInput
+                label="Passphrase"
+                value={passphrase}
+                onChangeText={handlePassphraseChange}
+                secureTextEntry={true}
+                style={styles.input}
+                disabled={isProcessing}
+              />
+              
+              <View style={styles.passphraseHintContainer}>
+                <Text style={styles.passphraseHintText}>
+                  Use a strong 6-word passphrase for better security or generate one automatically.
                 </Text>
-                <Text style={[styles.dialogText, { fontWeight: 'bold', marginTop: 8, color: '#d32f2f' }]}>
-                  IMPORTANT: Write down this passphrase and keep it safe! You will need it to restore your backup.
-                </Text>
-                
-                <View style={styles.passphraseDisplay}>
-                  <Text style={styles.generatedPassphrase}>{generatedPassphrase}</Text>
-                </View>
-                
-                <Button
-                  mode="outlined"
-                  onPress={handleGeneratePassphrase}
-                  style={[styles.button, { marginVertical: 8 }]}
-                  icon="sync"
-                  disabled={isProcessing}
-                >
-                  Generate New Passphrase
-                </Button>
-                
-                <Text style={[styles.dialogText, { marginTop: 16 }]}>
-                  To confirm you've saved this passphrase, please type it in the field below:
-                </Text>
-                
-                <View style={styles.inputWithButton}>
-                  <TextInput
-                    label="Type the 6-Word Passphrase"
-                    value={passphrase}
-                    onChangeText={handlePassphraseChange}
-                    style={[styles.input, { flex: 1 }]}
-                    autoCapitalize="none"
-                    disabled={isProcessing}
-                    secureTextEntry={!showPassphrase}
-                    placeholder="Type the passphrase shown above"
-                  />
-                  <IconButton
-                    icon={showPassphrase ? "eye-off" : "eye"}
-                    iconColor="#2196F3"
-                    size={24}
-                    onPress={() => setShowPassphrase(!showPassphrase)}
-                    disabled={isProcessing}
-                    style={styles.eyeButton}
-                    accessibilityLabel="Toggle passphrase visibility"
-                  />
-                </View>
-                
-                <HelperText type={isPassphraseValid ? "info" : "error"}>
-                  {isPassphraseValid 
-                    ? "Correct passphrase" 
-                    : "Please type the exact passphrase shown above"}
-                </HelperText>
-              </View>
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <Button onPress={() => {
-              if (!isProcessing) {
-                setBackupDialogVisible(false);
-                setPassphrase('');
-                setGeneratedPassphrase('');
-              }
-            }} disabled={isProcessing}>Cancel</Button>
-            <Button 
-              onPress={handleExportData} 
-              loading={isProcessing}
-              disabled={isProcessing || !isPassphraseMatching()}
-            >
-              Export
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-      
-      {/* Restore Dialog */}
-      <Portal>
-        <Dialog 
-          visible={restoreDialogVisible} 
-          onDismiss={() => {
-            if (!isProcessing) {
-              setRestoreDialogVisible(false);
-              setSelectedBackupFile(null);
-              setRestorePassphrase('');
-            }
-          }}
-          style={{ maxHeight: '80%' }}
-        >
-          <Dialog.Title>Restore From Backup</Dialog.Title>
-          <Dialog.ScrollArea>
-            <ScrollView>
-              <View style={{ padding: 16 }}>
-                <Text style={styles.dialogText}>
-                  First, select your backup file to restore.
-                </Text>
-                <Text style={[styles.dialogText, { marginTop: 4 }]}>
-                  For encrypted backups, select a <Text style={{fontWeight: 'bold'}}>*.cmb</Text> file.
-                </Text>
-                <Text style={[styles.dialogText, { fontWeight: 'bold', color: '#d32f2f', marginTop: 8 }]}>
-                  Warning: This will overwrite all existing data in the app.
-                </Text>
-                
                 <Button 
-                  mode="contained" 
-                  onPress={pickBackupFile}
-                  style={[styles.button, { marginTop: 16 }]}
-                  icon="file-search"
+                  mode="text" 
+                  onPress={handleGeneratePassphrase}
                   disabled={isProcessing}
+                  compact
                 >
-                  Select Backup File
+                  Generate Passphrase
                 </Button>
-                
-                {selectedBackupFile ? (
-                  <View style={{marginTop: 8}}>
-                    <Text style={[styles.dialogText, {color: 'green'}]}>✓ File selected</Text>
-                    <Text numberOfLines={1} ellipsizeMode="middle" style={styles.filePathText}>
-                      {selectedBackupFile}
-                    </Text>
-                  </View>
-                ) : null}
-                
-                <Text style={[styles.dialogText, { marginTop: 16, fontWeight: 'bold' }]}>
-                  Enter the 6-word passphrase you used when creating this backup:
-                </Text>
-                
-                <View style={styles.inputWithButton}>
-                  <TextInput
-                    label="Enter Backup Passphrase"
-                    value={restorePassphrase}
-                    onChangeText={handleRestorePassphraseChange}
-                    style={[styles.input, { flex: 1 }]}
-                    autoCapitalize="none"
-                    disabled={isProcessing}
-                    secureTextEntry={!showRestorePassphrase}
-                    placeholder="Enter your 6-word passphrase"
-                  />
-                  <IconButton
-                    icon={showRestorePassphrase ? "eye-off" : "eye"}
-                    iconColor="#2196F3"
-                    size={24}
-                    onPress={() => setShowRestorePassphrase(!showRestorePassphrase)}
-                    disabled={isProcessing}
-                    style={styles.eyeButton}
-                    accessibilityLabel="Toggle passphrase visibility"
-                  />
-                </View>
-                
-                <HelperText type={isRestorePassphraseValid ? "info" : "error"}>
-                  {isRestorePassphraseValid 
-                    ? "Valid passphrase format" 
-                    : "Please enter exactly 6 lowercase words separated by spaces"}
-                </HelperText>
               </View>
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <Button onPress={() => {
-              if (!isProcessing) {
-                setRestoreDialogVisible(false);
-                setSelectedBackupFile(null);
-                setRestorePassphrase('');
-              }
-            }} disabled={isProcessing}>Cancel</Button>
-            <Button 
-              onPress={handleImportData} 
-              loading={isProcessing}
-              disabled={isProcessing || !selectedBackupFile || !isValidPassphrase(restorePassphrase)}
-            >
-              Restore
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-      
-      {/* Add the dialog to the component */}
-      {renderEntityLimitDialog()}
+              
+              <HelperText type="error" visible={!!passphraseError}>
+                {passphraseError}
+              </HelperText>
+              
+              {isProcessing && (
+                <ActivityIndicator 
+                  animating={true} 
+                  size="large" 
+                  style={styles.activityIndicator} 
+                />
+              )}
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button 
+                onPress={() => setBackupDialogVisible(false)}
+                disabled={isProcessing}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onPress={handleExportData}
+                disabled={isProcessing || !isValidPassphrase(passphrase)}
+              >
+                Export
+              </Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+        
+        <Portal>
+          <Dialog
+            visible={restoreDialogVisible}
+            onDismiss={() => {
+              if (!isProcessing) setRestoreDialogVisible(false);
+            }}
+          >
+            <Dialog.Title>Restore from Backup</Dialog.Title>
+            <Dialog.Content>
+              <Text style={styles.dialogDescription}>
+                Select a backup file and enter the passphrase you used when creating the backup.
+              </Text>
+              
+              <View style={styles.filePickerContainer}>
+                <Text style={styles.filePickerLabel}>
+                  {selectedBackupFile 
+                    ? `Selected: ${selectedBackupFile.split('/').pop()}` 
+                    : 'No file selected'}
+                </Text>
+                <Button 
+                  mode="outlined" 
+                  onPress={pickBackupFile}
+                  disabled={isProcessing}
+                  style={styles.filePickerButton}
+                >
+                  Select File
+                </Button>
+              </View>
+              
+              <TextInput
+                label="Passphrase"
+                value={restorePassphrase}
+                onChangeText={handleRestorePassphraseChange}
+                secureTextEntry={true}
+                style={styles.input}
+                disabled={isProcessing}
+              />
+              
+              <HelperText type="error" visible={!!restoreError}>
+                {restoreError}
+              </HelperText>
+              
+              {isProcessing && (
+                <ActivityIndicator 
+                  animating={true} 
+                  size="large" 
+                  style={styles.activityIndicator} 
+                />
+              )}
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button 
+                onPress={() => setRestoreDialogVisible(false)}
+                disabled={isProcessing}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onPress={handleImportData}
+                disabled={isProcessing || !selectedBackupFile || !restorePassphrase}
+              >
+                Restore
+              </Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+        
+      </ScrollView>
     </View>
   );
 };
@@ -1815,6 +1780,29 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
     color: '#666',
+  },
+  dialogDescription: {
+    marginBottom: 16,
+  },
+  passphraseHintContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passphraseHintText: {
+    marginRight: 8,
+  },
+  filePickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filePickerLabel: {
+    flex: 1,
+  },
+  filePickerButton: {
+    marginLeft: 8,
+  },
+  activityIndicator: {
+    marginTop: 16,
   },
 });
 
