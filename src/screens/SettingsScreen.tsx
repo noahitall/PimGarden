@@ -983,8 +983,21 @@ const SettingsScreen: React.FC = () => {
             <RadioButton.Item label="100 entities" value="100" />
           </RadioButton.Group>
         </Dialog.Content>
-        <Dialog.Actions>
-          <Button onPress={() => setEntityLimitDialogVisible(false)}>Cancel</Button>
+        <Dialog.Actions style={styles.dialogActions}>
+          <Button 
+            mode="outlined"
+            onPress={() => setEntityLimitDialogVisible(false)}
+            style={styles.dialogButton}
+          >
+            Cancel
+          </Button>
+          <Button 
+            mode="contained"
+            onPress={() => setEntityLimitDialogVisible(false)}
+            style={styles.dialogButton}
+          >
+            Done
+          </Button>
         </Dialog.Actions>
       </Dialog>
     </Portal>
@@ -1002,7 +1015,7 @@ const SettingsScreen: React.FC = () => {
         <Dialog.Content>
           <Text style={styles.dialogDescription}>
             Select how quickly interaction scores decay over time.
-            Higher decay settings cause older interactions to contribute less to the total score.
+            Faster decay causes older interactions to contribute less to the total score.
           </Text>
           
           <Text style={styles.sliderLabel}>
@@ -1083,14 +1096,22 @@ const SettingsScreen: React.FC = () => {
             </Text>
           </View>
         </Dialog.Content>
-        <Dialog.Actions>
-          <Button onPress={cancelScoreSettings}>Cancel</Button>
+        <Dialog.Actions style={styles.dialogActions}>
           <Button 
+            mode="outlined"
+            onPress={cancelScoreSettings}
+            style={styles.dialogButton}
+          >
+            Cancel
+          </Button>
+          <Button 
+            mode="contained"
             onPress={saveScoreSettingsFromDialog}
             disabled={isSavingSettings}
             loading={isSavingSettings}
+            style={styles.dialogButton}
           >
-            Save
+            Save and Update
           </Button>
         </Dialog.Actions>
       </Dialog>
@@ -1982,6 +2003,13 @@ const styles = StyleSheet.create({
   },
   presetButtonTextActive: {
     color: '#2196F3',
+  },
+  dialogButton: {
+    marginHorizontal: 8,
+    minWidth: 100,
+  },
+  dialogActions: {
+    justifyContent: 'space-between',
   },
 });
 
