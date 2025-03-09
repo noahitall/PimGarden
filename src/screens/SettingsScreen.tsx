@@ -66,9 +66,37 @@ const SettingsScreen: React.FC = () => {
   // Interaction score settings
   const [scoreSettings, setScoreSettings] = useState<AppSettings>({
     decayFactor: 0,
-    decayType: 'linear'
+    decayType: 'linear',
+    decayPreset: 'none'
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  
+  // Function to handle preset changes
+  const handlePresetChange = (preset: string) => {
+    let updatedSettings = { ...scoreSettings, decayPreset: preset };
+    
+    // Set appropriate decay factor and type based on preset
+    switch (preset) {
+      case 'none':
+        updatedSettings.decayFactor = 0;
+        updatedSettings.decayType = 'linear';
+        break;
+      case 'slow':
+        updatedSettings.decayFactor = 0.3;
+        updatedSettings.decayType = 'logarithmic';
+        break;
+      case 'standard':
+        updatedSettings.decayFactor = 0.6;
+        updatedSettings.decayType = 'linear';
+        break;
+      case 'fast':
+        updatedSettings.decayFactor = 0.8;
+        updatedSettings.decayType = 'exponential';
+        break;
+    }
+    
+    setScoreSettings(updatedSettings);
+  };
   
   // Add error state variables
   const [passphraseError, setPassphraseError] = useState<string>('');
@@ -115,7 +143,35 @@ const SettingsScreen: React.FC = () => {
         // Load score settings
         const settings = await database.getSettings();
         if (settings) {
-          setScoreSettings(settings);
+          // Determine preset based on the loaded decay factor and type
+          let preset = 'none';
+          
+          if (settings.decayFactor === 0) {
+            preset = 'none';
+          } else if (settings.decayType === 'logarithmic' && settings.decayFactor <= 0.4) {
+            preset = 'slow';
+          } else if (settings.decayType === 'linear' && settings.decayFactor >= 0.5 && settings.decayFactor <= 0.7) {
+            preset = 'standard';
+          } else if (settings.decayType === 'exponential' && settings.decayFactor >= 0.7) {
+            preset = 'fast';
+          } else {
+            // If settings don't match any preset, determine best match
+            if (settings.decayFactor < 0.2) {
+              preset = 'none';
+            } else if (settings.decayFactor < 0.45) {
+              preset = 'slow';
+            } else if (settings.decayFactor < 0.7) {
+              preset = 'standard';
+            } else {
+              preset = 'fast';
+            }
+          }
+          
+          // Update settings with preset
+          setScoreSettings({
+            ...settings,
+            decayPreset: preset
+          });
         }
       } catch (error) {
         console.error('Error loading settings:', error);
@@ -958,48 +1014,61 @@ const SettingsScreen: React.FC = () => {
         <Card style={styles.card}>
           <Card.Title 
             title="Interaction Score Settings" 
-            subtitle="Configure how interaction scores are calculated" 
+            subtitle="Configure how interaction scores decay over time" 
           />
           <Card.Content>
             <Text style={styles.sectionDescription}>
-              These settings control how interaction scores decay over time. 
-              Higher decay factors cause older interactions to contribute less to the total score.
+              These settings control how quickly interaction scores decay over time.
+              Higher decay settings cause older interactions to contribute less to the total score.
             </Text>
             
             <Text style={styles.sliderLabel}>
-              Decay Factor: {scoreSettings.decayFactor.toFixed(2)}
+              Decay Speed: {scoreSettings.decayPreset === 'none' ? 'None' :
+                           scoreSettings.decayPreset === 'slow' ? 'Slow' :
+                           scoreSettings.decayPreset === 'standard' ? 'Standard' :
+                           'Fast'}
             </Text>
+            
             <View style={styles.sliderContainer}>
-              <Text style={styles.sliderEndLabel}>No Decay</Text>
+              <View style={styles.sliderLabelsContainer}>
+                <Text style={styles.sliderStepLabel}>None</Text>
+                <Text style={styles.sliderStepLabel}>Slow</Text>
+                <Text style={styles.sliderStepLabel}>Standard</Text>
+                <Text style={styles.sliderStepLabel}>Fast</Text>
+              </View>
+              
               <Slider
-                value={scoreSettings.decayFactor}
-                onValueChange={(value: number) => setScoreSettings({...scoreSettings, decayFactor: value})}
+                value={
+                  scoreSettings.decayPreset === 'none' ? 0 :
+                  scoreSettings.decayPreset === 'slow' ? 1 :
+                  scoreSettings.decayPreset === 'standard' ? 2 :
+                  3
+                }
+                onValueChange={(value: number) => {
+                  const preset = value === 0 ? 'none' :
+                                 value === 1 ? 'slow' :
+                                 value === 2 ? 'standard' :
+                                 'fast';
+                  handlePresetChange(preset);
+                }}
                 minimumValue={0}
-                maximumValue={1}
-                step={0.01}
+                maximumValue={3}
+                step={1}
                 style={styles.slider}
               />
-              <Text style={styles.sliderEndLabel}>Fast Decay</Text>
             </View>
             
-            <Text style={styles.radioLabel}>Decay Type:</Text>
-            <RadioButton.Group
-              onValueChange={(value: string) => setScoreSettings({...scoreSettings, decayType: value})}
-              value={scoreSettings.decayType}
-            >
-              <View style={styles.radioOption}>
-                <RadioButton value="linear" />
-                <Text>Linear (Constant Rate)</Text>
-              </View>
-              <View style={styles.radioOption}>
-                <RadioButton value="exponential" />
-                <Text>Exponential (Accelerating)</Text>
-              </View>
-              <View style={styles.radioOption}>
-                <RadioButton value="logarithmic" />
-                <Text>Logarithmic (Slowing)</Text>
-              </View>
-            </RadioButton.Group>
+            <View style={styles.presetDescriptionContainer}>
+              <Text style={styles.presetDescription}>
+                {scoreSettings.decayPreset === 'none' ? 
+                  'No decay: All interactions count the same regardless of age.' :
+                 scoreSettings.decayPreset === 'slow' ? 
+                  'Slow decay: Older interactions gradually lose value (logarithmic).' :
+                 scoreSettings.decayPreset === 'standard' ? 
+                  'Standard decay: Interactions steadily lose value over time (linear).' :
+                  'Fast decay: Older interactions rapidly lose value (exponential).'}
+              </Text>
+            </View>
             
             <Button 
               mode="contained"
@@ -1803,6 +1872,24 @@ const styles = StyleSheet.create({
   },
   activityIndicator: {
     marginTop: 16,
+  },
+  sliderLabelsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    width: '100%',
+    marginBottom: 8,
+  },
+  sliderStepLabel: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#666',
+  },
+  presetDescriptionContainer: {
+    marginTop: 8,
+  },
+  presetDescription: {
+    color: '#666',
   },
 });
 

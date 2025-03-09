@@ -114,6 +114,7 @@ interface PersonEntity extends Entity {
 export interface AppSettings {
   decayFactor: number; // 0 = no decay, 1 = full decay after one day
   decayType: string; // 'linear', 'exponential', 'logarithmic'
+  decayPreset?: string; // 'none', 'slow', 'standard', 'fast'
 }
 
 // Add a type definition for photos with base64 data
