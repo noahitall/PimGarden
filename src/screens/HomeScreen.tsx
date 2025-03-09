@@ -662,6 +662,7 @@ const HomeScreen: React.FC = () => {
               onChangeText={handleSearch}
               value={searchQuery}
               style={styles.searchBar}
+              inputStyle={{ textAlignVertical: 'center' }}
               icon="magnify"
               onIconPress={() => {}}
               ref={searchInputRef}
@@ -788,6 +789,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
     height: 40,
     borderRadius: 20,
+    justifyContent: 'center',
+    paddingVertical: 0,
   },
   headerButtonsContainer: {
     flexDirection: 'row',
