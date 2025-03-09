@@ -971,65 +971,32 @@ const SettingsScreen: React.FC = () => {
       <Dialog
         visible={entityLimitDialogVisible}
         onDismiss={() => setEntityLimitDialogVisible(false)}
-        style={{ 
-          maxWidth: 350, 
-          alignSelf: 'center', 
-          borderRadius: 8, 
-          maxHeight: '50%',
-          overflow: 'hidden'
-        }}
       >
-        <View style={{ 
-          flexGrow: 1, 
-          flexDirection: 'column',
-          backgroundColor: 'white' 
-        }}>
-          <View style={{ padding: 16, paddingBottom: 8 }}>
-            <Text style={{ fontSize: 20, fontWeight: 'bold' }}>Entity List Limit</Text>
-          </View>
-          
-          <ScrollView
-            style={{ 
-              flexGrow: 1, 
-              borderWidth: 0,
-              backgroundColor: 'white'
-            }}
-            contentContainerStyle={{ padding: 16, paddingTop: 0 }}
+        <Dialog.Title>Entity List Limit</Dialog.Title>
+        <Dialog.Content>
+          <RadioButton.Group 
+            onValueChange={(value) => saveEntityListLimit(Number(value))} 
+            value={String(entityListLimit)}
           >
-            <RadioButton.Group 
-              onValueChange={(value) => saveEntityListLimit(Number(value))} 
-              value={String(entityListLimit)}
-            >
-              <RadioButton.Item label="20 entities" value="20" />
-              <RadioButton.Item label="50 entities" value="50" />
-              <RadioButton.Item label="100 entities" value="100" />
-            </RadioButton.Group>
-          </ScrollView>
-          
-          <View style={{ 
-            flexDirection: 'row',
-            justifyContent: 'flex-end',
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderWidth: 0,
-            borderTopWidth: 0
-          }}>
-            <Button 
-              mode="outlined"
-              onPress={() => setEntityLimitDialogVisible(false)}
-              style={styles.dialogButton}
-            >
-              Cancel
-            </Button>
-            <Button 
-              mode="contained"
-              onPress={() => setEntityLimitDialogVisible(false)}
-              style={styles.dialogButton}
-            >
-              Done
-            </Button>
-          </View>
-        </View>
+            <RadioButton.Item label="20 entities" value="20" />
+            <RadioButton.Item label="50 entities" value="50" />
+            <RadioButton.Item label="100 entities" value="100" />
+          </RadioButton.Group>
+        </Dialog.Content>
+        <Dialog.Actions>
+          <Button 
+            mode="outlined"
+            onPress={() => setEntityLimitDialogVisible(false)}
+          >
+            Cancel
+          </Button>
+          <Button 
+            mode="contained"
+            onPress={() => setEntityLimitDialogVisible(false)}
+          >
+            Done
+          </Button>
+        </Dialog.Actions>
       </Dialog>
     </Portal>
   );
@@ -1040,141 +1007,149 @@ const SettingsScreen: React.FC = () => {
       <Dialog
         visible={scoreSettingsDialogVisible}
         onDismiss={cancelScoreSettings}
-        style={{ 
-          maxWidth: 380, 
-          alignSelf: 'center', 
-          borderRadius: 8, 
-          maxHeight: '50%',
-          overflow: 'hidden'
-        }}
       >
-        <View style={{ 
-          flexGrow: 1, 
-          flexDirection: 'column',
-          backgroundColor: 'white' 
-        }}>
-          <View style={{ padding: 16, paddingBottom: 8 }}>
-            <Text style={{ fontSize: 20, fontWeight: 'bold' }}>Interaction Score Decay</Text>
-          </View>
+        <Dialog.Title>Interaction Score Decay</Dialog.Title>
+        <Dialog.Content>
+          <Text style={{ marginBottom: 12 }}>
+            Select how quickly interaction scores decay over time.
+            Faster decay causes older interactions to contribute less to the total score.
+          </Text>
           
-          <ScrollView 
-            style={{ 
-              flexGrow: 1, 
-              borderWidth: 0,
-              backgroundColor: 'white'
-            }}
-            contentContainerStyle={{ padding: 16, paddingTop: 0 }}
-          >
-            <Text style={styles.dialogDescription}>
-              Select how quickly interaction scores decay over time.
-              Faster decay causes older interactions to contribute less to the total score.
-            </Text>
-            
-            <Text style={styles.sliderLabel}>
-              Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
-                           tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
-                           tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
-                           'Fast'}
-            </Text>
-            
-            {/* Preset selection buttons in a segmented control style */}
-            <View style={styles.presetButtonsContainer}>
-              <TouchableOpacity 
-                style={[
-                  styles.presetButton,
-                  tempScoreSettings.decayPreset === 'none' ? styles.presetButtonActive : null,
-                  { borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }
-                ]} 
-                onPress={() => handlePresetChange('none')}
-              >
-                <Text style={[
-                  styles.presetButtonText,
-                  tempScoreSettings.decayPreset === 'none' ? styles.presetButtonTextActive : null
-                ]}>None</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.presetButton,
-                  tempScoreSettings.decayPreset === 'slow' ? styles.presetButtonActive : null,
-                  { borderLeftWidth: 0 }
-                ]} 
-                onPress={() => handlePresetChange('slow')}
-              >
-                <Text style={[
-                  styles.presetButtonText,
-                  tempScoreSettings.decayPreset === 'slow' ? styles.presetButtonTextActive : null
-                ]}>Slow</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.presetButton,
-                  tempScoreSettings.decayPreset === 'standard' ? styles.presetButtonActive : null,
-                  { borderLeftWidth: 0 }
-                ]} 
-                onPress={() => handlePresetChange('standard')}
-              >
-                <Text style={[
-                  styles.presetButtonText,
-                  tempScoreSettings.decayPreset === 'standard' ? styles.presetButtonTextActive : null
-                ]}>Standard</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.presetButton,
-                  tempScoreSettings.decayPreset === 'fast' ? styles.presetButtonActive : null,
-                  { borderLeftWidth: 0, borderTopRightRadius: 4, borderBottomRightRadius: 4 }
-                ]} 
-                onPress={() => handlePresetChange('fast')}
-              >
-                <Text style={[
-                  styles.presetButtonText,
-                  tempScoreSettings.decayPreset === 'fast' ? styles.presetButtonTextActive : null
-                ]}>Fast</Text>
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.presetDescriptionContainer}>
-              <Text style={styles.presetDescription}>
-                {tempScoreSettings.decayPreset === 'none' ? 
-                  'No decay: All interactions count the same regardless of age.' :
-                 tempScoreSettings.decayPreset === 'slow' ? 
-                  'Slow decay: Older interactions gradually lose value (logarithmic).' :
-                 tempScoreSettings.decayPreset === 'standard' ? 
-                  'Standard decay: Interactions steadily lose value over time (linear).' :
-                  'Fast decay: Older interactions rapidly lose value (exponential).'}
-              </Text>
-            </View>
-          </ScrollView>
+          <Text style={{ fontWeight: 'bold', marginBottom: 8 }}>
+            Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
+                        tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
+                        tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
+                        'Fast'}
+          </Text>
           
+          {/* Preset selection buttons in a segmented control style */}
           <View style={{ 
-            flexDirection: 'row',
-            justifyContent: 'flex-end',
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderWidth: 0,
-            borderTopWidth: 0
+            flexDirection: 'row', 
+            marginBottom: 12,
+            justifyContent: 'space-between'
           }}>
-            <Button 
-              mode="outlined"
-              onPress={cancelScoreSettings}
-              style={styles.dialogButton}
+            <TouchableOpacity 
+              style={[
+                { 
+                  flex: 1, 
+                  padding: 6, 
+                  borderWidth: 1, 
+                  borderColor: '#CCCCCC',
+                  alignItems: 'center',
+                  borderTopLeftRadius: 4, 
+                  borderBottomLeftRadius: 4
+                },
+                tempScoreSettings.decayPreset === 'none' ? { 
+                  backgroundColor: '#E3F2FD',
+                  borderColor: '#2196F3'
+                } : null
+              ]} 
+              onPress={() => handlePresetChange('none')}
             >
-              Cancel
-            </Button>
-            <Button 
-              mode="contained"
-              onPress={saveScoreSettingsFromDialog}
-              disabled={isSavingSettings}
-              loading={isSavingSettings}
-              style={styles.dialogButton}
+              <Text style={[
+                { fontSize: 14, fontWeight: 'bold' },
+                tempScoreSettings.decayPreset === 'none' ? { color: '#2196F3' } : null
+              ]}>None</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                { 
+                  flex: 1, 
+                  padding: 6, 
+                  borderWidth: 1, 
+                  borderColor: '#CCCCCC',
+                  alignItems: 'center',
+                  borderLeftWidth: 0
+                },
+                tempScoreSettings.decayPreset === 'slow' ? { 
+                  backgroundColor: '#E3F2FD',
+                  borderColor: '#2196F3'
+                } : null
+              ]} 
+              onPress={() => handlePresetChange('slow')}
             >
-              Save and Update
-            </Button>
+              <Text style={[
+                { fontSize: 14, fontWeight: 'bold' },
+                tempScoreSettings.decayPreset === 'slow' ? { color: '#2196F3' } : null
+              ]}>Slow</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                { 
+                  flex: 1, 
+                  padding: 6, 
+                  borderWidth: 1, 
+                  borderColor: '#CCCCCC',
+                  alignItems: 'center',
+                  borderLeftWidth: 0
+                },
+                tempScoreSettings.decayPreset === 'standard' ? { 
+                  backgroundColor: '#E3F2FD',
+                  borderColor: '#2196F3'
+                } : null
+              ]} 
+              onPress={() => handlePresetChange('standard')}
+            >
+              <Text style={[
+                { fontSize: 14, fontWeight: 'bold' },
+                tempScoreSettings.decayPreset === 'standard' ? { color: '#2196F3' } : null
+              ]}>Standard</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                { 
+                  flex: 1, 
+                  padding: 6, 
+                  borderWidth: 1, 
+                  borderColor: '#CCCCCC',
+                  alignItems: 'center',
+                  borderLeftWidth: 0,
+                  borderTopRightRadius: 4, 
+                  borderBottomRightRadius: 4
+                },
+                tempScoreSettings.decayPreset === 'fast' ? { 
+                  backgroundColor: '#E3F2FD',
+                  borderColor: '#2196F3'
+                } : null
+              ]} 
+              onPress={() => handlePresetChange('fast')}
+            >
+              <Text style={[
+                { fontSize: 14, fontWeight: 'bold' },
+                tempScoreSettings.decayPreset === 'fast' ? { color: '#2196F3' } : null
+              ]}>Fast</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+          
+          <Text style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>
+            {tempScoreSettings.decayPreset === 'none' ? 
+              'No decay: All interactions count the same regardless of age.' :
+             tempScoreSettings.decayPreset === 'slow' ? 
+              'Slow decay: Older interactions gradually lose value (logarithmic).' :
+             tempScoreSettings.decayPreset === 'standard' ? 
+              'Standard decay: Interactions steadily lose value over time (linear).' :
+              'Fast decay: Older interactions rapidly lose value (exponential).'}
+          </Text>
+        </Dialog.Content>
+        <Dialog.Actions>
+          <Button 
+            mode="outlined"
+            onPress={cancelScoreSettings}
+          >
+            Cancel
+          </Button>
+          <Button 
+            mode="contained"
+            onPress={saveScoreSettingsFromDialog}
+            disabled={isSavingSettings}
+            loading={isSavingSettings}
+          >
+            Save and Update
+          </Button>
+        </Dialog.Actions>
       </Dialog>
     </Portal>
   );
@@ -1867,7 +1842,8 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   resetButton: {
-    marginTop: 16,
+    marginTop: 20,
+    borderColor: '#d32f2f',
   },
   aboutText: {
     marginBottom: 8,
@@ -1878,6 +1854,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   dangerButton: {
+    marginTop: 12,
     borderColor: '#d32f2f',
   },
   dialogWarningText: {
@@ -1894,33 +1871,25 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     marginTop: 4,
   },
+  sliderEndLabel: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#666',
+    marginTop: 16,
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+  },
   sliderContainer: {
     width: '100%',
     marginVertical: 10,
     paddingHorizontal: 4,
   },
-  slider: {
-    width: '100%',
-    height: 40, // Increase height for better touch target
-  },
   sliderLabel: {
-    marginTop: 10,
-    marginBottom: 5,
+    marginBottom: 8,
     fontWeight: 'bold',
-  },
-  sliderEndLabel: {
-    width: 70,
-    fontSize: 12,
-    color: '#666',
-  },
-  radioLabel: {
-    marginTop: 10,
-    marginBottom: 5,
-    fontWeight: 'bold',
-  },
-  radioOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   button: {
     marginTop: 20,
@@ -1933,13 +1902,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   actionButton: {
-    marginTop: 10,
-    marginBottom: 4,
-    borderColor: '#2196F3',
+    marginTop: 12,
   },
   input: {
-    backgroundColor: 'transparent',
-    marginTop: 8,
+    marginBottom: 10,
   },
   selectedFile: {
     marginTop: 8,
@@ -2009,19 +1975,12 @@ const styles = StyleSheet.create({
   sliderLabelsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 10,
     width: '100%',
-    marginBottom: 8,
+    marginVertical: 8,
   },
   sliderStepLabel: {
     textAlign: 'center',
     fontSize: 12,
-    color: '#666',
-  },
-  presetDescriptionContainer: {
-    marginTop: 8,
-  },
-  presetDescription: {
     color: '#666',
   },
   trackMarkersContainer: {
@@ -2039,6 +1998,15 @@ const styles = StyleSheet.create({
   },
   trackMarkerActive: {
     backgroundColor: '#2196F3',
+  },
+  dialogButton: {
+    marginHorizontal: 4,
+    minWidth: 90,
+  },
+  dialogActions: {
+    justifyContent: 'flex-end',
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
   presetButtonsContainer: {
     flexDirection: 'row',
@@ -2064,14 +2032,11 @@ const styles = StyleSheet.create({
   presetButtonTextActive: {
     color: '#2196F3',
   },
-  dialogButton: {
-    marginHorizontal: 4,
-    minWidth: 90,
+  presetDescriptionContainer: {
+    marginTop: 8,
   },
-  dialogActions: {
-    justifyContent: 'flex-end',
-    paddingHorizontal: 8,
-    paddingBottom: 8,
+  presetDescription: {
+    color: '#666',
   },
 });
 
