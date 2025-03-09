@@ -46,6 +46,12 @@ const HomeScreen: React.FC = () => {
   const searchInputRef = useRef<any>(null);
   const searchBarHeight = useRef(new Animated.Value(0)).current;
   
+  // Add state variables for pagination
+  const [visibleEntities, setVisibleEntities] = useState<Entity[]>([]);
+  const [entityListLimit, setEntityListLimit] = useState<number>(50); // Default to 50
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [hasMoreToLoad, setHasMoreToLoad] = useState<boolean>(false);
+  
   // Calculate number of columns based on screen width and view mode
   const screenWidth = Dimensions.get('window').width;
   const numColumnsMemo = useMemo(() => {
@@ -595,6 +601,56 @@ const HomeScreen: React.FC = () => {
     setShowBirthdays(isFeatureEnabledSync('ENABLE_BIRTHDAY_DISPLAY'));
   }, [isFocused]); // Re-check when screen comes into focus
 
+  // Load entity list limit preference
+  useEffect(() => {
+    const loadEntityListLimit = async () => {
+      try {
+        const savedLimit = await AsyncStorage.getItem('entityListLimit');
+        if (savedLimit !== null) {
+          setEntityListLimit(Number(savedLimit));
+        }
+      } catch (error) {
+        console.error('Error loading entity list limit preference:', error);
+      }
+    };
+    
+    loadEntityListLimit();
+  }, []);
+  
+  // Update visibleEntities whenever entities, currentPage, or entityListLimit changes
+  useEffect(() => {
+    const totalItems = entityListLimit * currentPage;
+    setVisibleEntities(entities.slice(0, totalItems));
+    setHasMoreToLoad(entities.length > totalItems);
+  }, [entities, currentPage, entityListLimit]);
+  
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, searchQuery, showFavorites, sortBy, keepFavoritesFirst, showHidden]);
+  
+  // Function to load more entities
+  const handleLoadMore = () => {
+    setCurrentPage(currentPage + 1);
+  };
+  
+  // Render footer with Load More button
+  const renderFooter = () => {
+    if (!hasMoreToLoad) return null;
+    
+    return (
+      <View style={styles.footerContainer}>
+        <Button 
+          mode="contained" 
+          onPress={handleLoadMore}
+          style={styles.loadMoreButton}
+        >
+          Load More ({entities.length - visibleEntities.length} remaining)
+        </Button>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
       {/* Only render search section when searchVisible is true to ensure it's hidden by default */}
@@ -649,7 +705,7 @@ const HomeScreen: React.FC = () => {
       
       <FlatList
         key={`grid-${numColumns}`}
-        data={entities}
+        data={visibleEntities}
         numColumns={numColumns}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
@@ -662,6 +718,7 @@ const HomeScreen: React.FC = () => {
           />
         }
         onScroll={handleScroll}
+        ListFooterComponent={renderFooter}
       />
       
       {/* Debug button (only show if feature flag is enabled) */}
@@ -786,6 +843,15 @@ const styles = StyleSheet.create({
   menuButton: {
     margin: 0,
     marginLeft: 8,
+  },
+  footerContainer: {
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreButton: {
+    width: '80%',
+    marginBottom: 16,
   },
 });
 

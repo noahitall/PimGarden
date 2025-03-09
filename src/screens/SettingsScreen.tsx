@@ -865,6 +865,62 @@ const SettingsScreen: React.FC = () => {
     );
   };
   
+  // Add a state variable for entity list limit
+  const [entityListLimit, setEntityListLimit] = useState<number>(50); // Default to 50
+  const [entityLimitDialogVisible, setEntityLimitDialogVisible] = useState(false);
+  
+  // Load entity list limit preference on mount
+  useEffect(() => {
+    const loadEntityListLimit = async () => {
+      try {
+        const savedLimit = await AsyncStorage.getItem('entityListLimit');
+        if (savedLimit !== null) {
+          setEntityListLimit(Number(savedLimit));
+        }
+      } catch (error) {
+        console.error('Error loading entity list limit preference:', error);
+      }
+    };
+    
+    loadEntityListLimit();
+  }, []);
+  
+  // Save entity list limit preference
+  const saveEntityListLimit = async (limit: number) => {
+    try {
+      await AsyncStorage.setItem('entityListLimit', String(limit));
+      setEntityListLimit(limit);
+      setEntityLimitDialogVisible(false);
+    } catch (error) {
+      console.error('Error saving entity list limit preference:', error);
+    }
+  };
+  
+  // Render the entity list limit dialog
+  const renderEntityLimitDialog = () => (
+    <Portal>
+      <Dialog
+        visible={entityLimitDialogVisible}
+        onDismiss={() => setEntityLimitDialogVisible(false)}
+      >
+        <Dialog.Title>Entity List Limit</Dialog.Title>
+        <Dialog.Content>
+          <RadioButton.Group 
+            onValueChange={(value) => saveEntityListLimit(Number(value))} 
+            value={String(entityListLimit)}
+          >
+            <RadioButton.Item label="20 entities" value="20" />
+            <RadioButton.Item label="50 entities" value="50" />
+            <RadioButton.Item label="100 entities" value="100" />
+          </RadioButton.Group>
+        </Dialog.Content>
+        <Dialog.Actions>
+          <Button onPress={() => setEntityLimitDialogVisible(false)}>Cancel</Button>
+        </Dialog.Actions>
+      </Dialog>
+    </Portal>
+  );
+  
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
@@ -1334,6 +1390,16 @@ const SettingsScreen: React.FC = () => {
             </Text>
           </Card.Content>
         </Card>
+        
+        {/* Add our UI preference section in the settings list */}
+        <List.Section title="User Interface">
+          <List.Item
+            title="Entity List Limit"
+            description={`Display ${entityListLimit} entities at a time`}
+            left={props => <List.Icon {...props} icon="format-list-numbered" />}
+            onPress={() => setEntityLimitDialogVisible(true)}
+          />
+        </List.Section>
       </ScrollView>
       
       {/* Reset confirmation dialog */}
@@ -1609,6 +1675,9 @@ const SettingsScreen: React.FC = () => {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+      
+      {/* Add the dialog to the component */}
+      {renderEntityLimitDialog()}
     </View>
   );
 };
