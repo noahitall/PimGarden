@@ -974,20 +974,18 @@ const SettingsScreen: React.FC = () => {
         style={{ maxWidth: 350, alignSelf: 'center', borderRadius: 8, maxHeight: '50%' }}
       >
         <Dialog.Title>Entity List Limit</Dialog.Title>
-        <Dialog.ScrollArea>
-          <ScrollView>
-            <View style={{ padding: 16 }}>
-              <RadioButton.Group 
-                onValueChange={(value) => saveEntityListLimit(Number(value))} 
-                value={String(entityListLimit)}
-              >
-                <RadioButton.Item label="20 entities" value="20" />
-                <RadioButton.Item label="50 entities" value="50" />
-                <RadioButton.Item label="100 entities" value="100" />
-              </RadioButton.Group>
-            </View>
+        <Dialog.Content style={{ paddingTop: 0 }}>
+          <ScrollView style={{ borderWidth: 0, borderRadius: 0 }}>
+            <RadioButton.Group 
+              onValueChange={(value) => saveEntityListLimit(Number(value))} 
+              value={String(entityListLimit)}
+            >
+              <RadioButton.Item label="20 entities" value="20" />
+              <RadioButton.Item label="50 entities" value="50" />
+              <RadioButton.Item label="100 entities" value="100" />
+            </RadioButton.Group>
           </ScrollView>
-        </Dialog.ScrollArea>
+        </Dialog.Content>
         <Dialog.Actions style={styles.dialogActions}>
           <Button 
             mode="outlined"
@@ -1017,94 +1015,92 @@ const SettingsScreen: React.FC = () => {
         style={{ maxWidth: 380, alignSelf: 'center', borderRadius: 8, maxHeight: '50%' }}
       >
         <Dialog.Title>Interaction Score Decay</Dialog.Title>
-        <Dialog.ScrollArea>
-          <ScrollView>
-            <View style={{ padding: 16 }}>
-              <Text style={styles.dialogDescription}>
-                Select how quickly interaction scores decay over time.
-                Faster decay causes older interactions to contribute less to the total score.
+        <Dialog.Content style={{ paddingTop: 0 }}>
+          <ScrollView style={{ borderWidth: 0, borderRadius: 0 }}>
+            <Text style={styles.dialogDescription}>
+              Select how quickly interaction scores decay over time.
+              Faster decay causes older interactions to contribute less to the total score.
+            </Text>
+            
+            <Text style={styles.sliderLabel}>
+              Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
+                          tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
+                          tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
+                          'Fast'}
+            </Text>
+            
+            {/* Preset selection buttons in a segmented control style */}
+            <View style={styles.presetButtonsContainer}>
+              <TouchableOpacity 
+                style={[
+                  styles.presetButton,
+                  tempScoreSettings.decayPreset === 'none' ? styles.presetButtonActive : null,
+                  { borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }
+                ]} 
+                onPress={() => handlePresetChange('none')}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  tempScoreSettings.decayPreset === 'none' ? styles.presetButtonTextActive : null
+                ]}>None</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.presetButton,
+                  tempScoreSettings.decayPreset === 'slow' ? styles.presetButtonActive : null,
+                  { borderLeftWidth: 0 }
+                ]} 
+                onPress={() => handlePresetChange('slow')}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  tempScoreSettings.decayPreset === 'slow' ? styles.presetButtonTextActive : null
+                ]}>Slow</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.presetButton,
+                  tempScoreSettings.decayPreset === 'standard' ? styles.presetButtonActive : null,
+                  { borderLeftWidth: 0 }
+                ]} 
+                onPress={() => handlePresetChange('standard')}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  tempScoreSettings.decayPreset === 'standard' ? styles.presetButtonTextActive : null
+                ]}>Standard</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.presetButton,
+                  tempScoreSettings.decayPreset === 'fast' ? styles.presetButtonActive : null,
+                  { borderLeftWidth: 0, borderTopRightRadius: 4, borderBottomRightRadius: 4 }
+                ]} 
+                onPress={() => handlePresetChange('fast')}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  tempScoreSettings.decayPreset === 'fast' ? styles.presetButtonTextActive : null
+                ]}>Fast</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.presetDescriptionContainer}>
+              <Text style={styles.presetDescription}>
+                {tempScoreSettings.decayPreset === 'none' ? 
+                  'No decay: All interactions count the same regardless of age.' :
+                 tempScoreSettings.decayPreset === 'slow' ? 
+                  'Slow decay: Older interactions gradually lose value (logarithmic).' :
+                 tempScoreSettings.decayPreset === 'standard' ? 
+                  'Standard decay: Interactions steadily lose value over time (linear).' :
+                  'Fast decay: Older interactions rapidly lose value (exponential).'}
               </Text>
-              
-              <Text style={styles.sliderLabel}>
-                Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
-                            tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
-                            tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
-                            'Fast'}
-              </Text>
-              
-              {/* Preset selection buttons in a segmented control style */}
-              <View style={styles.presetButtonsContainer}>
-                <TouchableOpacity 
-                  style={[
-                    styles.presetButton,
-                    tempScoreSettings.decayPreset === 'none' ? styles.presetButtonActive : null,
-                    { borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }
-                  ]} 
-                  onPress={() => handlePresetChange('none')}
-                >
-                  <Text style={[
-                    styles.presetButtonText,
-                    tempScoreSettings.decayPreset === 'none' ? styles.presetButtonTextActive : null
-                  ]}>None</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[
-                    styles.presetButton,
-                    tempScoreSettings.decayPreset === 'slow' ? styles.presetButtonActive : null,
-                    { borderLeftWidth: 0 }
-                  ]} 
-                  onPress={() => handlePresetChange('slow')}
-                >
-                  <Text style={[
-                    styles.presetButtonText,
-                    tempScoreSettings.decayPreset === 'slow' ? styles.presetButtonTextActive : null
-                  ]}>Slow</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[
-                    styles.presetButton,
-                    tempScoreSettings.decayPreset === 'standard' ? styles.presetButtonActive : null,
-                    { borderLeftWidth: 0 }
-                  ]} 
-                  onPress={() => handlePresetChange('standard')}
-                >
-                  <Text style={[
-                    styles.presetButtonText,
-                    tempScoreSettings.decayPreset === 'standard' ? styles.presetButtonTextActive : null
-                  ]}>Standard</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[
-                    styles.presetButton,
-                    tempScoreSettings.decayPreset === 'fast' ? styles.presetButtonActive : null,
-                    { borderLeftWidth: 0, borderTopRightRadius: 4, borderBottomRightRadius: 4 }
-                  ]} 
-                  onPress={() => handlePresetChange('fast')}
-                >
-                  <Text style={[
-                    styles.presetButtonText,
-                    tempScoreSettings.decayPreset === 'fast' ? styles.presetButtonTextActive : null
-                  ]}>Fast</Text>
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.presetDescriptionContainer}>
-                <Text style={styles.presetDescription}>
-                  {tempScoreSettings.decayPreset === 'none' ? 
-                    'No decay: All interactions count the same regardless of age.' :
-                   tempScoreSettings.decayPreset === 'slow' ? 
-                    'Slow decay: Older interactions gradually lose value (logarithmic).' :
-                   tempScoreSettings.decayPreset === 'standard' ? 
-                    'Standard decay: Interactions steadily lose value over time (linear).' :
-                    'Fast decay: Older interactions rapidly lose value (exponential).'}
-                </Text>
-              </View>
             </View>
           </ScrollView>
-        </Dialog.ScrollArea>
+        </Dialog.Content>
         <Dialog.Actions style={styles.dialogActions}>
           <Button 
             mode="outlined"
