@@ -971,6 +971,7 @@ const SettingsScreen: React.FC = () => {
       <Dialog
         visible={entityLimitDialogVisible}
         onDismiss={() => setEntityLimitDialogVisible(false)}
+        style={{ maxWidth: 350, alignSelf: 'center', borderRadius: 8 }}
       >
         <Dialog.Title>Entity List Limit</Dialog.Title>
         <Dialog.Content>
@@ -1009,16 +1010,16 @@ const SettingsScreen: React.FC = () => {
       <Dialog
         visible={scoreSettingsDialogVisible}
         onDismiss={cancelScoreSettings}
-        style={{ maxWidth: 500, alignSelf: 'center' }}
+        style={{ maxWidth: 380, alignSelf: 'center', borderRadius: 8 }}
       >
         <Dialog.Title>Interaction Score Decay</Dialog.Title>
         <Dialog.Content>
-          <Text style={styles.dialogDescription}>
+          <Text style={[styles.dialogDescription, { marginBottom: 8 }]}>
             Select how quickly interaction scores decay over time.
             Faster decay causes older interactions to contribute less to the total score.
           </Text>
           
-          <Text style={styles.sliderLabel}>
+          <Text style={[styles.sliderLabel, { marginBottom: 4 }]}>
             Decay Speed: {tempScoreSettings.decayPreset === 'none' ? 'None' :
                         tempScoreSettings.decayPreset === 'slow' ? 'Slow' :
                         tempScoreSettings.decayPreset === 'standard' ? 'Standard' :
@@ -1958,10 +1959,11 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   presetDescriptionContainer: {
-    marginTop: 8,
+    marginTop: 4,
   },
   presetDescription: {
     color: '#666',
+    fontSize: 13,
   },
   trackMarkersContainer: {
     flexDirection: 'row',
@@ -1982,12 +1984,11 @@ const styles = StyleSheet.create({
   presetButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 10,
     width: '100%',
-    marginBottom: 8,
+    marginVertical: 8,
   },
   presetButton: {
-    padding: 8,
+    padding: 6,
     borderWidth: 1,
     borderColor: '#CCCCCC',
     flex: 1,
@@ -1998,18 +1999,20 @@ const styles = StyleSheet.create({
     borderColor: '#2196F3',
   },
   presetButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 'bold',
   },
   presetButtonTextActive: {
     color: '#2196F3',
   },
   dialogButton: {
-    marginHorizontal: 8,
-    minWidth: 100,
+    marginHorizontal: 4,
+    minWidth: 90,
   },
   dialogActions: {
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
 });
 
