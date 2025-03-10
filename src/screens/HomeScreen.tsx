@@ -53,6 +53,9 @@ const HomeScreen: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [hasMoreToLoad, setHasMoreToLoad] = useState<boolean>(false);
   
+  // Feature banner state
+  const [showFeatureBanner, setShowFeatureBanner] = useState(true);
+  
   // Calculate number of columns based on screen width and view mode
   const screenWidth = Dimensions.get('window').width;
   const numColumnsMemo = useMemo(() => {
@@ -116,6 +119,11 @@ const HomeScreen: React.FC = () => {
         if (savedShowSearchBar !== null) {
           setShowSearchBar(savedShowSearchBar === 'true');
         }
+        
+        const savedShowFeatureBanner = await AsyncStorage.getItem('showFeatureBanner');
+        if (savedShowFeatureBanner !== null) {
+          setShowFeatureBanner(savedShowFeatureBanner === 'true');
+        }
       } catch (error) {
         console.error('Error loading user preferences:', error);
       }
@@ -131,7 +139,8 @@ const HomeScreen: React.FC = () => {
     newCompactMode?: boolean,
     newShowBirthdays?: boolean,
     newShowHidden?: boolean,
-    newShowSearchBar?: boolean
+    newShowSearchBar?: boolean,
+    newShowFeatureBanner?: boolean
   ) => {
     try {
       // Save sort preferences
@@ -173,6 +182,12 @@ const HomeScreen: React.FC = () => {
         if (!newShowSearchBar) {
           setSearchQuery('');
         }
+      }
+      
+      // Save feature banner state
+      if (newShowFeatureBanner !== undefined) {
+        await AsyncStorage.setItem('showFeatureBanner', String(newShowFeatureBanner));
+        setShowFeatureBanner(newShowFeatureBanner);
       }
       
       // Force reload of data
@@ -869,10 +884,102 @@ const HomeScreen: React.FC = () => {
     })();
   };
 
+  // Dismiss feature banner
+  const handleDismissFeatureBanner = () => {
+    savePreferences(undefined, undefined, undefined, undefined, undefined, undefined, false);
+  };
+
+  // Render the feature banner highlighting interaction tracking
+  const renderFeatureBanner = () => {
+    if (!showFeatureBanner || entities.length === 0) {
+      return null;
+    }
+    
+    return (
+      <Banner
+        visible={true}
+        actions={[
+          {
+            label: 'Learn More',
+            onPress: () => {
+              // Navigate to a help page or show a dialog with more information
+              Alert.alert(
+                'Interaction Tracking',
+                'PimGarden helps you maintain relationships by tracking your interactions with people, groups, and topics.\n\n' +
+                '• Record different types of interactions (calls, meetings, emails)\n' +
+                '• View interaction history and frequency\n' +
+                '• Get insights into your relationship strength\n' +
+                '• Set reminders for follow-ups and birthdays\n\n' +
+                'Try it out by adding an entity and tracking your interactions!'
+              );
+            },
+          },
+          {
+            label: 'Dismiss',
+            onPress: handleDismissFeatureBanner,
+          },
+        ]}
+        icon="chart-timeline-variant"
+      >
+        Track your interactions with people, groups, and topics to strengthen relationships and never lose touch.
+      </Banner>
+    );
+  };
+
+  // Render empty state when there are no entities
+  const renderEmptyState = () => {
+    if (entities.length > 0 || refreshing) {
+      return null;
+    }
+
+    return (
+      <View style={styles.emptyStateContainer}>
+        <IconButton
+          icon="account-group"
+          size={60}
+          iconColor="#6200ee"
+        />
+        <Text style={styles.emptyStateTitle}>Welcome to PimGarden</Text>
+        <Text style={styles.emptyStateText}>
+          Track interactions with people, groups, and topics to strengthen relationships.
+        </Text>
+        <View style={styles.emptyStateFeatures}>
+          <View style={styles.featureItem}>
+            <IconButton icon="history" size={24} iconColor="#6200ee" />
+            <Text>Record interactions with customizable types</Text>
+          </View>
+          <View style={styles.featureItem}>
+            <IconButton icon="calendar-clock" size={24} iconColor="#6200ee" />
+            <Text>Track interaction frequency and history</Text>
+          </View>
+          <View style={styles.featureItem}>
+            <IconButton icon="chart-line" size={24} iconColor="#6200ee" />
+            <Text>Monitor relationship strength over time</Text>
+          </View>
+          <View style={styles.featureItem}>
+            <IconButton icon="bell-ring" size={24} iconColor="#6200ee" />
+            <Text>Set reminders for follow-ups and birthdays</Text>
+          </View>
+        </View>
+        <Button
+          mode="contained"
+          icon="plus"
+          onPress={handleAddEntity}
+          style={styles.emptyStateButton}
+        >
+          Add Your First Entity
+        </Button>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
       {/* Only render menu when it's visible */}
       {menuVisible && renderOptionsMenu()}
+      
+      {/* Feature banner highlighting interaction tracking */}
+      {renderFeatureBanner()}
       
       {/* Banner for merge mode */}
       {mergeMode && sourceEntity && (
@@ -923,28 +1030,33 @@ const HomeScreen: React.FC = () => {
         </View>
       )}
       
-      <FlatList
-        data={visibleEntities}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        numColumns={numColumns}
-        key={`list-${numColumns}`}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={loadEntities}
-            colors={['#6200ee']}
-            progressViewOffset={20}
-            progressBackgroundColor="#ffffff"
-          />
-        }
-        onScroll={(event) => {
-          // Empty onScroll handler to prevent errors
-        }}
-        scrollEventThrottle={16}
-        ListFooterComponent={renderFooter}
-      />
+      {/* Empty state when there are no entities */}
+      {renderEmptyState()}
+      
+      {entities.length > 0 && (
+        <FlatList
+          data={visibleEntities}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          numColumns={numColumns}
+          key={`list-${numColumns}`}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={loadEntities}
+              colors={['#6200ee']}
+              progressViewOffset={20}
+              progressBackgroundColor="#ffffff"
+            />
+          }
+          onScroll={(event) => {
+            // Empty onScroll handler to prevent errors
+          }}
+          scrollEventThrottle={16}
+          ListFooterComponent={renderFooter}
+        />
+      )}
       
       {/* Debug button (only show if feature flag is enabled) */}
       {__DEV__ && isFeatureEnabledSync('SHOW_DEBUG_BUTTON') && (
@@ -1077,6 +1189,37 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     paddingHorizontal: 6,
     paddingVertical: 2,
+  },
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  emptyStateTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyStateText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
+    color: '#666',
+  },
+  emptyStateFeatures: {
+    marginVertical: 16,
+    width: '100%',
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  emptyStateButton: {
+    marginTop: 24,
   },
 });
 
