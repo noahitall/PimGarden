@@ -493,7 +493,7 @@ const EntityDetailScreen: React.FC = () => {
       await loadInteractionTypes(entity.id);
       
       // Emit tag change event to update cards
-      eventEmitter.emitEvent('tagChange');
+      eventEmitter.emit('tagChange');
       
       // Clear input
       setTagInput('');
@@ -522,7 +522,7 @@ const EntityDetailScreen: React.FC = () => {
       await loadInteractionTypes(entity.id);
       
       // Emit tag change event to update cards
-      eventEmitter.emitEvent('tagChange');
+      eventEmitter.emit('tagChange');
       
       // Clear input
       setTagInput('');
@@ -547,7 +547,7 @@ const EntityDetailScreen: React.FC = () => {
       await loadInteractionTypes(entity.id);
       
       // Emit tag change event to update cards
-      eventEmitter.emitEvent('tagChange');
+      eventEmitter.emit('tagChange');
     } catch (error) {
       console.error('Error removing tag:', error);
       Alert.alert('Error', 'Failed to remove tag');

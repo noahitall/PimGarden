@@ -146,100 +146,156 @@ export class Database {
 
   // Initialize database tables
   private async init(): Promise<void> {
-    // Create tables if they don't exist
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS entities (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        details TEXT,
-        image TEXT,
-        interaction_score INTEGER DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        encrypted_data TEXT
-      );
-    `);
+    try {
+      // Create tables if they don't exist
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS entities (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          details TEXT,
+          image TEXT,
+          interaction_score INTEGER DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          encrypted_data TEXT
+        );
+      `);
 
-    // Create interactions table to track timestamps
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS interactions (
-        id TEXT PRIMARY KEY,
-        entity_id TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        type TEXT,
-        type_id TEXT,
-        notes TEXT,
-        FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE,
-        FOREIGN KEY (type_id) REFERENCES interaction_types (id) ON DELETE SET NULL
+      // Create interactions table to track timestamps
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS interactions (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          type TEXT,
+          type_id TEXT,
+          notes TEXT,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE,
+          FOREIGN KEY (type_id) REFERENCES interaction_types (id) ON DELETE SET NULL
+        );
+      `);
+      
+      // Create group_members table to track group membership
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS group_members (
+          group_id TEXT NOT NULL,
+          member_id TEXT NOT NULL,
+          added_at INTEGER NOT NULL,
+          PRIMARY KEY (group_id, member_id),
+          FOREIGN KEY (group_id) REFERENCES entities (id) ON DELETE CASCADE,
+          FOREIGN KEY (member_id) REFERENCES entities (id) ON DELETE CASCADE
+        );
+      `);
+      
+      // Create entity_photos table to store additional photos
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS entity_photos (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          uri TEXT NOT NULL,
+          caption TEXT,
+          timestamp INTEGER NOT NULL,
+          base64Data TEXT,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        );
+      `);
+      
+      // Create tags table
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS tags (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          count INTEGER DEFAULT 0
+        );
+      `);
+      
+      // Create entity_tags junction table (for many-to-many relationship)
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS entity_tags (
+          entity_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (entity_id, tag_id),
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE,
+          FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+        );
+      `);
+      
+      // Create birthday_reminders table
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS birthday_reminders (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          birthday_date TEXT NOT NULL,
+          reminder_time TEXT NOT NULL,
+          days_in_advance INTEGER DEFAULT 1,
+          is_enabled INTEGER DEFAULT 1,
+          notification_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        );
+      `);
+      
+      // Initialize default tags
+      await this.initDefaultTags();
+      
+      // Initialize default interaction types ONLY if there are none in the database
+      const interactionTypesCount = await this.db.getFirstAsync<{count: number}>(
+        'SELECT COUNT(*) as count FROM interaction_types'
       );
-    `);
-    
-    // Create group_members table to track group membership
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS group_members (
-        group_id TEXT NOT NULL,
-        member_id TEXT NOT NULL,
-        added_at INTEGER NOT NULL,
-        PRIMARY KEY (group_id, member_id),
-        FOREIGN KEY (group_id) REFERENCES entities (id) ON DELETE CASCADE,
-        FOREIGN KEY (member_id) REFERENCES entities (id) ON DELETE CASCADE
-      );
-    `);
-    
-    // Run migrations to update schema if needed
-    await this.runMigrations();
-    
-    // Create entity_photos table to store additional photos
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS entity_photos (
-        id TEXT PRIMARY KEY,
-        entity_id TEXT NOT NULL,
-        uri TEXT NOT NULL,
-        caption TEXT,
-        timestamp INTEGER NOT NULL,
-        base64Data TEXT,
-        FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
-      );
-    `);
-    
-    // Create tags table
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS tags (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-        count INTEGER DEFAULT 0
-      );
-    `);
-    
-    // Create entity_tags junction table (for many-to-many relationship)
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS entity_tags (
-        entity_id TEXT NOT NULL,
-        tag_id TEXT NOT NULL,
-        PRIMARY KEY (entity_id, tag_id),
-        FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE,
-        FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
-      );
-    `);
-    
-    // Initialize default tags
-    await this.initDefaultTags();
-    
-    // Initialize default interaction types ONLY if there are none in the database
-    const interactionTypesCount = await this.db.getFirstAsync<{count: number}>(
-      'SELECT COUNT(*) as count FROM interaction_types'
-    );
-    
-    if (!interactionTypesCount || interactionTypesCount.count === 0) {
-      console.log('No interaction types found, initializing defaults');
-      await this.initDefaultInteractionTypes();
-    } else {
-      console.log('Interaction types already exist, skipping initialization');
+      
+      if (!interactionTypesCount || interactionTypesCount.count === 0) {
+        console.log('No interaction types found, initializing defaults');
+        await this.initDefaultInteractionTypes();
+      } else {
+        console.log('Interaction types already exist, skipping initialization');
+      }
+      
+      // Create settings table during initialization
+      await this.createSettingsTable();
+      
+      // Check if the is_hidden column exists and add it if not
+      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
+      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
+      
+      if (!hasHiddenColumn) {
+        console.log('Adding is_hidden column during initialization');
+        try {
+          await this.db.runAsync(`
+            ALTER TABLE entities 
+            ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0;
+          `);
+        } catch (error) {
+          // If we get here, it likely means the column already exists or can't be added
+          // Just log the error but continue app initialization
+          console.error('Error adding is_hidden column during initialization:', error);
+        }
+      }
+      
+      // Check if the birthday column exists and add it if not
+      const hasBirthdayColumn = entitiesTableInfo.some((column: any) => column.name === 'birthday');
+      
+      if (!hasBirthdayColumn) {
+        console.log('Adding birthday column during initialization');
+        try {
+          await this.db.runAsync(`
+            ALTER TABLE entities 
+            ADD COLUMN birthday TEXT;
+          `);
+        } catch (error) {
+          // If we get here, it likely means the column already exists or can't be added
+          // Just log the error but continue app initialization
+          console.error('Error adding birthday column during initialization:', error);
+        }
+      }
+      
+      // Run migrations to update schema if needed
+      await this.runMigrations();
+    } catch (error) {
+      console.error('Error initializing database:', error);
+      throw error;
     }
-    
-    // Create settings table during initialization
-    await this.createSettingsTable();
   }
   
   // Run database migrations to update schema
@@ -250,7 +306,16 @@ export class Database {
       const currentVersion = result ? result.user_version : 0;
       console.log(`Current database version: ${currentVersion}`);
       
-      // Run migrations based on current version
+      // Use consolidated migrations for schema creation and initial data
+      if (currentVersion === 0) {
+        await this.createSchemaStructure();
+        await this.populateInitialData();
+        await this.db.runAsync('PRAGMA user_version = 10;'); // Set to latest version
+        console.log('Full database migration complete');
+        return;
+      }
+      
+      // For existing databases, run incremental migrations as needed
       if (currentVersion < 1) {
         await this.addInteractionTypeField();
         await this.db.runAsync('PRAGMA user_version = 1;');
@@ -315,218 +380,12 @@ export class Database {
     }
   }
   
-  // Migration 10: Add hidden field to entities table
-  private async addHiddenFieldSupport(): Promise<void> {
+  // Consolidated migration: Create all schema tables at once
+  private async createSchemaStructure(): Promise<void> {
     try {
-      console.log('Starting migration: Add hidden field to entities table');
+      console.log('Starting consolidated schema creation');
       
-      // Check if entities table already has a hidden column
-      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
-      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
-      
-      if (!hasHiddenColumn) {
-        // Add is_hidden column to entities table
-        await this.db.runAsync(`
-          ALTER TABLE entities 
-          ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0;
-        `);
-        
-        console.log('Added is_hidden column to entities table');
-      } else {
-        console.log('is_hidden column already exists in entities table');
-      }
-    } catch (error) {
-      console.error('Error adding hidden field support:', error);
-    }
-  }
-
-  // Method to get entity hidden state
-  async isHidden(entityId: string): Promise<boolean> {
-    try {
-      const result = await this.db.getFirstAsync<{ is_hidden: number }>(
-        'SELECT is_hidden FROM entities WHERE id = ?',
-        [entityId]
-      );
-      return result ? result.is_hidden === 1 : false;
-    } catch (error) {
-      console.error('Error checking if entity is hidden:', error);
-      return false;
-    }
-  }
-
-  // Method to hide/unhide entity
-  async setHidden(entityId: string, hidden: boolean): Promise<boolean> {
-    try {
-      await this.db.runAsync(
-        'UPDATE entities SET is_hidden = ? WHERE id = ?',
-        [hidden ? 1 : 0, entityId]
-      );
-      return true;
-    } catch (error) {
-      console.error('Error setting entity hidden state:', error);
-      return false;
-    }
-  }
-
-  // Method to toggle entity hidden state
-  async toggleHidden(entityId: string): Promise<boolean> {
-    try {
-      const isCurrentlyHidden = await this.isHidden(entityId);
-      return await this.setHidden(entityId, !isCurrentlyHidden);
-    } catch (error) {
-      console.error('Error toggling entity hidden state:', error);
-      return false;
-    }
-  }
-  
-  // Migration 6: Add tag counter column
-  private async addTagCounterSupport(): Promise<void> {
-    try {
-      console.log('Adding count column to tags table...');
-      // Check if the column exists first
-      try {
-        await this.db.getFirstAsync('SELECT count FROM tags LIMIT 1');
-        console.log('Count column already exists, skipping migration');
-      } catch (error) {
-        // Column doesn't exist, add it
-        console.log('Adding count column to tags table');
-        await this.db.runAsync('ALTER TABLE tags ADD COLUMN count INTEGER DEFAULT 0');
-        
-        // Update the count for existing tags
-        console.log('Updating tag counts...');
-        const tags = await this.db.getAllAsync<{id: string}>('SELECT id FROM tags');
-        
-        for (const tag of tags) {
-          const count = await this.db.getFirstAsync<{count: number}>(
-            'SELECT COUNT(*) as count FROM entity_tags WHERE tag_id = ?',
-            [tag.id]
-          );
-          
-          await this.db.runAsync(
-            'UPDATE tags SET count = ? WHERE id = ?',
-            [count?.count || 0, tag.id]
-          );
-        }
-        
-        console.log('Tag counts updated');
-      }
-    } catch (error) {
-      console.error('Error adding tag counter support:', error);
-    }
-  }
-  
-  // Migration to add color column to interaction_types
-  private async addInteractionColorSupport(): Promise<void> {
-    try {
-      // Check if color column exists in interaction_types table
-      const tableInfo = await this.db.getAllAsync<{ name: string }>(
-        "PRAGMA table_info(interaction_types)"
-      );
-      
-      const hasColorColumn = tableInfo.some(column => column.name === 'color');
-      
-      if (!hasColorColumn) {
-        // Add color column to interaction_types table
-        await this.db.runAsync(
-          "ALTER TABLE interaction_types ADD COLUMN color TEXT DEFAULT '#666666'"
-        );
-        
-        // Update existing interaction types to have a default color
-        await this.db.runAsync(
-          "UPDATE interaction_types SET color = '#666666'"
-        );
-        
-        console.log('Added color column to interaction_types table');
-      }
-    } catch (error) {
-      console.error('Error adding interaction color support:', error);
-      throw error;
-    }
-  }
-  
-  // Migration to update interactions table
-  private async updateInteractionsTable(): Promise<void> {
-    try {
-      // Check if type_id column exists in interactions table
-      const tableInfo = await this.db.getAllAsync<{ name: string }>(
-        "PRAGMA table_info(interactions)"
-      );
-      
-      // Add type column if it doesn't exist
-      if (!tableInfo.some(column => column.name === 'type')) {
-        await this.db.runAsync(
-          "ALTER TABLE interactions ADD COLUMN type TEXT"
-        );
-        console.log('Added type column to interactions table');
-      }
-      
-      // Add type_id column if it doesn't exist
-      if (!tableInfo.some(column => column.name === 'type_id')) {
-        await this.db.runAsync(
-          "ALTER TABLE interactions ADD COLUMN type_id TEXT REFERENCES interaction_types(id) ON DELETE SET NULL"
-        );
-        console.log('Added type_id column to interactions table');
-      }
-      
-      // Add notes column if it doesn't exist
-      if (!tableInfo.some(column => column.name === 'notes')) {
-        await this.db.runAsync(
-          "ALTER TABLE interactions ADD COLUMN notes TEXT"
-        );
-        console.log('Added notes column to interactions table');
-      }
-      
-      // Update type_id for existing interactions based on type name
-      await this.db.runAsync(`
-        UPDATE interactions
-        SET type_id = (
-          SELECT id FROM interaction_types 
-          WHERE name = interactions.type
-          LIMIT 1
-        )
-        WHERE type IS NOT NULL AND type_id IS NULL
-      `);
-      console.log('Updated type_id for existing interactions');
-      
-    } catch (error) {
-      console.error('Error updating interactions table:', error);
-      throw error;
-    }
-  }
-  
-  // Add interaction scoring support
-  private async addInteractionScoreSupport(): Promise<void> {
-    try {
-      // Check if score column exists in interaction_types table
-      const tableInfo = await this.db.getAllAsync<{ name: string }>(
-        "PRAGMA table_info(interaction_types)"
-      );
-      
-      const hasScoreColumn = tableInfo.some(column => column.name === 'score');
-      
-      if (!hasScoreColumn) {
-        // Add score column to interaction_types table
-        await this.db.runAsync(
-          "ALTER TABLE interaction_types ADD COLUMN score INTEGER DEFAULT 1"
-        );
-        
-        // Update existing interaction types to have a default score of 1
-        await this.db.runAsync(
-          "UPDATE interaction_types SET score = 1"
-        );
-        
-        console.log('Added score column to interaction_types table');
-      }
-    } catch (error) {
-      console.error('Error adding interaction score support:', error);
-      throw error;
-    }
-  }
-
-  // Migration 1: Create initial tables
-  private async createInitialTables(): Promise<void> {
-    try {
-      // Create entities table
+      // Create entities table with all needed columns from the start
       await this.db.runAsync(`
         CREATE TABLE IF NOT EXISTS entities (
           id TEXT PRIMARY KEY,
@@ -537,7 +396,9 @@ export class Database {
           interaction_score INTEGER DEFAULT 0,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
-          encrypted_data TEXT
+          encrypted_data TEXT,
+          is_hidden INTEGER NOT NULL DEFAULT 0,
+          birthday TEXT
         )
       `);
       
@@ -547,7 +408,55 @@ export class Database {
           id TEXT PRIMARY KEY,
           entity_id TEXT NOT NULL,
           timestamp INTEGER NOT NULL,
+          type TEXT DEFAULT "General Contact",
+          type_id TEXT,
+          notes TEXT,
           FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
+      `);
+      
+      // Create tags table first (before it's referenced)
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS tags (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          count INTEGER DEFAULT 0
+        )
+      `);
+      
+      // Create entity_tags junction table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS entity_tags (
+          entity_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (entity_id, tag_id),
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE,
+          FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+        )
+      `);
+      
+      // Create interaction_types table (now tags table exists)
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS interaction_types (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          tag_id TEXT,
+          icon TEXT NOT NULL,
+          entity_type TEXT,
+          score INTEGER DEFAULT 1,
+          color TEXT DEFAULT '#666666',
+          FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+        )
+      `);
+      
+      // Create interaction_type_tags table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS interaction_type_tags (
+          interaction_type_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (interaction_type_id, tag_id),
+          FOREIGN KEY (interaction_type_id) REFERENCES interaction_types (id) ON DELETE CASCADE,
+          FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
         )
       `);
       
@@ -559,17 +468,90 @@ export class Database {
           uri TEXT NOT NULL,
           caption TEXT,
           timestamp INTEGER NOT NULL,
+          base64Data TEXT,
           FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
         )
       `);
       
-      console.log('Created initial tables');
+      // Create group_members table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS group_members (
+          group_id TEXT NOT NULL,
+          member_id TEXT NOT NULL,
+          added_at INTEGER NOT NULL,
+          PRIMARY KEY (group_id, member_id),
+          FOREIGN KEY (group_id) REFERENCES entities (id) ON DELETE CASCADE,
+          FOREIGN KEY (member_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
+      `);
+      
+      // Create favorites table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS favorites (
+          entity_id TEXT PRIMARY KEY,
+          added_at INTEGER NOT NULL,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
+      `);
+      
+      // Create settings table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS settings (
+          id TEXT PRIMARY KEY DEFAULT 'app_settings',
+          decay_factor REAL DEFAULT 0.0,
+          decay_type TEXT DEFAULT 'linear',
+          settings_json TEXT
+        )
+      `);
+      
+      // Create birthday_reminders table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS birthday_reminders (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          birthday_date TEXT NOT NULL,
+          reminder_time TEXT NOT NULL,
+          days_in_advance INTEGER DEFAULT 1,
+          is_enabled INTEGER DEFAULT 1,
+          notification_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
+      `);
+      
+      console.log('Consolidated schema creation complete');
     } catch (error) {
-      console.error('Error creating initial tables:', error);
+      console.error('Error in consolidated schema creation:', error);
+      throw error;
     }
   }
   
-  // Migration 2: Add interaction type field
+  // Consolidated initial data population
+  private async populateInitialData(): Promise<void> {
+    try {
+      console.log('Starting initial data population');
+      
+      // Create default tags
+      await this.initDefaultTags();
+      
+      // Create default interaction types
+      await this.initDefaultInteractionTypes();
+      
+      // Initialize default settings
+      await this.db.runAsync(`
+        INSERT OR IGNORE INTO settings (id, decay_factor, decay_type, settings_json)
+        VALUES ('app_settings', 0.0, 'linear', '{"decayFactor": 0, "decayType": "linear"}')
+      `);
+      
+      console.log('Initial data population complete');
+    } catch (error) {
+      console.error('Error in initial data population:', error);
+      throw error;
+    }
+  }
+  
+  // Migration 2: Add interaction type field - FIXED to not reference tags table yet
   private async addInteractionTypeField(): Promise<void> {
     try {
       console.log('Starting migration: Add interaction type field');
@@ -592,14 +574,13 @@ export class Database {
       const tables = await this.db.getAllAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='interaction_types'");
       if (tables.length === 0) {
         console.log('Creating interaction_types table');
-        // Create interaction_types table
+        // Create interaction_types table WITHOUT foreign key constraint to tags
         await this.db.runAsync(`
           CREATE TABLE IF NOT EXISTS interaction_types (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             tag_id TEXT,
-            icon TEXT NOT NULL,
-            FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+            icon TEXT NOT NULL
           )
         `);
         
@@ -875,6 +856,14 @@ export class Database {
     } = {}
   ): Promise<Entity[]> {
     try {
+      // Check if is_hidden column exists
+      const hasHiddenColumn = await this.columnExists('entities', 'is_hidden');
+      
+      // If the column doesn't exist, run the migration to add it
+      if (!hasHiddenColumn) {
+        await this.addHiddenFieldSupport();
+      }
+      
       let query = '';
       const params: any[] = [];
 
@@ -905,8 +894,8 @@ export class Database {
         params.push(type);
       }
       
-      // Filter out hidden entities unless showHidden is true
-      if (!options.showHidden) {
+      // Only filter hidden entities if the column exists and showHidden is false
+      if (!options.showHidden && hasHiddenColumn) {
         conditions.push('(e.is_hidden IS NULL OR e.is_hidden = 0)');
       }
       
@@ -3369,7 +3358,85 @@ export class Database {
       return defaultSettings;
     } catch (error) {
       console.error('Error getting settings:', error);
+      
+      // If we get a "no such column" error, try to repair the settings table
+      if (error instanceof Error && error.toString().includes('no such column: value')) {
+        console.log('Attempting to repair settings table...');
+        await this.repairSettingsTable();
+        
+        // Try again with default settings
+        const defaultSettings: AppSettings = {
+          decayFactor: 0,
+          decayType: 'linear'
+        };
+        
+        await this.updateSettings(defaultSettings);
+        return defaultSettings;
+      }
+      
       return null;
+    }
+  }
+  
+  // Add a new method to repair the settings table if needed
+  private async repairSettingsTable(): Promise<void> {
+    try {
+      // Check if the table exists with the correct structure
+      const tableInfo = await this.db.getAllAsync<{ name: string, type: string }>(
+        "PRAGMA table_info(settings)"
+      );
+      
+      const hasValueColumn = tableInfo.some(col => col.name === 'value');
+      
+      if (!hasValueColumn) {
+        console.log('Settings table missing value column, recreating...');
+        
+        // Backup any existing data if possible
+        let existingSettings: {key: string, value?: string}[] = [];
+        try {
+          existingSettings = await this.db.getAllAsync<{key: string, value?: string}>(
+            "SELECT * FROM settings"
+          );
+        } catch (e) {
+          console.log('Could not read existing settings:', e);
+        }
+        
+        // Drop the existing table
+        await this.db.runAsync("DROP TABLE IF EXISTS settings");
+        
+        // Recreate the table with the correct structure
+        await this.db.runAsync(`
+          CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+          )
+        `);
+        
+        // Restore any existing data that had a value
+        for (const setting of existingSettings) {
+          if (setting.key && setting.value) {
+            await this.db.runAsync(
+              'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+              [setting.key, setting.value]
+            );
+          }
+        }
+        
+        // Insert default settings
+        const defaultSettings: AppSettings = {
+          decayFactor: 0,
+          decayType: 'linear'
+        };
+        
+        await this.db.runAsync(
+          'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+          ['app_settings', JSON.stringify(defaultSettings)]
+        );
+        
+        console.log('Settings table repaired successfully');
+      }
+    } catch (error) {
+      console.error('Error repairing settings table:', error);
     }
   }
   
@@ -4811,42 +4878,396 @@ export class Database {
     }
   }
 
+  // Migration 9: Add birthday support
   private async addBirthdaySupport(): Promise<void> {
     try {
-      // First add the birthday column to entities table
+      console.log('Starting migration: Add birthday support');
+      
+      // Add birthday column to entities table if it doesn't already exist
       await this.addBirthdayField();
       
-      // Check if the table already exists
-      const tableExists = await this.db.getFirstAsync(`
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='birthday_reminders'
+      // Create birthday reminders table
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS birthday_reminders (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          birthday_date TEXT NOT NULL,
+          reminder_time TEXT NOT NULL,
+          days_in_advance INTEGER DEFAULT 1,
+          is_enabled INTEGER DEFAULT 1,
+          notification_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
       `);
       
-      if (!tableExists) {
-        // Create birthday_reminders table
-        await this.db.execAsync(`
-          CREATE TABLE IF NOT EXISTS birthday_reminders (
-            id TEXT PRIMARY KEY,
-            entity_id TEXT NOT NULL,
-            birthday_date TEXT NOT NULL,
-            reminder_time TEXT NOT NULL,
-            days_in_advance INTEGER NOT NULL DEFAULT 1,
-            is_enabled INTEGER NOT NULL DEFAULT 1,
-            notification_id TEXT,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL,
-            FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
-          )
-        `);
-        
-        console.log("Created birthday_reminders table");
-      }
+      console.log('Birthday support added successfully');
     } catch (error) {
       console.error('Error adding birthday support:', error);
+    }
+  }
+
+  // Add birthday field to entities table
+  private async addBirthdayField(): Promise<void> {
+    try {
+      // Check if birthday column already exists
+      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
+      const hasBirthdayColumn = entitiesTableInfo.some((column: any) => column.name === 'birthday');
+      
+      if (!hasBirthdayColumn) {
+        try {
+          await this.db.runAsync(`
+            ALTER TABLE entities ADD COLUMN birthday TEXT
+          `);
+          console.log('Added birthday column to entities table');
+        } catch (error) {
+          console.error('Error adding birthday column:', error);
+          // Attempt to create a new table with the column and copy data if needed
+          console.log('Attempting alternative method to add birthday column...');
+          
+          // This is a more aggressive approach if the simple ALTER TABLE fails
+          await this.db.runAsync(`
+            PRAGMA foreign_keys=off;
+            
+            BEGIN TRANSACTION;
+            
+            -- Create a new temporary table with the desired schema
+            CREATE TABLE entities_new (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              type TEXT NOT NULL,
+              details TEXT,
+              image TEXT,
+              interaction_score INTEGER DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              encrypted_data TEXT,
+              is_hidden INTEGER DEFAULT 0,
+              birthday TEXT
+            );
+            
+            -- Copy data from the old table to the new table
+            INSERT INTO entities_new
+            SELECT id, name, type, details, image, interaction_score, created_at, updated_at, encrypted_data, 
+                   CASE WHEN EXISTS(SELECT 1 FROM pragma_table_info('entities') WHERE name='is_hidden')
+                        THEN is_hidden ELSE 0 END,
+                   NULL as birthday
+            FROM entities;
+            
+            -- Drop the old table
+            DROP TABLE entities;
+            
+            -- Rename the new table to the original name
+            ALTER TABLE entities_new RENAME TO entities;
+            
+            COMMIT;
+            
+            PRAGMA foreign_keys=on;
+          `);
+          console.log('Successfully added birthday column via alternative method');
+        }
+      } else {
+        console.log('Birthday column already exists in entities table');
+      }
+    } catch (error) {
+      console.error('Error handling birthday field:', error);
+    }
+  }
+
+  // Utility method to force adding the birthday field if it doesn't exist
+  async forceBirthdayFieldMigration(): Promise<boolean> {
+    try {
+      console.log('Forcing birthday field migration...');
+      await this.addBirthdayField();
+      return true;
+    } catch (error) {
+      console.error('Error forcing birthday field migration:', error);
+      return false;
+    }
+  }
+
+  // Utility method to check if the birthday column exists
+  async checkBirthdayColumnExists(): Promise<boolean> {
+    try {
+      const columnInfo = await this.db.getAllAsync('PRAGMA table_info(entities)');
+      return columnInfo.some((col: any) => col.name === 'birthday');
+    } catch (error) {
+      console.error('Error checking if birthday column exists:', error);
+      return false;
+    }
+  }
+
+  // Add interaction scoring support
+  private async addInteractionScoreSupport(): Promise<void> {
+    try {
+      // Check if score column exists in interaction_types table
+      const tableInfo = await this.db.getAllAsync<{ name: string }>(
+        "PRAGMA table_info(interaction_types)"
+      );
+      
+      const hasScoreColumn = tableInfo.some(column => column.name === 'score');
+      
+      if (!hasScoreColumn) {
+        // Add score column to interaction_types table
+        await this.db.runAsync(
+          "ALTER TABLE interaction_types ADD COLUMN score INTEGER DEFAULT 1"
+        );
+        
+        // Update existing interaction types to have a default score of 1
+        await this.db.runAsync(
+          "UPDATE interaction_types SET score = 1"
+        );
+        
+        console.log('Added score column to interaction_types table');
+      }
+    } catch (error) {
+      console.error('Error adding interaction score support:', error);
       throw error;
     }
   }
+
+  // Migration to add color column to interaction_types
+  private async addInteractionColorSupport(): Promise<void> {
+    try {
+      // Check if color column exists in interaction_types table
+      const tableInfo = await this.db.getAllAsync<{ name: string }>(
+        "PRAGMA table_info(interaction_types)"
+      );
+      
+      const hasColorColumn = tableInfo.some(column => column.name === 'color');
+      
+      if (!hasColorColumn) {
+        // Add color column to interaction_types table
+        await this.db.runAsync(
+          "ALTER TABLE interaction_types ADD COLUMN color TEXT DEFAULT '#666666'"
+        );
+        
+        // Update existing interaction types to have a default color
+        await this.db.runAsync(
+          "UPDATE interaction_types SET color = '#666666'"
+        );
+        
+        console.log('Added color column to interaction_types table');
+      }
+    } catch (error) {
+      console.error('Error adding interaction color support:', error);
+      throw error;
+    }
+  }
+
+  // Migration 6: Add tag counter column
+  private async addTagCounterSupport(): Promise<void> {
+    try {
+      console.log('Adding count column to tags table...');
+      // Check if the column exists first
+      try {
+        await this.db.getFirstAsync('SELECT count FROM tags LIMIT 1');
+        console.log('Count column already exists, skipping migration');
+      } catch (error) {
+        // Column doesn't exist, add it
+        console.log('Adding count column to tags table');
+        await this.db.runAsync('ALTER TABLE tags ADD COLUMN count INTEGER DEFAULT 0');
+        
+        // Update the count for existing tags
+        console.log('Updating tag counts...');
+        const tags = await this.db.getAllAsync<{id: string}>('SELECT id FROM tags');
+        
+        for (const tag of tags) {
+          const count = await this.db.getFirstAsync<{count: number}>(
+            'SELECT COUNT(*) as count FROM entity_tags WHERE tag_id = ?',
+            [tag.id]
+          );
+          
+          await this.db.runAsync(
+            'UPDATE tags SET count = ? WHERE id = ?',
+            [count?.count || 0, tag.id]
+          );
+        }
+        
+        console.log('Tag counts updated');
+      }
+    } catch (error) {
+      console.error('Error adding tag counter support:', error);
+    }
+  }
+
+  // Migration to update interactions table
+  private async updateInteractionsTable(): Promise<void> {
+    try {
+      // Check if type_id column exists in interactions table
+      const tableInfo = await this.db.getAllAsync<{ name: string }>(
+        "PRAGMA table_info(interactions)"
+      );
+      
+      // Add type column if it doesn't exist
+      if (!tableInfo.some(column => column.name === 'type')) {
+        await this.db.runAsync(
+          "ALTER TABLE interactions ADD COLUMN type TEXT"
+        );
+        console.log('Added type column to interactions table');
+      }
+      
+      // Add type_id column if it doesn't exist
+      if (!tableInfo.some(column => column.name === 'type_id')) {
+        await this.db.runAsync(
+          "ALTER TABLE interactions ADD COLUMN type_id TEXT REFERENCES interaction_types(id) ON DELETE SET NULL"
+        );
+        console.log('Added type_id column to interactions table');
+      }
+      
+      // Add notes column if it doesn't exist
+      if (!tableInfo.some(column => column.name === 'notes')) {
+        await this.db.runAsync(
+          "ALTER TABLE interactions ADD COLUMN notes TEXT"
+        );
+        console.log('Added notes column to interactions table');
+      }
+      
+      // Update type_id for existing interactions based on type name
+      await this.db.runAsync(`
+        UPDATE interactions
+        SET type_id = (
+          SELECT id FROM interaction_types 
+          WHERE name = interactions.type
+          LIMIT 1
+        )
+        WHERE type IS NOT NULL AND type_id IS NULL
+      `);
+      console.log('Updated type_id for existing interactions');
+      
+    } catch (error) {
+      console.error('Error updating interactions table:', error);
+      throw error;
+    }
+  }
+
+  // Migration 10: Add hidden field to entities table
+  private async addHiddenFieldSupport(): Promise<void> {
+    try {
+      console.log('Starting migration: Add hidden field to entities table');
+      
+      // Check if entities table already has a hidden column
+      const entitiesTableInfo = await this.db.getAllAsync("PRAGMA table_info(entities)");
+      const hasHiddenColumn = entitiesTableInfo.some((column: any) => column.name === 'is_hidden');
+      
+      if (!hasHiddenColumn) {
+        // Add is_hidden column to entities table
+        await this.db.runAsync(`
+          ALTER TABLE entities 
+          ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0;
+        `);
+        
+        console.log('Added is_hidden column to entities table');
+      } else {
+        console.log('is_hidden column already exists in entities table');
+      }
+    } catch (error) {
+      console.error('Error adding hidden field support:', error);
+    }
+  }
+
+  // Helper method to check if a column exists in a table
+  private async columnExists(table: string, column: string): Promise<boolean> {
+    try {
+      const tableInfo = await this.db.getAllAsync(`PRAGMA table_info(${table})`);
+      return tableInfo.some((col: any) => col.name === column);
+    } catch (error) {
+      console.error(`Error checking if column ${column} exists in table ${table}:`, error);
+      return false;
+    }
+  }
+
+  // Method to get entity hidden state
+  async isHidden(entityId: string): Promise<boolean> {
+    try {
+      // Check if is_hidden column exists
+      const hasHiddenColumn = await this.columnExists('entities', 'is_hidden');
+      
+      // If the column doesn't exist, run the migration to add it
+      if (!hasHiddenColumn) {
+        await this.addHiddenFieldSupport();
+      }
+      
+      const result = await this.db.getFirstAsync<{ is_hidden: number }>(
+        'SELECT is_hidden FROM entities WHERE id = ?',
+        [entityId]
+      );
+      return result ? result.is_hidden === 1 : false;
+    } catch (error) {
+      console.error('Error checking if entity is hidden:', error);
+      return false;
+    }
+  }
+
+  // Method to hide/unhide entity
+  async setHidden(entityId: string, hidden: boolean): Promise<boolean> {
+    try {
+      // Check if is_hidden column exists
+      const hasHiddenColumn = await this.columnExists('entities', 'is_hidden');
+      
+      // If the column doesn't exist, run the migration to add it
+      if (!hasHiddenColumn) {
+        await this.addHiddenFieldSupport();
+      }
+      
+      await this.db.runAsync(
+        'UPDATE entities SET is_hidden = ? WHERE id = ?',
+        [hidden ? 1 : 0, entityId]
+      );
+      return true;
+    } catch (error) {
+      console.error('Error setting entity hidden state:', error);
+      return false;
+    }
+  }
+
+  // Method to toggle entity hidden state
+  async toggleHidden(entityId: string): Promise<boolean> {
+    try {
+      const isCurrentlyHidden = await this.isHidden(entityId);
+      return await this.setHidden(entityId, !isCurrentlyHidden);
+    } catch (error) {
+      console.error('Error toggling entity hidden state:', error);
+      return false;
+    }
+  }
+
+  // Get birthday for a person entity
+  async getBirthdayForPerson(entityId: string): Promise<string | null> {
+    if (!entityId) {
+      return null;
+    }
+    
+    try {
+      // Check if birthday column exists
+      const hasColumn = await this.columnExists('entities', 'birthday');
+      
+      // If column doesn't exist, add it now
+      if (!hasColumn) {
+        try {
+          await this.db.runAsync(`ALTER TABLE entities ADD COLUMN birthday TEXT`);
+          console.log('Added birthday column to entities table');
+        } catch (error) {
+          console.error('Error adding birthday column:', error);
+          return null;
+        }
+      }
+      
+      // Get the birthday directly from the entity table
+      const result = await this.db.getFirstAsync<{birthday?: string}>(
+        `SELECT birthday FROM entities WHERE id = ? AND type = ?`,
+        [entityId, EntityType.PERSON]
+      );
+      
+      return result?.birthday || null;
+    } catch (error) {
+      console.error('Error getting birthday:', error);
+      return null;
+    }
+  }
   
+  // Set birthday for a person entity
   async setBirthdayForPerson(entityId: string, birthday: string | null): Promise<boolean> {
     if (!entityId) {
       return false;
@@ -4856,6 +5277,20 @@ export class Database {
       const entity = await this.getEntityById(entityId);
       if (!entity || entity.type !== EntityType.PERSON) {
         return false;
+      }
+      
+      // Check if birthday column exists
+      const hasColumn = await this.columnExists('entities', 'birthday');
+      
+      // If column doesn't exist, add it now
+      if (!hasColumn) {
+        try {
+          await this.db.runAsync(`ALTER TABLE entities ADD COLUMN birthday TEXT`);
+          console.log('Added birthday column to entities table');
+        } catch (error) {
+          console.error('Error adding birthday column:', error);
+          return false;
+        }
       }
       
       // Create a dedicated field for the birthday in the entity table
@@ -4871,25 +5306,7 @@ export class Database {
     }
   }
   
-  async getBirthdayForPerson(entityId: string): Promise<string | null> {
-    if (!entityId) {
-      return null;
-    }
-    
-    try {
-      // Get the birthday directly from the entity table
-      const result = await this.db.getFirstAsync<{birthday?: string}>(
-        `SELECT birthday FROM entities WHERE id = ? AND type = ?`,
-        [entityId, EntityType.PERSON]
-      );
-      
-      return result?.birthday || null;
-    } catch (error) {
-      console.error('Error getting birthday:', error);
-      return null;
-    }
-  }
-  
+  // Add a birthday reminder for an entity
   async addBirthdayReminder(
     entityId: string,
     birthdayDate: string,
@@ -4920,6 +5337,7 @@ export class Database {
     }
   }
   
+  // Update an existing birthday reminder
   async updateBirthdayReminder(
     id: string,
     updates: {
@@ -4980,6 +5398,7 @@ export class Database {
     }
   }
   
+  // Get a specific birthday reminder by ID
   async getBirthdayReminder(id: string): Promise<BirthdayReminder | null> {
     if (!id) {
       return null;
@@ -5005,6 +5424,7 @@ export class Database {
     }
   }
   
+  // Get a birthday reminder for a specific entity
   async getBirthdayReminderForEntity(entityId: string): Promise<BirthdayReminder | null> {
     if (!entityId) {
       return null;
@@ -5030,6 +5450,7 @@ export class Database {
     }
   }
   
+  // Delete a birthday reminder
   async deleteBirthdayReminder(id: string): Promise<boolean> {
     if (!id) {
       return false;
@@ -5048,8 +5469,25 @@ export class Database {
     }
   }
   
+  // Get all birthday reminders
   async getAllBirthdayReminders(): Promise<BirthdayReminder[]> {
     try {
+      // Make sure the table exists
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS birthday_reminders (
+          id TEXT PRIMARY KEY,
+          entity_id TEXT NOT NULL,
+          birthday_date TEXT NOT NULL,
+          reminder_time TEXT NOT NULL,
+          days_in_advance INTEGER DEFAULT 1,
+          is_enabled INTEGER DEFAULT 1,
+          notification_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE
+        )
+      `);
+      
       const reminders = await this.db.getAllAsync<BirthdayReminder>(
         `SELECT * FROM birthday_reminders ORDER BY birthday_date ASC`
       );
@@ -5064,6 +5502,7 @@ export class Database {
     }
   }
   
+  // Get upcoming birthdays
   async getUpcomingBirthdays(daysAhead: number = 30): Promise<{entity: Entity, birthday: string, daysUntil: number}[]> {
     try {
       const entities = await this.getAllEntities(EntityType.PERSON);
@@ -5116,87 +5555,6 @@ export class Database {
     } catch (error) {
       console.error('Error getting upcoming birthdays:', error);
       return [];
-    }
-  }
-
-  private async addBirthdayField(): Promise<void> {
-    try {
-      // Check if the column already exists
-      const columnInfo = await this.db.getAllAsync(`PRAGMA table_info(entities)`);
-      const birthdayColumnExists = columnInfo.some((col: any) => col.name === 'birthday');
-      
-      if (!birthdayColumnExists) {
-        // Add the birthday column to the entities table
-        await this.db.execAsync(`
-          ALTER TABLE entities ADD COLUMN birthday TEXT;
-        `);
-        
-        console.log("Added birthday column to entities table");
-        
-        // Migrate existing birthday data from encrypted_data
-        interface EntityWithEncryptedData {
-          id: string;
-          encrypted_data: string | null;
-        }
-        
-        const entities = await this.db.getAllAsync<EntityWithEncryptedData>(
-          `SELECT id, encrypted_data 
-          FROM entities 
-          WHERE type = ? AND encrypted_data IS NOT NULL`,
-          [EntityType.PERSON]
-        );
-        
-        let migratedCount = 0;
-        
-        for (const entity of entities) {
-          try {
-            if (entity.encrypted_data) {
-              const decrypted = await this.decryptData(entity.encrypted_data);
-              const contactData = JSON.parse(decrypted) as any;
-              
-              if (contactData.birthday) {
-                await this.db.runAsync(
-                  `UPDATE entities SET birthday = ? WHERE id = ?`,
-                  [contactData.birthday, entity.id]
-                );
-                migratedCount++;
-              }
-            }
-          } catch (e) {
-            console.error(`Error migrating birthday for entity ${entity.id}:`, e);
-          }
-        }
-        
-        console.log(`Migrated ${migratedCount} birthday records from encrypted data`);
-      } else {
-        console.log("Birthday column already exists in entities table");
-      }
-    } catch (error) {
-      console.error('Error adding birthday field:', error);
-      throw error;
-    }
-  }
-
-  // Utility method to force adding the birthday field if it doesn't exist
-  async forceBirthdayFieldMigration(): Promise<boolean> {
-    try {
-      console.log('Forcing birthday field migration...');
-      await this.addBirthdayField();
-      return true;
-    } catch (error) {
-      console.error('Error forcing birthday field migration:', error);
-      return false;
-    }
-  }
-
-  // Utility method to check if the birthday column exists
-  async checkBirthdayColumnExists(): Promise<boolean> {
-    try {
-      const columnInfo = await this.db.getAllAsync('PRAGMA table_info(entities)');
-      return columnInfo.some((col: any) => col.name === 'birthday');
-    } catch (error) {
-      console.error('Error checking if birthday column exists:', error);
-      return false;
     }
   }
 }
