@@ -139,8 +139,8 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 3. Start the development server:
    ```
    npm start
-   # Install the expo app once 
-   # Scan the screen with your phone
+   # Install the expo app on your mobile device
+   # Follow the on screen directions to launch on your phone
    ```
 
 4. Run on iOS simulator:
