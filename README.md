@@ -127,8 +127,8 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/pimgarden.git
-   cd pimgarden
+   git clone https://github.com/noahitall/PimGarden.git
+   cd PimGarden
    ```
 
 2. Install dependencies:
@@ -139,6 +139,8 @@ A mobile application for managing contacts that prioritizes privacy and offline 
 3. Start the development server:
    ```
    npm start
+   # Install the expo app once 
+   # Scan the screen with your phone
    ```
 
 4. Run on iOS simulator:
