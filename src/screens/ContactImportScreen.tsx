@@ -9,7 +9,7 @@ import * as IntentLauncher from 'expo-intent-launcher';
 import { RootStackParamList } from '../types';
 import { contactService } from '../services/ContactService';
 import { database, EntityType } from '../database/Database';
-import { eventEmitter } from '../utils/EventEmitter';
+import eventEmitter from '../utils/EventEmitter';
 
 type ContactImportScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'ContactImport'>;
 

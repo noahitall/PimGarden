@@ -21,6 +21,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { database, EntityType, InteractionType, Tag } from '../database/Database';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import eventEmitter from '../utils/EventEmitter';
 
 type InteractionTypesScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'InteractionTypes'>;
 
@@ -280,27 +281,43 @@ const InteractionTypesScreen: React.FC = () => {
   
   // Handle deleting an action
   const handleDeleteAction = async (id: string) => {
-    Alert.alert(
-      'Confirm Delete',
-      'Are you sure you want to delete this action?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await database.deleteInteractionType(id);
-              loadInteractionTypes();
-              Alert.alert('Success', 'Action deleted');
-            } catch (error) {
-              console.error('Error deleting action:', error);
-              Alert.alert('Error', 'Failed to delete action');
-            }
-          }
-        },
-      ]
-    );
+    try {
+      // Confirm deletion
+      Alert.alert(
+        'Confirm Deletion',
+        'Are you sure you want to delete this action? This cannot be undone.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Delete',
+            onPress: async () => {
+              try {
+                setSaving(true);
+                await database.deleteInteractionType(id);
+                Alert.alert('Success', 'Action deleted successfully');
+                
+                // Reload the interaction types
+                await loadInteractionTypes();
+                
+                // Emit event to refresh interaction types in other components
+                eventEmitter.emit('refreshInteractionTypes');
+              } catch (error) {
+                console.error('Error deleting action:', error);
+                Alert.alert('Error', 'Failed to delete action');
+              } finally {
+                setSaving(false);
+              }
+            },
+          },
+        ],
+        { cancelable: true }
+      );
+    } catch (error) {
+      console.error('Error handling action deletion:', error);
+    }
   };
   
   // Handle creating or updating an action (interaction type)
@@ -380,6 +397,9 @@ const InteractionTypesScreen: React.FC = () => {
       
       // Reload interaction types
       await loadInteractionTypes();
+      
+      // Emit event to refresh interaction types in other components
+      eventEmitter.emit('refreshInteractionTypes');
     } catch (error) {
       console.error('Error saving action:', error);
       Alert.alert('Error', 'Failed to save action. Please try again.');

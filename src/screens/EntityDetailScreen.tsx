@@ -15,7 +15,7 @@ import SafeDateTimePicker from '../components/SafeDateTimePicker';
 import GroupMembersSection from '../components/GroupMembersSection';
 import EditInteractionModal from '../components/EditInteractionModal';
 import { isFeatureEnabledSync } from '../config/FeatureFlags';
-import { eventEmitter } from '../utils/EventEmitter';
+import eventEmitter from '../utils/EventEmitter';
 import { notificationService } from '../services/NotificationService';
 import { format, parseISO, isValid } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -414,20 +414,20 @@ const EntityDetailScreen: React.FC = () => {
     }
   };
   
-  // Load interaction types for the entity
-  const loadInteractionTypes = async (entityId: string) => {
+  // Load interaction types available for this entity
+  const loadInteractionTypes = useCallback(async (entityId: string) => {
     try {
       setLoadingInteractionTypes(true);
-      // Use the new getAllInteractionTypesForEntity method to get all possible interaction types
-      // This will show more interaction types in the menu regardless of tags
+      
+      // Use getAllInteractionTypesForEntity to get all relevant interaction types
       const types = await database.getAllInteractionTypesForEntity(entityId);
-      setInteractionTypes(types);
+      setInteractionTypes(types || []);
     } catch (error) {
       console.error('Error loading interaction types:', error);
     } finally {
       setLoadingInteractionTypes(false);
     }
-  };
+  }, []);
   
   // Handle tag input change
   const handleTagInputChange = (text: string) => {
@@ -1464,6 +1464,25 @@ const EntityDetailScreen: React.FC = () => {
       Alert.alert('Error', 'Failed to update visibility');
     }
   };
+
+  // Listen for the refreshInteractionTypes event
+  useEffect(() => {
+    if (!entity) return;
+    
+    const handleRefreshInteractionTypes = () => {
+      if (entity && entity.id) {
+        loadInteractionTypes(entity.id);
+      }
+    };
+    
+    // Add event listener
+    eventEmitter.addEventListener('refreshInteractionTypes', handleRefreshInteractionTypes);
+    
+    // Clean up listener
+    return () => {
+      eventEmitter.removeEventListener('refreshInteractionTypes', handleRefreshInteractionTypes);
+    };
+  }, [entity, loadInteractionTypes]);
 
   if (loading) {
     return (

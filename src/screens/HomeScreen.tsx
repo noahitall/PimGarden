@@ -10,7 +10,7 @@ import UpcomingBirthdays from '../components/UpcomingBirthdays';
 import { isFeatureEnabledSync, updateFeatureFlag } from '../config/FeatureFlags';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { debounce } from 'lodash';
-import { eventEmitter } from '../utils/EventEmitter';
+import eventEmitter from '../utils/EventEmitter';
 import { notificationService } from '../services/NotificationService';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;

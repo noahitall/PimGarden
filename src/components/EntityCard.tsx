@@ -4,6 +4,7 @@ import { Text, Surface, Badge, IconButton, Dialog, Portal, Button, List, Avatar 
 import { Entity } from '../types';
 import { database, InteractionType } from '../database/Database';
 import SafeTouchableOpacity, { ensureTextWrapped } from './SafeTouchableOpacity';
+import eventEmitter from '../utils/EventEmitter';
 
 // Custom SparkLine component with compact mode support
 const SparkLine: React.FC<{ 
@@ -131,7 +132,7 @@ const EntityCard: React.FC<EntityCardProps> = ({
   }, [forceRefresh, refreshInteractionData]);
   
   // Separate loadInteractionTypes into a named function that can be called elsewhere
-  const loadInteractionTypes = async () => {
+  const loadInteractionTypes = useCallback(async () => {
     try {
       setLoadingInteractionTypes(true);
       
@@ -144,12 +145,27 @@ const EntityCard: React.FC<EntityCardProps> = ({
     } finally {
       setLoadingInteractionTypes(false);
     }
-  };
+  }, [entity.id]);
   
   // Load interaction types
   useEffect(() => {
     loadInteractionTypes();
-  }, [entity.id, entity.updated_at, forceRefresh]); // Include entity.updated_at and forceRefresh to update when tags change
+  }, [entity.id, entity.updated_at, forceRefresh, loadInteractionTypes]);
+
+  // Listen for the refreshInteractionTypes event
+  useEffect(() => {
+    const handleRefreshInteractionTypes = () => {
+      loadInteractionTypes();
+    };
+    
+    // Add event listener
+    eventEmitter.addEventListener('refreshInteractionTypes', handleRefreshInteractionTypes);
+    
+    // Clean up listener
+    return () => {
+      eventEmitter.removeEventListener('refreshInteractionTypes', handleRefreshInteractionTypes);
+    };
+  }, [loadInteractionTypes]);
 
   // Function to handle interaction when photo is clicked
   const handleInteraction = async () => {

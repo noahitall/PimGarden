@@ -3,7 +3,7 @@
  */
 
 // Define the global events
-export type EventType = 'tagChange' | 'refreshEntities';
+export type EventType = 'tagChange' | 'refreshEntities' | 'refreshInteractionTypes';
 
 // Set up the event emitters
 class EventEmitter {
@@ -34,5 +34,7 @@ class EventEmitter {
   }
 }
 
-// Create and export a singleton
-export const eventEmitter = new EventEmitter(); 
+// Create a singleton instance
+const eventEmitter = new EventEmitter();
+
+export default eventEmitter; 
