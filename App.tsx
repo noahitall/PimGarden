@@ -4,7 +4,7 @@ import './src/utils/SafeLogger';
 import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Provider as PaperProvider, DefaultTheme, ActivityIndicator, Text } from 'react-native-paper';
+import { Provider as PaperProvider, DefaultTheme, ActivityIndicator, Text, ProgressBar } from 'react-native-paper';
 import { View, StyleSheet, Alert, Platform, Linking } from 'react-native';
 import AppNavigator from './src/navigation/AppNavigator';
 import { database } from './src/database/Database';
@@ -23,41 +23,55 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Define the theme
-const theme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    primary: '#6200ee',
-    accent: '#03dac4',
-  },
-};
-
-// Create a safe wrapper for loading and error views
-const SafeView: React.FC<{children: React.ReactNode}> = ({ children }) => {
-  return <View style={styles.container}>{ensureTextWrapped(children)}</View>;
-};
+// Safe area view component for loading screen
+const SafeView = ({ children }: { children: React.ReactNode }) => (
+  <View style={styles.container}>
+    {children}
+  </View>
+);
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
+  const [initializationStep, setInitializationStep] = useState('Preparing database...');
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // Initialize the database and handle any errors
     const initializeApp = async () => {
       try {
-        // Try connecting to the database to verify it works
-        await database.getDatabaseInfo();
+        // Step 1: Initialize database schema
+        setInitializationStep('Initializing database schema...');
+        setProgress(0.2);
         
-        // Initialize the interaction config manager
+        // Check if database is already initialized
+        const dbInfo = await database.getDatabaseStatus();
+        const needsInitialization = !dbInfo.isInitialized;
+        
+        if (needsInitialization) {
+          // Wait for database structure to be created
+          setInitializationStep('Creating database structure...');
+          setProgress(0.4);
+          await database.initializeDatabaseSchema();
+        }
+        
+        // Step 2: Run any pending migrations
+        setInitializationStep('Checking for database updates...');
+        setProgress(0.6);
+        await database.ensureMigrationsComplete();
+        
+        // Step 3: Initialize interaction config manager
+        setInitializationStep('Loading configuration...');
+        setProgress(0.8);
         await InteractionConfigManager.init();
         
-        // Initialize birthday notifications
+        // Step 4: Complete remaining initialization
+        setInitializationStep('Finalizing setup...');
+        setProgress(0.9);
         await BirthdayNotificationManager.init();
-        
-        // Register background task for notifications
         await registerBackgroundNotificationTask();
         
+        setProgress(1.0);
         setIsLoading(false);
       } catch (err) {
         console.error('Failed to initialize app:', err);
@@ -81,8 +95,15 @@ export default function App() {
   if (isLoading) {
     return (
       <SafeView>
-        <ActivityIndicator size="large" color="#6200ee" />
-        <Text style={styles.loadingText}>Starting up...</Text>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6200ee" />
+          <Text style={styles.loadingText}>{initializationStep}</Text>
+          <ProgressBar 
+            progress={progress} 
+            color="#6200ee" 
+            style={styles.progressBar} 
+          />
+        </View>
       </SafeView>
     );
   }
@@ -90,61 +111,89 @@ export default function App() {
   if (error) {
     return (
       <SafeView>
-        <Text style={styles.errorText}>Something went wrong</Text>
-        <Text style={styles.errorDetails}>{error}</Text>
-        <Text style={styles.helpText}>Try restarting the app with "expo start --clear"</Text>
-        {Platform.OS === 'android' && (
-          <Text 
-            style={styles.linkText}
-            onPress={() => Linking.openURL('https://docs.expo.dev/troubleshooting/native-modules-and-new-architecture/')}
-          >
-            Learn more about Expo Go and native modules
-          </Text>
-        )}
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Initialization Error</Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <View style={styles.buttonContainer}>
+            <Text 
+              style={styles.restartButton}
+              onPress={() => {
+                if (Platform.OS === 'web') {
+                  window.location.reload();
+                } else {
+                  // For native, we can only suggest restarting
+                  Alert.alert(
+                    'Restart Required',
+                    'Please close and restart the app to try again.'
+                  );
+                }
+              }}
+            >
+              Restart App
+            </Text>
+          </View>
+        </View>
       </SafeView>
     );
   }
 
   return (
-    <SafeAreaProvider>
-      <PaperProvider theme={theme}>
-        <StatusBar style="auto" />
+    <PaperProvider theme={DefaultTheme}>
+      <SafeAreaProvider>
         <AppNavigator />
-      </PaperProvider>
-    </SafeAreaProvider>
+        <StatusBar style="auto" />
+      </SafeAreaProvider>
+    </PaperProvider>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: '#fff',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 20,
   },
+  loadingContainer: {
+    width: '80%',
+    alignItems: 'center',
+  },
   loadingText: {
-    marginTop: 10,
+    marginTop: 20,
     fontSize: 16,
-  },
-  errorText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: 'red',
-  },
-  errorDetails: {
-    fontSize: 14,
-    marginBottom: 20,
     textAlign: 'center',
   },
-  helpText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 16,
+  progressBar: {
+    marginTop: 20,
+    height: 6,
+    width: '100%',
+    borderRadius: 3,
   },
-  linkText: {
-    fontSize: 14,
-    color: '#007AFF',
-    textDecorationLine: 'underline',
+  errorContainer: {
+    width: '80%',
+    padding: 20,
+    borderRadius: 10,
+    backgroundColor: '#ffebee',
+    alignItems: 'center',
   },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#c62828',
+  },
+  errorText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  buttonContainer: {
+    marginTop: 10,
+  },
+  restartButton: {
+    fontSize: 16,
+    color: '#2196f3',
+    padding: 10,
+  }
 });

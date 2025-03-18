@@ -134,9 +134,31 @@ export interface BirthdayReminder {
   updated_at: number;
 }
 
+// Define interfaces for filters
+interface EntityFilter {
+  type?: EntityType;
+  showHidden?: boolean;
+  searchTerm?: string;
+}
+
+interface InteractionFilter {
+  entityId?: string;
+  startDate?: number;
+  endDate?: number;
+}
+
+interface QueryOptions {
+  limit?: number;
+  offset?: number;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
+
 // Database class to handle all database operations
 export class Database {
   private db: SQLite.SQLiteDatabase;
+  private initialized: boolean = false;
+  private migrationComplete: boolean = false;
 
   constructor() {
     this.db = SQLite.openDatabaseSync('entities.db');
@@ -855,6 +877,12 @@ export class Database {
     } = {}
   ): Promise<Entity[]> {
     try {
+      // Check if database is ready
+      if (!await this.ensureReady()) {
+        console.warn('Skipping getAllEntities because database is not fully initialized');
+        return [];
+      }
+      
       // Check if is_hidden column exists
       const hasHiddenColumn = await this.columnExists('entities', 'is_hidden');
       
@@ -2692,8 +2720,23 @@ export class Database {
     contactData: ContactData
   ): Promise<boolean> {
     try {
+      console.log('DEBUG DB: Starting updatePersonContactData for entityId:', entityId);
+      console.log('DEBUG DB: contactData object type:', typeof contactData);
+      
+      if (!contactData) {
+        console.error('DEBUG DB: contactData is undefined or null');
+        return false;
+      }
+      
+      console.log('DEBUG DB: contactData keys:', Object.keys(contactData));
+      console.log('DEBUG DB: phoneNumbers present:', !!contactData.phoneNumbers);
+      console.log('DEBUG DB: emailAddresses present:', !!contactData.emailAddresses);
+      console.log('DEBUG DB: physicalAddresses present:', !!contactData.physicalAddresses);
+      
       // First get the entity to ensure it exists and is a person
       const entity = await this.getEntityById(entityId);
+      console.log('DEBUG DB: Entity found:', !!entity);
+      
       if (!entity || entity.type !== EntityType.PERSON) {
         console.error(`Cannot update contact data: entity ${entityId} is not a person or doesn't exist`);
         return false;
@@ -2706,46 +2749,89 @@ export class Database {
       let detailsSummary = '';
       
       // Add phone numbers to summary
-      if (contactData.phoneNumbers && contactData.phoneNumbers.length > 0) {
-        contactData.phoneNumbers.forEach(phone => {
-          detailsSummary += `${phone.label}: ${phone.value}\n`;
+      if (contactData.phoneNumbers && Array.isArray(contactData.phoneNumbers)) {
+        console.log('DEBUG DB: Processing phoneNumbers array of length:', contactData.phoneNumbers.length);
+        contactData.phoneNumbers.forEach((phone, index) => {
+          console.log(`DEBUG DB: Processing phone ${index}:`, phone?.value);
+          detailsSummary += `${phone?.label || 'phone'}: ${phone?.value || ''}\n`;
         });
+      } else {
+        console.error('DEBUG DB: phoneNumbers is not an array:', contactData.phoneNumbers);
+        // Ensure we have a valid array for phoneNumbers
+        contactData.phoneNumbers = contactData.phoneNumbers || [];
       }
       
       // Add email addresses to summary
-      if (contactData.emailAddresses && contactData.emailAddresses.length > 0) {
-        contactData.emailAddresses.forEach(email => {
-          detailsSummary += `${email.label}: ${email.value}\n`;
+      if (contactData.emailAddresses && Array.isArray(contactData.emailAddresses)) {
+        console.log('DEBUG DB: Processing emailAddresses array of length:', contactData.emailAddresses.length);
+        contactData.emailAddresses.forEach((email, index) => {
+          console.log(`DEBUG DB: Processing email ${index}:`, email?.value);
+          detailsSummary += `${email?.label || 'email'}: ${email?.value || ''}\n`;
         });
+      } else {
+        console.error('DEBUG DB: emailAddresses is not an array:', contactData.emailAddresses);
+        // Ensure we have a valid array for emailAddresses
+        contactData.emailAddresses = contactData.emailAddresses || [];
       }
       
       // Add physical addresses to summary
-      if (contactData.physicalAddresses && contactData.physicalAddresses.length > 0) {
-        contactData.physicalAddresses.forEach(address => {
-          detailsSummary += `${address.label}: ${address.street || ''} ${address.city || ''} ${address.state || ''} ${address.postalCode || ''} ${address.country || ''}\n`;
+      if (contactData.physicalAddresses && Array.isArray(contactData.physicalAddresses)) {
+        console.log('DEBUG DB: Processing physicalAddresses array of length:', contactData.physicalAddresses.length);
+        contactData.physicalAddresses.forEach((address, index) => {
+          console.log(`DEBUG DB: Processing address ${index}:`, address?.city);
+          detailsSummary += `${address?.label || 'address'}: ${address?.street || ''} ${address?.city || ''} ${address?.state || ''} ${address?.postalCode || ''} ${address?.country || ''}\n`;
         });
+      } else {
+        console.error('DEBUG DB: physicalAddresses is not an array:', contactData.physicalAddresses);
+        // Ensure we have a valid array for physicalAddresses
+        contactData.physicalAddresses = contactData.physicalAddresses || [];
       }
       
-      // Store the contact data in the encrypted_data field
-      const encryptedData = await this.encryptData(contactData);
+      // Ensure contactData has all required properties to avoid errors
+      const safeContactData = {
+        phoneNumbers: Array.isArray(contactData.phoneNumbers) ? contactData.phoneNumbers : [],
+        emailAddresses: Array.isArray(contactData.emailAddresses) ? contactData.emailAddresses : [],
+        physicalAddresses: Array.isArray(contactData.physicalAddresses) ? contactData.physicalAddresses : []
+      };
       
-      // Update both fields - details and encrypted_data
-      const query = `
-        UPDATE entities 
-        SET updated_at = ?, details = ?, encrypted_data = ?
-        WHERE id = ?
-      `;
+      console.log('DEBUG DB: Prepared safeContactData with all arrays');
       
-      const result = await this.db.runAsync(query, [
-        now, 
-        detailsSummary.trim() || entity.details, 
-        encryptedData, 
-        entityId
-      ]);
-      
-      return result.changes > 0;
-    } catch (error) {
-      console.error('Error updating person contact data:', error);
+      try {
+        // Store the contact data in the encrypted_data field
+        console.log('DEBUG DB: About to encrypt contact data');
+        const encryptedData = await this.encryptData(safeContactData);
+        console.log('DEBUG DB: Successfully encrypted contact data');
+        
+        // Update both fields - details and encrypted_data
+        const query = `
+          UPDATE entities 
+          SET updated_at = ?, details = ?, encrypted_data = ?
+          WHERE id = ?
+        `;
+        
+        console.log('DEBUG DB: About to run update query');
+        const result = await this.db.runAsync(query, [
+          now, 
+          detailsSummary.trim() || entity.details, 
+          encryptedData, 
+          entityId
+        ]);
+        console.log('DEBUG DB: Update query completed with changes:', result.changes);
+        
+        return result.changes > 0;
+      } catch (encryptError) {
+        console.error('DEBUG DB: Error in encryption or database update:', encryptError);
+        throw encryptError;
+      }
+    } catch (error: unknown) {
+      console.error('DEBUG DB: Error in updatePersonContactData:', error);
+      console.error('DEBUG DB: Error type:', error?.constructor?.name);
+      console.error('DEBUG DB: Error message:', error instanceof Error ? error.message : String(error));
+      if (error instanceof TypeError) {
+        console.error('DEBUG DB: TypeError details - likely trying to use undefined as an object.');
+        // Try to provide more context from the stack trace
+        console.error('DEBUG DB: Stack trace:', error?.stack);
+      }
       return false;
     }
   }
@@ -5556,7 +5642,157 @@ export class Database {
       return [];
     }
   }
+
+  /**
+   * Get the current database initialization status
+   * @returns Object with information about database initialization state
+   */
+  async getDatabaseStatus(): Promise<{ isInitialized: boolean; migrationComplete: boolean }> {
+    try {
+      if (!this.initialized) {
+        // Check if database exists and has the required tables
+        const checkTables = await this.checkTablesExist(['entities', 'interaction_types', 'settings']);
+        this.initialized = checkTables.allTablesExist;
+      }
+      
+      return {
+        isInitialized: this.initialized,
+        migrationComplete: this.migrationComplete
+      };
+    } catch (error) {
+      console.error('Error checking database status:', error);
+      return {
+        isInitialized: false, 
+        migrationComplete: false
+      };
+    }
+  }
+  
+  /**
+   * Check if specific tables exist in the database
+   * @param tableNames Array of table names to check
+   * @returns Object with results of table existence check
+   */
+  private async checkTablesExist(tableNames: string[]): Promise<{ allTablesExist: boolean; existingTables: string[] }> {
+    try {
+      const existingTables: string[] = [];
+      
+      // Get all tables in the database
+      const tables = await this.db.getAllAsync<{name: string}>(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+      );
+      
+      const tableSet = new Set(tables.map(t => t.name));
+      
+      // Check each requested table
+      for (const tableName of tableNames) {
+        if (tableSet.has(tableName)) {
+          existingTables.push(tableName);
+        }
+      }
+      
+      return {
+        allTablesExist: existingTables.length === tableNames.length,
+        existingTables
+      };
+    } catch (error) {
+      console.error('Error checking tables exist:', error);
+      return {
+        allTablesExist: false,
+        existingTables: []
+      };
+    }
+  }
+  
+  /**
+   * Initialize the database schema
+   * This method creates all database tables and initial structure
+   */
+  async initializeDatabaseSchema(): Promise<void> {
+    try {
+      console.log('Initializing database schema...');
+      
+      // Create database structure using the consolidated method
+      await this.createSchemaStructure();
+      
+      // Mark as initialized
+      this.initialized = true;
+      
+      console.log('Database schema initialization complete');
+    } catch (error) {
+      console.error('Error initializing database schema:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Ensure all migrations are completed
+   * This method waits for all pending migrations to finish
+   */
+  async ensureMigrationsComplete(): Promise<void> {
+    try {
+      console.log('Ensuring migrations are complete...');
+      
+      // Run migrations to update schema if needed
+      await this.runMigrations();
+      
+      // Initialize default data
+      await this.populateInitialData();
+      
+      // Mark migrations as complete
+      this.migrationComplete = true;
+      
+      console.log('Database migrations completed successfully');
+    } catch (error) {
+      console.error('Error completing database migrations:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the number of interaction types in the database
+   * @returns The count of interaction types
+   */
+  async getInteractionTypesCount(): Promise<number> {
+    try {
+      const result = await this.db.getFirstAsync<{count: number}>(
+        'SELECT COUNT(*) as count FROM interaction_types'
+      );
+      
+      return result ? result.count : 0;
+    } catch (error) {
+      console.error('Error getting interaction types count:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Ensure the database is ready for operations
+   * Use this as a guard at the start of database methods that require initialized schema
+   * @returns true if database is initialized and ready, false otherwise
+   */
+  private async ensureReady(): Promise<boolean> {
+    try {
+      if (!this.initialized) {
+        const status = await this.getDatabaseStatus();
+        if (!status.isInitialized) {
+          console.warn('Database not fully initialized, operation will be skipped');
+          return false;
+        }
+        this.initialized = status.isInitialized;
+      }
+      return true;
+    } catch (error) {
+      console.error('Error checking if database is ready:', error);
+      return false;
+    }
+  }
+  
+  // ... existing methods ...
+  
+  // Update a few critical methods to use the ensureReady check
+  // For example:
 }
 
 // Create and export a singleton instance
-export const database = new Database(); 
+export const database = new Database();

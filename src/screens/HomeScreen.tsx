@@ -199,74 +199,75 @@ const HomeScreen: React.FC = () => {
   
   // Load entities from the database
   const loadEntities = useCallback(async () => {
-    setRefreshing(true);
     try {
-      let data;
+      setRefreshing(true);
+      
+      // Use any for data initially since we need to handle multiple entity source formats
+      let data: any[] = [];
       
       if (showFavorites) {
         // Get only favorite entities
         data = await database.getFavorites();
       } else {
-        // Get all entities
-        data = await database.getAllEntities(showHidden as any);
+        const options: {
+          sortBy?: 'name' | 'recent_interaction';
+          keepFavoritesFirst?: boolean;
+          showHidden?: boolean;
+        } = {
+          showHidden: showHidden,
+          keepFavoritesFirst: keepFavoritesFirst
+        };
+        
+        // Set sortBy with the correct type
+        if (sortBy === 'name') {
+          options.sortBy = 'name';
+        } else if (sortBy === 'recent_interaction') {
+          options.sortBy = 'recent_interaction';
+        }
+        
+        // Get all entities or filtered by type
+        data = await database.getAllEntities(filter, options);
       }
       
-      // Apply filter if set - ensure strict equality check for entity types
-      if (filter) {
-        // Make sure we're doing a strict type check
-        data = data.filter(entity => {
-          // Ensure entity.type is exactly equal to the filter type
-          return entity.type === filter;
-        });
+      // Ensure data is an array before proceeding
+      if (!data || !Array.isArray(data)) {
+        console.warn('No entities returned from database or invalid format');
+        data = [];
       }
       
-      // Apply search filter if search query exists
-      if (searchQuery.trim()) {
-        const query = searchQuery.trim().toLowerCase();
-        data = data.filter(entity => {
-          // Search in basic entity fields
-          if (entity.name.toLowerCase().includes(query)) return true;
-          if (entity.details && entity.details.toLowerCase().includes(query)) return true;
-          
-          // For person entities, check the encrypted_data which may contain contact info
-          // This is a fallback since most contact info is already in details field
-          if (entity.encrypted_data) {
-            try {
-              // Try to parse the encrypted data
-              // Note: The encryption is handled internally by database.decryptData
-              const encryptedData = entity.encrypted_data.toLowerCase();
-              if (encryptedData.includes(query)) return true;
-            } catch (error) {
-              // Ignore errors trying to search encrypted data
-            }
-          }
-          
-          return false;
-        });
+      // Apply search query filter if needed
+      if (searchQuery && searchQuery.trim() !== '') {
+        const query = searchQuery.toLowerCase().trim();
+        data = data.filter(entity => 
+          entity.name.toLowerCase().includes(query) || 
+          (entity.details && entity.details.toLowerCase().includes(query))
+        );
       }
       
       // Apply sorting
-      data.sort((a, b) => {
-        // First apply favorites sorting if enabled
-        if (keepFavoritesFirst) {
-          const aFavorite = (a as any).is_favorite || false;
-          const bFavorite = (b as any).is_favorite || false;
+      if (Array.isArray(data) && data.length > 0) {
+        data.sort((a, b) => {
+          // First apply favorites sorting if enabled
+          if (keepFavoritesFirst) {
+            const aFavorite = (a as any).is_favorite || false;
+            const bFavorite = (b as any).is_favorite || false;
+            
+            if (aFavorite && !bFavorite) return -1;
+            if (!aFavorite && bFavorite) return 1;
+          }
           
-          if (aFavorite && !bFavorite) return -1;
-          if (!aFavorite && bFavorite) return 1;
-        }
-        
-        // Then apply the selected sort
-        switch (sortBy) {
-          case 'name':
-            return a.name.localeCompare(b.name);
-          case 'recent_interaction':
-            return b.interaction_score - a.interaction_score;
-          case 'updated':
-          default:
-            return b.updated_at - a.updated_at;
-        }
-      });
+          // Then apply the selected sort
+          switch (sortBy) {
+            case 'name':
+              return a.name.localeCompare(b.name);
+            case 'recent_interaction':
+              return b.interaction_score - a.interaction_score;
+            case 'updated':
+            default:
+              return b.updated_at - a.updated_at;
+          }
+        });
+      }
       
       // Set the entities with proper typing
       const typedData = data.map(entity => ({
@@ -278,6 +279,9 @@ const HomeScreen: React.FC = () => {
       setAllEntities(typedData as any);
     } catch (error) {
       console.error('Error loading entities:', error);
+      // Set empty arrays to avoid undefined
+      setEntities([]);
+      setAllEntities([]);
     } finally {
       setRefreshing(false);
     }

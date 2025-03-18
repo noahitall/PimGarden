@@ -55,10 +55,16 @@ const ContactImportScreen: React.FC = () => {
       // Query the database for all person entities
       const persons = await database.getAllEntities(EntityType.PERSON);
       
+      // Ensure we have a valid array of persons before proceeding
+      if (!persons || !Array.isArray(persons)) {
+        console.warn('No persons returned from database or invalid data format');
+        return;
+      }
+      
       // Extract the contactId from the encrypted_data if available
       const importedIds = new Set<string>();
       persons.forEach(person => {
-        if (person.encrypted_data) {
+        if (person && person.encrypted_data) {
           const contactId = extractContactId(person.encrypted_data);
           if (contactId) {
             importedIds.add(contactId);
@@ -69,6 +75,8 @@ const ContactImportScreen: React.FC = () => {
       setImportedContactIds(importedIds);
     } catch (error) {
       console.error('Error loading imported contacts:', error);
+      // Set empty set to avoid undefined
+      setImportedContactIds(new Set<string>());
     }
   };
 

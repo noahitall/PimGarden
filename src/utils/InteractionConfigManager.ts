@@ -30,13 +30,21 @@ export class InteractionConfigManager {
   private static CONFIG_FILE = 'default-interactions.yaml';
   private static CONFIG_PATH = FileSystem.documentDirectory + 'config/';
   private static ASSET_CONFIG_PATH = './assets/config/';
+  private static isInitialized = false;
   
   /**
    * Initialize the configuration system
    * This copies the default configuration file from the bundle to the document directory if it doesn't exist
+   * and ensures interaction types are loaded into the database.
    */
   static async init(): Promise<void> {
     try {
+      // Skip if already initialized
+      if (this.isInitialized) {
+        console.log('[InteractionConfigManager] Already initialized, skipping');
+        return;
+      }
+      
       console.log('[InteractionConfigManager] Initializing configuration...');
       
       // Make sure the config directory exists
@@ -54,10 +62,44 @@ export class InteractionConfigManager {
       const configFileInfo = await FileSystem.getInfoAsync(configFilePath);
       console.log('[InteractionConfigManager] Config file exists:', configFileInfo.exists, 'at path:', configFilePath);
       
-      // Don't try to create or copy the config file if it doesn't exist
-      // The app will use hardcoded defaults when needed
+      // Check the database for existing interaction types
+      const interactionTypesCount = await this.getInteractionTypeCount();
+      console.log(`[InteractionConfigManager] Found ${interactionTypesCount} interaction types in database`);
+      
+      // If we don't have any interaction types, load them from the config
+      if (interactionTypesCount === 0) {
+        console.log('[InteractionConfigManager] No interaction types found in database, loading from config');
+        const config = await this.loadConfig();
+        
+        if (config && config.interactions && config.interactions.length > 0) {
+          console.log(`[InteractionConfigManager] Loaded ${config.interactions.length} interaction types from config`);
+          await this.applyConfig(config);
+        } else {
+          console.warn('[InteractionConfigManager] Failed to load interaction types from config');
+        }
+      } else {
+        console.log('[InteractionConfigManager] Interaction types already exist in database, skipping initialization');
+      }
+      
+      this.isInitialized = true;
+      console.log('[InteractionConfigManager] Initialization complete');
     } catch (error) {
       console.error('[InteractionConfigManager] Error initializing interaction config:', error);
+      // Don't throw - allow the app to continue even if interaction config fails
+      // Defaults will be used from the database's initDefaultInteractionTypes method
+    }
+  }
+  
+  /**
+   * Get the number of interaction types in the database
+   */
+  private static async getInteractionTypeCount(): Promise<number> {
+    try {
+      const result = await database.getInteractionTypesCount();
+      return result;
+    } catch (error) {
+      console.error('[InteractionConfigManager] Error getting interaction type count:', error);
+      return 0;
     }
   }
   
