@@ -30,6 +30,7 @@ interface Interaction {
   entity_id: string;
   timestamp: number;
   type: string; // Added interaction type field
+  notes?: string | null; // Field for storing interaction details
 }
 
 // InteractionType interface
@@ -1175,17 +1176,18 @@ export class Database {
     entityId: string,
     limit: number = 50,
     offset: number = 0
-  ): Promise<{ id: string; timestamp: number; formattedDate: string; type: string }[]> {
+  ): Promise<{ id: string; timestamp: number; formattedDate: string; type: string; notes?: string | null }[]> {
     try {
       // Check if type column exists yet
       const tableInfo = await this.db.getAllAsync("PRAGMA table_info(interactions)");
       const hasTypeColumn = tableInfo.some((column: any) => column.name === 'type');
+      const hasNotesColumn = tableInfo.some((column: any) => column.name === 'notes');
 
       // Construct query based on available columns
       let query: string;
       if (hasTypeColumn) {
         query = `
-          SELECT id, timestamp, type
+          SELECT id, timestamp, type${hasNotesColumn ? ', notes' : ''}
           FROM interactions 
           WHERE entity_id = ? 
           ORDER BY timestamp DESC
@@ -1200,33 +1202,23 @@ export class Database {
           LIMIT ? OFFSET ?
         `;
       }
+
+      const rows = await this.db.getAllAsync(query, [entityId, limit, offset]);
       
-      const results = await this.db.getAllAsync(query, [entityId, limit, offset]);
-      
-      return results.map((row: any) => {
-        const timestamp = row.timestamp as number;
-        const date = new Date(timestamp);
-        
-        // Format date as "Month Day, Year at Hour:Minute AM/PM"
-        const formattedDate = date.toLocaleString('en-US', {
-          month: 'long',
-          day: 'numeric',
-          year: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true
-        });
-        
+      // Format the timestamps as dates
+      return rows.map((row: any) => {
+        const formattedDate = format(new Date(row.timestamp), 'MMM d, yyyy h:mm a');
         return {
           id: row.id,
-          timestamp,
+          timestamp: row.timestamp,
           formattedDate,
-          type: row.type || 'General Contact'
+          type: row.type || 'General Contact',
+          notes: row.notes || null
         };
       });
     } catch (error) {
-      console.error('Error getting interaction logs:', error);
-      throw error;
+      console.error('Error fetching interaction logs:', error);
+      return [];
     }
   }
 
@@ -2888,6 +2880,7 @@ export class Database {
     updates: {
       timestamp?: number;
       type?: string;
+      notes?: string | null;
     }
   ): Promise<boolean> {
     try {
@@ -2903,6 +2896,11 @@ export class Database {
       if (updates.type !== undefined) {
         updateParts.push('type = ?');
         params.push(updates.type);
+      }
+      
+      if (updates.notes !== undefined) {
+        updateParts.push('notes = ?');
+        params.push(updates.notes);
       }
 
       // If nothing to update, return early

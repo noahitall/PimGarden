@@ -26,6 +26,7 @@ interface InteractionLog {
   timestamp: number;
   formattedDate: string;
   type: string;
+  notes?: string | null;
 }
 
 // Define the EntityPhoto interface 
@@ -50,7 +51,7 @@ interface EditInteractionModalProps {
   onDismiss: () => void;
   interaction: InteractionLog | null;
   interactionTypes: InteractionType[];
-  onSave: (interactionId: string, updates: { timestamp: number; type: string }) => Promise<void>;
+  onSave: (interactionId: string, updates: { timestamp: number; type: string; notes?: string | null }) => Promise<void>;
 }
 
 type EntityDetailScreenRouteProp = RouteProp<RootStackParamList, 'EntityDetail'>;
@@ -883,11 +884,23 @@ const EntityDetailScreen: React.FC = () => {
     const iconName = interactionType?.icon || 'account-check';
     const score = interactionType?.score || 1;
     
+    // Create description with date and notes (if available)
+    const description = () => (
+      <View>
+        <Text>{item.formattedDate}</Text>
+        {item.notes && item.notes.trim() !== '' && (
+          <Text style={styles.noteText} numberOfLines={2}>
+            {item.notes}
+          </Text>
+        )}
+      </View>
+    );
+    
     return (
       <List.Item
         key={item.id}
         title={item.type}
-        description={item.formattedDate}
+        description={description}
         left={props => <List.Icon {...props} icon={iconName} color="#6200ee" />}
         right={props => (
           <View style={styles.scoreContainer}>
@@ -981,8 +994,13 @@ const EntityDetailScreen: React.FC = () => {
   }, [navigation]);
 
   // Save interaction updates
-  const handleSaveInteraction = async (interactionId: string, updates: { timestamp: number; type: string }) => {
+  const handleSaveInteraction = async (interactionId: string, updates: { timestamp: number; type: string; notes?: string | null }) => {
     try {
+      // Process notes field to handle empty strings properly
+      if (updates.notes === '') {
+        updates.notes = null;
+      }
+      
       const success = await database.updateInteraction(interactionId, updates);
       
       if (success && entity) {
@@ -1915,16 +1933,27 @@ const EntityDetailScreen: React.FC = () => {
       </ScrollView>
       
       {/* Edit Interaction Modal */}
-      <EditInteractionModal
-        visible={editInteractionModalVisible}
-        onDismiss={() => {
-          setEditInteractionModalVisible(false);
-          setSelectedInteraction(null);
-        }}
-        interaction={selectedInteraction}
-        interactionTypes={interactionTypes}
-        onSave={handleSaveInteraction}
-      />
+      {selectedInteraction && (
+        <EditInteractionModal
+          visible={editInteractionModalVisible}
+          onClose={() => {
+            setEditInteractionModalVisible(false);
+            setSelectedInteraction(null);
+          }}
+          interaction={{
+            id: selectedInteraction.id,
+            timestamp: selectedInteraction.timestamp,
+            type: selectedInteraction.type,
+            notes: selectedInteraction.notes
+          }}
+          supportedInteractionTypes={interactionTypes.map(type => type.name)}
+          onSave={(updates) => {
+            if (selectedInteraction) {
+              handleSaveInteraction(selectedInteraction.id, updates);
+            }
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -2389,7 +2418,14 @@ const styles = StyleSheet.create({
   },
   scoreLabel: {
     fontSize: 12,
-    color: '#666',
+    color: '#757575',
+    marginTop: 2,
+  },
+  noteText: {
+    fontSize: 14,
+    color: '#757575',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   entityInfoRow: {
     flexDirection: 'row',
