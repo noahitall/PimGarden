@@ -3424,32 +3424,16 @@ export class Database {
   // Get application settings
   async getSettings(): Promise<AppSettings | null> {
     try {
-      const settingsRow = await this.db.getFirstAsync<{ value: string }>(
-        'SELECT value FROM settings WHERE key = ?',
-        ['app_settings']
+      // First, check the structure of the settings table to determine the correct query
+      const tableInfo = await this.db.getAllAsync<{ name: string, type: string }>(
+        "PRAGMA table_info(settings)"
       );
       
-      if (settingsRow) {
-        return JSON.parse(settingsRow.value) as AppSettings;
-      }
-      
-      // If no settings found, create default settings
-      const defaultSettings: AppSettings = {
-        decayFactor: 0,
-        decayType: 'linear'
-      };
-      
-      await this.updateSettings(defaultSettings);
-      return defaultSettings;
-    } catch (error) {
-      console.error('Error getting settings:', error);
-      
-      // If we get a "no such column" error, try to repair the settings table
-      if (error instanceof Error && error.toString().includes('no such column: value')) {
-        console.log('Attempting to repair settings table...');
-        await this.repairSettingsTable();
+      // Check if the table exists
+      if (!tableInfo || tableInfo.length === 0) {
+        console.log('Settings table does not exist, creating it...');
+        await this.createSettingsTable();
         
-        // Try again with default settings
         const defaultSettings: AppSettings = {
           decayFactor: 0,
           decayType: 'linear'
@@ -3459,37 +3443,227 @@ export class Database {
         return defaultSettings;
       }
       
-      return null;
+      // Check which columns exist in the settings table
+      const hasValueColumn = tableInfo.some(col => col.name === 'value');
+      const hasSettingsJsonColumn = tableInfo.some(col => col.name === 'settings_json');
+      const hasDecayFactorColumn = tableInfo.some(col => col.name === 'decay_factor');
+      
+      let settingsData: AppSettings | null = null;
+      
+      // Try to get settings based on the available columns
+      if (hasValueColumn) {
+        try {
+          const settingsRow = await this.db.getFirstAsync<{ value: string }>(
+            'SELECT value FROM settings WHERE key = ?',
+            ['app_settings']
+          );
+          
+          if (settingsRow && settingsRow.value) {
+            settingsData = this.isValidJson(settingsRow.value) ? 
+              JSON.parse(settingsRow.value) as AppSettings : null;
+          }
+        } catch (e) {
+          console.warn('Error reading from value column:', e);
+        }
+      } 
+      
+      if (!settingsData && hasSettingsJsonColumn) {
+        try {
+          const settingsRow = await this.db.getFirstAsync<{ settings_json: string }>(
+            'SELECT settings_json FROM settings WHERE id = ?',
+            ['app_settings']
+          );
+          
+          if (settingsRow && settingsRow.settings_json) {
+            settingsData = this.isValidJson(settingsRow.settings_json) ? 
+              JSON.parse(settingsRow.settings_json) as AppSettings : null;
+          }
+        } catch (e) {
+          console.warn('Error reading from settings_json column:', e);
+        }
+      }
+      
+      if (!settingsData && hasDecayFactorColumn && hasSettingsJsonColumn) {
+        try {
+          const settingsRow = await this.db.getFirstAsync<{ 
+            decay_factor: number;
+            decay_type: string;
+            settings_json: string | null;
+          }>(
+            'SELECT decay_factor, decay_type, settings_json FROM settings WHERE id = ?',
+            ['app_settings']
+          );
+          
+          if (settingsRow) {
+            settingsData = {
+              decayFactor: settingsRow.decay_factor || 0,
+              decayType: settingsRow.decay_type || 'linear'
+            };
+            
+            // If there's also JSON data, try to merge it
+            if (settingsRow.settings_json && this.isValidJson(settingsRow.settings_json)) {
+              const jsonData = JSON.parse(settingsRow.settings_json);
+              settingsData = { ...settingsData, ...jsonData };
+            }
+          }
+        } catch (e) {
+          console.warn('Error reading from decay columns:', e);
+        }
+      }
+      
+      // If settings were found, return them
+      if (settingsData) {
+        return settingsData;
+      }
+      
+      // If no settings found or couldn't be parsed, try to repair the table and use defaults
+      console.log('No valid settings found, repairing table and using defaults...');
+      await this.repairSettingsTable();
+      
+      const defaultSettings: AppSettings = {
+        decayFactor: 0,
+        decayType: 'linear'
+      };
+      
+      await this.updateSettings(defaultSettings);
+      return defaultSettings;
+    } catch (error: unknown) {
+      console.error('Error getting settings:', error);
+      
+      // Try to repair the settings table regardless of error type
+      console.log('Attempting to repair settings table due to error...');
+      await this.repairSettingsTable();
+      
+      // Return default settings
+      const defaultSettings: AppSettings = {
+        decayFactor: 0,
+        decayType: 'linear'
+      };
+      
+      try {
+        await this.updateSettings(defaultSettings);
+      } catch (updateError) {
+        console.error('Failed to update settings after repair:', updateError);
+      }
+      
+      return defaultSettings;
     }
   }
   
   // Add a new method to repair the settings table if needed
   private async repairSettingsTable(): Promise<void> {
     try {
-      // Check if the table exists with the correct structure
-      const tableInfo = await this.db.getAllAsync<{ name: string, type: string }>(
-        "PRAGMA table_info(settings)"
+      console.log('Starting settings table repair...');
+      
+      // Check if the table exists with any structure
+      const tableExists = await this.db.getFirstAsync<{ count: number }>(
+        "SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='settings'"
       );
       
-      const hasValueColumn = tableInfo.some(col => col.name === 'value');
+      // Get existing data if possible
+      let existingSettings: AppSettings | null = null;
+      let existingSettingsFound = false;
       
-      if (!hasValueColumn) {
-        console.log('Settings table missing value column, recreating...');
-        
-        // Backup any existing data if possible
-        let existingSettings: {key: string, value?: string}[] = [];
+      if (tableExists && tableExists.count > 0) {
         try {
-          existingSettings = await this.db.getAllAsync<{key: string, value?: string}>(
-            "SELECT * FROM settings"
+          // Check the table structure
+          const tableInfo = await this.db.getAllAsync<{ name: string, type: string }>(
+            "PRAGMA table_info(settings)"
           );
+          
+          const columns = tableInfo.map(col => col.name);
+          console.log('Current settings table columns:', columns);
+          
+          // Try to extract settings from different possible schemas
+          if (columns.includes('value')) {
+            try {
+              const row = await this.db.getFirstAsync<{ value: string }>(
+                "SELECT value FROM settings WHERE key = 'app_settings'"
+              );
+              
+              if (row && row.value && this.isValidJson(row.value)) {
+                existingSettings = JSON.parse(row.value);
+                existingSettingsFound = true;
+                console.log('Found existing settings in "value" column');
+              }
+            } catch (e) {
+              console.log('Error reading from value column:', e);
+            }
+          }
+          
+          if (!existingSettingsFound && columns.includes('settings_json')) {
+            try {
+              const row = await this.db.getFirstAsync<{ settings_json: string }>(
+                "SELECT settings_json FROM settings WHERE id = 'app_settings'"
+              );
+              
+              if (row && row.settings_json && this.isValidJson(row.settings_json)) {
+                existingSettings = JSON.parse(row.settings_json);
+                existingSettingsFound = true;
+                console.log('Found existing settings in "settings_json" column');
+              }
+            } catch (e) {
+              console.log('Error reading from settings_json column:', e);
+            }
+          }
+          
+          if (!existingSettingsFound && columns.includes('decay_factor') && columns.includes('decay_type')) {
+            try {
+              const row = await this.db.getFirstAsync<{ decay_factor: number, decay_type: string }>(
+                "SELECT decay_factor, decay_type FROM settings WHERE id = 'app_settings'"
+              );
+              
+              if (row) {
+                existingSettings = {
+                  decayFactor: row.decay_factor,
+                  decayType: row.decay_type
+                };
+                existingSettingsFound = true;
+                console.log('Found existing settings in individual columns');
+              }
+            } catch (e) {
+              console.log('Error reading from decay columns:', e);
+            }
+          }
         } catch (e) {
-          console.log('Could not read existing settings:', e);
+          console.log('Error analyzing settings table:', e);
         }
         
-        // Drop the existing table
+        // Drop the existing table regardless of whether we could extract data
+        console.log('Dropping existing settings table...');
         await this.db.runAsync("DROP TABLE IF EXISTS settings");
-        
-        // Recreate the table with the correct structure
+      }
+      
+      // Create a fresh settings table with the correct structure
+      console.log('Creating new settings table...');
+      await this.db.runAsync(`
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        )
+      `);
+      
+      // Use existing settings or default values
+      const settingsToSave: AppSettings = existingSettings || {
+        decayFactor: 0,
+        decayType: 'linear'
+      };
+      
+      // Insert settings into the new table
+      console.log('Saving settings to new table...');
+      await this.db.runAsync(
+        'INSERT INTO settings (key, value) VALUES (?, ?)',
+        ['app_settings', JSON.stringify(settingsToSave)]
+      );
+      
+      console.log('Settings table repair completed successfully');
+    } catch (error) {
+      console.error('Error repairing settings table:', error);
+      
+      // Last resort - try to create a minimal settings table with default values
+      try {
+        console.log('Trying emergency settings table creation...');
+        await this.db.runAsync("DROP TABLE IF EXISTS settings");
         await this.db.runAsync(`
           CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -3497,49 +3671,108 @@ export class Database {
           )
         `);
         
-        // Restore any existing data that had a value
-        for (const setting of existingSettings) {
-          if (setting.key && setting.value) {
-            await this.db.runAsync(
-              'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-              [setting.key, setting.value]
-            );
-          }
-        }
-        
-        // Insert default settings
         const defaultSettings: AppSettings = {
           decayFactor: 0,
           decayType: 'linear'
         };
         
         await this.db.runAsync(
-          'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+          'INSERT INTO settings (key, value) VALUES (?, ?)',
           ['app_settings', JSON.stringify(defaultSettings)]
         );
         
-        console.log('Settings table repaired successfully');
+        console.log('Emergency settings table creation succeeded');
+      } catch (finalError) {
+        console.error('Emergency settings table creation failed:', finalError);
       }
-    } catch (error) {
-      console.error('Error repairing settings table:', error);
     }
   }
   
   // Update application settings
   async updateSettings(settings: AppSettings): Promise<boolean> {
     try {
-      await this.db.runAsync(
-        'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-        ['app_settings', JSON.stringify(settings)]
+      console.log('Updating application settings:', settings);
+      
+      // Check if the settings table exists with the correct structure
+      const tableInfo = await this.db.getAllAsync<{ name: string, type: string }>(
+        "PRAGMA table_info(settings)"
       );
       
-      // After updating settings, recalculate all interaction scores
-      await this.updateAllInteractionScores(settings.decayFactor, settings.decayType);
+      const hasValueColumn = tableInfo.some(col => col.name === 'value');
       
-      return true;
+      // If the table doesn't have the right structure, repair it first
+      if (!hasValueColumn) {
+        console.log('Settings table missing value column, repairing before update...');
+        await this.repairSettingsTable();
+      }
+      
+      // Now update the settings
+      const settingsJson = JSON.stringify(settings);
+      
+      // Check if settings already exist
+      const exists = await this.db.getFirstAsync<{ count: number }>(
+        'SELECT COUNT(*) as count FROM settings WHERE key = ?',
+        ['app_settings']
+      );
+      
+      let updateSucceeded = false;
+      
+      if (exists && exists.count > 0) {
+        // Update existing settings
+        const result = await this.db.runAsync(
+          'UPDATE settings SET value = ? WHERE key = ?',
+          [settingsJson, 'app_settings']
+        );
+        
+        updateSucceeded = result.changes > 0;
+      } else {
+        // Insert new settings
+        await this.db.runAsync(
+          'INSERT INTO settings (key, value) VALUES (?, ?)',
+          ['app_settings', settingsJson]
+        );
+        
+        updateSucceeded = true;
+      }
+      
+      // After updating settings, recalculate all interaction scores
+      if (updateSucceeded) {
+        try {
+          await this.updateAllInteractionScores(settings.decayFactor, settings.decayType);
+        } catch (scoreError) {
+          console.error('Error updating interaction scores:', scoreError);
+          // Continue even if score update fails
+        }
+      }
+      
+      return updateSucceeded;
     } catch (error) {
       console.error('Error updating settings:', error);
-      return false;
+      
+      // If there was an error, try to repair the table and try again
+      try {
+        console.log('Attempting to repair settings table and retry update...');
+        await this.repairSettingsTable();
+        
+        const settingsJson = JSON.stringify(settings);
+        await this.db.runAsync(
+          'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+          ['app_settings', settingsJson]
+        );
+        
+        // Try to update interaction scores as well
+        try {
+          await this.updateAllInteractionScores(settings.decayFactor, settings.decayType);
+        } catch (scoreError) {
+          console.error('Error updating interaction scores after repair:', scoreError);
+          // Continue even if score update fails
+        }
+        
+        return true;
+      } catch (retryError) {
+        console.error('Failed to update settings after repair:', retryError);
+        return false;
+      }
     }
   }
 
