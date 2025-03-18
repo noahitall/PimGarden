@@ -9,7 +9,6 @@ dist/
 web-build/
 expo-env.d.ts
 
-app.json
 eas.json
 # Native
 *.orig.*
