@@ -160,6 +160,29 @@ const DebugScreen: React.FC = () => {
     setShowEntitiesList(false);
   };
 
+  const handleRegenerateInteractions = async () => {
+    try {
+      setLoading(true);
+      console.log('Regenerating default tags and interaction types...');
+      
+      // This will read from the YAML file and regenerate all tags and interaction types
+      await database.regenerateDefaultTagsAndInteractions();
+      
+      console.log('Default tags and interaction types regenerated successfully');
+      
+      Alert.alert(
+        'Success',
+        'Default tags and interaction types have been regenerated. Restart the app to see the changes.',
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('Error regenerating default tags and interactions:', error);
+      Alert.alert('Error', 'Failed to regenerate default tags and interactions');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -305,38 +328,39 @@ const DebugScreen: React.FC = () => {
       )}
       
       <Card style={styles.card}>
-        <Card.Title title="Database Management" />
+        <Card.Title title="Database Actions" />
         <Card.Content>
-          <Text style={styles.warningText}>
-            Warning: These actions are for debugging purposes only.
-            Resetting the database version will force migrations to run again on restart.
-          </Text>
+          <Button
+            mode="contained"
+            onPress={() => resetDatabase(0)}
+            style={styles.button}
+          >
+            Reset to v0 (All Migrations)
+          </Button>
           
-          <View style={styles.buttonContainer}>
-            <Button 
-              mode="outlined" 
-              onPress={() => resetDatabase(0)}
-              style={styles.resetButton}
-            >
-              Reset to v0 (All Migrations)
-            </Button>
-            
-            <Button 
-              mode="outlined" 
-              onPress={() => resetDatabase(3)}
-              style={styles.resetButton}
-            >
-              Reset to v3 (Only Junction Table)
-            </Button>
-            
-            <Button 
-              mode="contained" 
-              onPress={loadDatabaseInfo}
-              style={styles.refreshButton}
-            >
-              Refresh Info
-            </Button>
-          </View>
+          <Button
+            mode="contained"
+            onPress={handleRegenerateInteractions}
+            style={[styles.button, { marginTop: 10 }]}
+          >
+            Regenerate Tags & Interactions
+          </Button>
+          
+          <Button
+            mode="contained"
+            onPress={() => resetDatabase(3)}
+            style={styles.resetButton}
+          >
+            Reset to v3 (Only Junction Table)
+          </Button>
+          
+          <Button 
+            mode="contained" 
+            onPress={loadDatabaseInfo}
+            style={styles.refreshButton}
+          >
+            Refresh Info
+          </Button>
         </Card.Content>
       </Card>
     </ScrollView>
@@ -434,6 +458,10 @@ const styles = StyleSheet.create({
   },
   addButton: {
     marginTop: 16,
+  },
+  button: {
+    marginBottom: 8,
+    borderColor: '#d32f2f',
   },
 });
 

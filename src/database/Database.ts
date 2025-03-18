@@ -6023,6 +6023,77 @@ export class Database {
   
   // Update a few critical methods to use the ensureReady check
   // For example:
+
+  // Add a method to add the missing tags and interactions specifically for restaurant and coworker
+  async addMissingTagsAndInteractions(): Promise<void> {
+    console.log('Adding missing tags and interactions for restaurant and coworker');
+    try {
+      // Add restaurant tag if it doesn't exist
+      const restaurantTag = await this.getTagByName('restaurant');
+      if (!restaurantTag) {
+        console.log('Adding restaurant tag');
+        await this.createTag('restaurant', { icon: 'silverware-fork-knife', color: '#FF9800' });
+      }
+      
+      // Add coworker tag if it doesn't exist
+      const coworkerTag = await this.getTagByName('coworker');
+      if (!coworkerTag) {
+        console.log('Adding coworker tag');
+        await this.createTag('coworker', { icon: 'briefcase', color: '#0288D1' });
+      }
+      
+      // Add restaurant interaction types
+      const restaurantInteractions = [
+        { name: 'Meal', icon: 'food', score: 2, color: '#FF9800', tags: ['restaurant'] },
+        { name: 'Special Meal', icon: 'food-variant', score: 3, color: '#F57C00', tags: ['restaurant'] },
+        { name: 'Take Out', icon: 'food-takeout-box', score: 1, color: '#FFA726', tags: ['restaurant'] },
+        { name: 'Hang', icon: 'glass-wine', score: 2, color: '#FF5722', tags: ['restaurant'] }
+      ];
+      
+      // Add coworker interaction types
+      const coworkerInteractions = [
+        { name: 'Cooler Talk', icon: 'water-cooler', score: 1, color: '#03A9F4', tags: ['coworker'] },
+        { name: 'Meal', icon: 'food-fork-drink', score: 2, color: '#00ACC1', tags: ['coworker'] },
+        { name: 'Meeting', icon: 'account-group', score: 2, color: '#039BE5', tags: ['coworker'] },
+        { name: 'Zoom', icon: 'video', score: 1, color: '#0288D1', tags: ['coworker'] }
+      ];
+      
+      // Remove global Meeting interaction type for person
+      console.log('Removing global Meeting interaction type');
+      await this.db.exec(`DELETE FROM interaction_types WHERE name='Meeting' AND entity_types='["person"]'`);
+      
+      // Add the restaurant interactions
+      for (const interaction of restaurantInteractions) {
+        console.log(`Adding restaurant interaction: ${interaction.name}`);
+        await this.addInteractionType(
+          interaction.name,
+          interaction.icon,
+          interaction.score.toString(),
+          null, // entity_types null means applicable to all entity types
+          interaction.tags,
+          interaction.color
+        );
+      }
+      
+      // Add the coworker interactions
+      for (const interaction of coworkerInteractions) {
+        console.log(`Adding coworker interaction: ${interaction.name}`);
+        await this.addInteractionType(
+          interaction.name,
+          interaction.icon,
+          interaction.score.toString(),
+          null, // entity_types null means applicable to all entity types
+          interaction.tags,
+          interaction.color
+        );
+      }
+      
+      console.log('Successfully added missing tags and interactions');
+    } catch (error) {
+      console.error('Error adding missing tags and interactions:', error);
+      throw error;
+    }
+  }
 }
 
 // Create and export a singleton instance
