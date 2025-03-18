@@ -36,13 +36,6 @@ interactions:
     score: 1
     color: "#666666"
     
-  - name: Meeting
-    icon: account-group
-    entityTypes: [person]
-    tags: null
-    score: 1
-    color: "#666666"
-    
   - name: Email
     icon: email
     entityTypes: [person]
@@ -60,13 +53,20 @@ interactions:
   - name: Birthday
     icon: cake
     entityTypes: [person]
-    tags: [pet]
+    tags: null
     score: 5
     color: "#FF4081"
     
   # Tag-specific interaction types
   
-  # Pet tag interactions    
+  # Pet tag interactions
+  - name: Birthday
+    icon: cake-variant
+    entityTypes: null
+    tags: [pet]
+    score: 5
+    color: "#FF8A65"
+    
   - name: Vet Visit
     icon: hospital-box
     entityTypes: null
@@ -80,6 +80,13 @@ interactions:
     tags: [pet]
     score: 2
     color: "#66BB6A"
+    
+  - name: Walk
+    icon: walk
+    entityTypes: null
+    tags: [pet]
+    score: 1
+    color: "#8D6E63"
     
   # Book tag interactions
   - name: Book Started
@@ -153,6 +160,64 @@ interactions:
     tags: [friend]
     score: 2
     color: "#7F5539"
+    
+  # Restaurant tag interactions
+  - name: Meal
+    icon: food
+    entityTypes: null
+    tags: [restaurant]
+    score: 2
+    color: "#FF9800"
+    
+  - name: Special Meal
+    icon: food-variant
+    entityTypes: null
+    tags: [restaurant]
+    score: 3
+    color: "#F57C00"
+    
+  - name: Take Out
+    icon: food-takeout-box
+    entityTypes: null
+    tags: [restaurant]
+    score: 1
+    color: "#FFA726"
+    
+  - name: Hang
+    icon: glass-wine
+    entityTypes: null
+    tags: [restaurant]
+    score: 2
+    color: "#FF5722"
+    
+  # Coworker tag interactions
+  - name: Cooler Talk
+    icon: water-cooler
+    entityTypes: null
+    tags: [coworker]
+    score: 1
+    color: "#03A9F4"
+    
+  - name: Meal
+    icon: food-fork-drink
+    entityTypes: null
+    tags: [coworker]
+    score: 2
+    color: "#00ACC1"
+    
+  - name: Meeting
+    icon: account-group
+    entityTypes: null
+    tags: [coworker]
+    score: 2
+    color: "#039BE5"
+    
+  - name: Zoom
+    icon: video
+    entityTypes: null
+    tags: [coworker]
+    score: 1
+    color: "#0288D1"
 
 # Default Tags Configuration
 # 
@@ -173,4 +238,12 @@ tags:
     
   - name: book
     icon: book
-    color: "#26A69A" 
+    color: "#26A69A"
+    
+  - name: restaurant
+    icon: silverware-fork-knife
+    color: "#FF9800"
+    
+  - name: coworker
+    icon: briefcase
+    color: "#0288D1" 
